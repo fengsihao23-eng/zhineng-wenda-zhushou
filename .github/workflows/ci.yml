@@ -37,11 +37,11 @@ jobs:
         run: python -m flake8 app tests --select=E9,F821,F822,F823
       - name: Run tests (SQLite)
         env:
-          TEST_DATABASE_URL: sqlite+aiosqlite:///:memory:
+          TEST_DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: python -m pytest -q
       - name: Run tests (PostgreSQL)
         env:
-          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/testdb
+          TEST_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/testdb"
         run: python -m pytest -q
 
   frontend:
