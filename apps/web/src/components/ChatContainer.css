@@ -1,0 +1,142 @@
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 100%;
+  margin: 0 auto;
+  background: #f5f7fa;
+}
+
+.chat-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 24px 20px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.chat-header__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 0 auto 12px;
+}
+
+.chat-header__sessions,
+.chat-header__action {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.chat-header__sessions option {
+  color: #333;
+}
+
+.chat-header__action {
+  cursor: pointer;
+}
+
+.chat-header__action:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.chat-header__title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+}
+
+.chat-header__subtitle {
+  font-size: 14px;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #fee;
+  border-bottom: 1px solid #fcc;
+  color: #c33;
+  animation: slideDown 0.3s ease-out;
+}
+
+.error-banner__icon {
+  font-size: 20px;
+}
+
+.error-banner__text {
+  flex: 1;
+  font-size: 14px;
+}
+
+.error-banner__close {
+  background: none;
+  border: none;
+  color: #c33;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.error-banner__close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.error-banner__retry {
+  border: 1px solid #c33;
+  border-radius: 6px;
+  background: transparent;
+  color: #c33;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-container {
+    height: 100dvh; /* 动态视口高度 */
+  }
+
+  .chat-header {
+    padding: 20px 16px;
+  }
+
+  .chat-header__toolbar {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .chat-header__title {
+    font-size: 20px;
+  }
+
+  .chat-header__subtitle {
+    font-size: 13px;
+  }
+}

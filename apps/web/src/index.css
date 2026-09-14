@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f5f7fb;
+}
+
+* { box-sizing: border-box; }
+button, input, select, textarea { font-family: inherit; }
+.chat-page-frame { min-height: 0; }
+.chat-page-frame .chat-container { height: calc(100vh - 150px); min-height: 560px; border-radius: 16px; overflow: hidden; box-shadow: 0 7px 24px rgba(26,44,79,.06); }
