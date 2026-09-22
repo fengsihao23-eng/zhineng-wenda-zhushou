@@ -84,6 +84,7 @@ class ImportedClass(Base):
     school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False)
     external_class_id = Column(String(100), nullable=False)
     name = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default="active", server_default="active")
     source_system = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -92,5 +93,6 @@ class ImportedClass(Base):
 
     __table_args__ = (
         UniqueConstraint("school_id", "external_class_id", name="uq_import_class_school_external"),
+        UniqueConstraint("school_id", "id", name="uq_import_classes_school_id_id"),
         Index("idx_import_classes_school", "school_id"),
     )

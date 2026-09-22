@@ -1,0 +1,55 @@
+ Image intelligent-qa-api Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 530B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 680B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.11-slim
+#3 DONE 0.2s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 130B done
+#4 DONE 0.0s
+
+#5 [1/7] FROM docker.io/library/python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534
+#5 resolve docker.io/library/python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 0.0s done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 352.18kB 0.0s done
+#6 DONE 0.0s
+
+#7 [2/7] WORKDIR /app
+#7 CACHED
+
+#8 [3/7] RUN apt-get update && apt-get install -y     gcc     g++     postgresql-client     libpq-dev     && rm -rf /var/lib/apt/lists/*
+#8 CACHED
+
+#9 [4/7] COPY requirements.txt .
+#9 CACHED
+
+#10 [5/7] RUN pip install --no-cache-dir --upgrade pip &&     pip install --no-cache-dir -r requirements.txt
+#10 CACHED
+
+#11 [6/7] COPY . .
+#11 DONE 0.1s
+
+#12 [7/7] RUN mkdir -p /app/logs
+#12 DONE 0.1s
+
+#13 exporting to image
+#13 exporting layers 0.1s done
+#13 exporting manifest sha256:c6bdea5a091db5826d7d0a37d376e7eefeed41d110005febb56563e39d9733b5 done
+#13 exporting config sha256:b0a6a48215555afd0ecea67b0fb665d22eeec391912d648dc1a4ecefd455460d done
+#13 exporting attestation manifest sha256:96dd7e18e0d075d8f068b8b51a2101f0cebe041e5d4499802d9e91df66f9a273 done
+#13 exporting manifest list sha256:a42046345fb1e3a4dedc431fc42e6dd497ff19b1f4873d7f2265af9d162ee747 done
+#13 naming to docker.io/library/intelligent-qa-api:latest done
+#13 unpacking to docker.io/library/intelligent-qa-api:latest 0.0s done
+#13 DONE 0.1s
+
+#14 resolving provenance for metadata file
+#14 DONE 0.0s
+ Image intelligent-qa-api Built 

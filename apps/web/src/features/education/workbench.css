@@ -1,0 +1,339 @@
+.wb-toolbar,
+.wb-tabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.wb-tabs a,
+.wb-tabs button {
+  padding: 8px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-ink);
+}
+.wb-tabs .active {
+  background: var(--color-accent);
+  color: white;
+}
+.wb-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.wb-form {
+  display: grid;
+  gap: 14px;
+}
+.wb-form h2 {
+  font-size: 20px;
+}
+.wb-form input,
+.wb-form select,
+.wb-form textarea,
+.wb-toolbar input,
+.wb-toolbar select,
+.wb-mapping select {
+  max-width: 100%;
+  width: 100%;
+  border: 1px solid #cdd2e1;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: white;
+  color: var(--color-ink);
+}
+.wb-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+.wb-toolbar input,
+.wb-toolbar select {
+  width: auto;
+  min-width: 0;
+}
+.wb-upload {
+  padding: 12px;
+  border: 1px dashed #b5bdd4;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.wb-upload input {
+  max-width: 100%;
+}
+.wb-upload p,
+.wb-form small {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.wb-badge {
+  display: inline-flex;
+  white-space: nowrap;
+  border-radius: 5px;
+  background: #eef1f6;
+  color: #414a60;
+  padding: 3px 7px;
+  font-size: 12px;
+}
+.wb-badge--published,
+.wb-badge--succeeded,
+.wb-badge--mastered,
+.wb-badge--resolved {
+  color: #156746;
+  background: #e5f5ed;
+}
+.wb-badge--invalid,
+.wb-badge--failed,
+.wb-badge--closed {
+  color: #a42e33;
+  background: #fcebec;
+}
+.wb-badge--ready,
+.wb-badge--running,
+.wb-badge--reviewing,
+.wb-badge--open {
+  color: #805715;
+  background: #fff3d8;
+}
+.wb-preview {
+  margin: 12px 0;
+  max-width: 100%;
+  width: 100%;
+}
+.wb-preview iframe {
+  border: 1px solid #ddd;
+  width: 100%;
+  height: 65vh;
+  background: white;
+}
+.wb-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f4f5f9;
+  margin: 10px 0;
+}
+.wb-message--staff {
+  border-left: 3px solid var(--color-accent);
+}
+.wb-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f6f7fa;
+  padding: 12px;
+  font-size: 13px;
+  max-height: 400px;
+  overflow: auto;
+}
+.wb-tree {
+  list-style: none;
+  padding-left: 20px;
+}
+.wb-tree li {
+  padding: 6px 0;
+}
+.wb-tree button {
+  max-width: 100%;
+  text-align: left;
+}
+.wb-help {
+  color: var(--color-muted);
+  font-size: 14px;
+}
+.wb-evidence dl {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) 1fr;
+  gap: 8px;
+}
+.wb-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.wb-split {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 280px;
+  gap: 14px;
+  align-items: start;
+}
+.wb-split > section {
+  min-width: 0;
+}
+.wb-canvas-scroll {
+  max-height: 75vh;
+  overflow: auto;
+  border: 1px solid #cdd2e1;
+}
+.wb-canvas {
+  position: relative;
+  touch-action: none;
+  line-height: 0;
+  user-select: none;
+}
+.wb-canvas img {
+  width: 100%;
+  display: block;
+  pointer-events: none;
+}
+.wb-region {
+  position: absolute;
+  border: 2px solid #5551ca;
+  background: rgba(85, 81, 202, 0.1);
+  pointer-events: none;
+}
+.wb-region span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 12px;
+  line-height: 1.2;
+  background: #5551ca;
+  color: white;
+  padding: 2px;
+}
+.wb-split select,
+.wb-split input,
+.wb-split textarea {
+  width: 100%;
+  min-width: 0;
+}
+.wb-region-list {
+  display: grid;
+  gap: 8px;
+}
+.wb-region-list button {
+  text-align: left;
+  padding: 8px;
+  background: white;
+  border: 1px solid #ccd1df;
+  border-radius: 6px;
+}
+.wb-region-list button.active {
+  border-color: var(--color-accent);
+  background: #eef0ff;
+}
+.wb-mobile-readonly {
+  display: none;
+}
+.wb-progress {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+.wb-question {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.wb-danger {
+  color: #ac303b !important;
+}
+.wb-mapping {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.wb-evidence button {
+  white-space: normal;
+}
+.data-table td {
+  font-variant-numeric: tabular-nums;
+}
+.data-table button {
+  margin: 3px 5px 3px 0;
+}
+.workspace-main button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.workspace-main button:focus-visible,
+.workspace-main a:focus-visible,
+.workspace-main input:focus-visible,
+.workspace-main select:focus-visible,
+.workspace-main textarea:focus-visible {
+  outline: 3px solid #7c83e8;
+  outline-offset: 3px;
+}
+.wb-split button,
+.wb-toolbar button,
+.wb-upload button,
+.wb-form button:not(.primary-button),
+.wb-region-list button {
+  min-height: 36px;
+}
+.wb-form .primary-button {
+  justify-self: start;
+}
+.wb-error-list {
+  max-height: 350px;
+  overflow: auto;
+}
+.wb-status {
+  padding: 10px;
+  background: #eef6f0;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.wb-split .panel {
+  padding: 12px;
+}
+.wb-split h2 {
+  font-size: 17px;
+}
+@media (max-width: 1150px) {
+  .wb-split {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .wb-split > section:last-child {
+    grid-column: 1/-1;
+  }
+  .wb-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 767px) {
+  .wb-split {
+    display: block;
+  }
+  .wb-split > section {
+    margin-bottom: 12px;
+  }
+  .wb-desktop-edit {
+    display: none !important;
+  }
+  .wb-mobile-readonly {
+    display: block;
+  }
+  .wb-toolbar > * {
+    max-width: 100%;
+  }
+  .wb-form {
+    padding: 14px;
+  }
+  .wb-mapping {
+    grid-template-columns: 1fr;
+  }
+  .wb-tabs {
+    gap: 6px;
+  }
+  .wb-tabs a,
+  .wb-tabs button {
+    font-size: 13px;
+  }
+  .wb-preview iframe {
+    height: 50vh;
+  }
+  .wb-tree {
+    padding-left: 12px;
+  }
+  .wb-canvas-scroll {
+    max-height: 60vh;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-region {
+    transition: none;
+  }
+}

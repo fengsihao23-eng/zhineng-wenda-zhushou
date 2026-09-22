@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
+const AnswerText = lazy(() => import('./AnswerText'));
 import { Message } from '../hooks/useStreamChat';
 import './MessageBubble.css';
+import { EvidenceButton, MessageFeedback } from '../features/education/LearningPanels';
 
 interface MessageBubbleProps {
   message: Message;
@@ -26,19 +28,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
       </div>
       <div className="message__content">
         <div className="message__text">
-          {message.content}
+          {message.role === 'assistant' ? <Suspense fallback={message.content}><AnswerText content={message.content} /></Suspense> : message.content}
         </div>
         {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
           <div className="message__sources">
             <span>回答依据</span>
             {message.sources.slice(0, 4).map((source, index) => (
               <div className="message__source" key={`${String(source.id || source.resource_id || index)}`}>
-                <b>{String(source.label || source.name || source.type || '数据记录')}</b>
+                {message.agent_run_id ? <EvidenceButton messageId={message.id} index={index} label={String(source.label || source.name || source.type || '数据记录')} /> : <b>{String(source.label || source.name || source.type || '数据记录')}</b>}
                 {source.as_of != null && <small>{String(source.as_of).slice(0, 10)}</small>}
               </div>
             ))}
           </div>
         )}
+        {message.role === 'assistant' && message.agent_run_id && <MessageFeedback id={message.id} />}
         <div className="message__meta">
           {formatTime(message.created_at)}
         </div>

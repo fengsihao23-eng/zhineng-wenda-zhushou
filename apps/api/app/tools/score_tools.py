@@ -115,7 +115,7 @@ class GetSubjectScoresTool(BaseTool):
                     "subject_name": subject.name,
                     "score": float(score.score),
                     "full_score": float(score.full_score),
-                    "score_rate": round(float(score.score) / float(score.full_score) * 100, 2),
+                    "score_rate": round(float(score.score) / float(score.full_score) * 100, 2) if score.full_score and score.full_score > 0 else None,
                     "class_rank": score.class_rank,
                     "grade_rank": score.grade_rank,
                     "class_avg": float(score.class_avg) if score.class_avg else None,
@@ -194,7 +194,21 @@ class GetRankingChangeTool(BaseTool):
         previous_exam_id_str = args.get("previous_exam_id")
 
         try:
-            # 确定两次考试ID
+            # 确定两次考试ID；选择旧考试时比较它之前的考试，不回退到最新考试。
+            if current_exam_id_str and not previous_exam_id_str:
+                current_exam = await self.db.scalar(select(Exam).join(StudentExamScore, StudentExamScore.exam_id == Exam.id).where(
+                    Exam.id == UUID(current_exam_id_str), Exam.school_id == tool_context.school_id,
+                    StudentExamScore.student_id == tool_context.student_id, StudentExamScore.school_id == tool_context.school_id))
+                if current_exam is None:
+                    return ToolResult(ok=False, data={}, error_code='EXAM_NOT_AVAILABLE')
+                previous = await self.db.scalar(select(Exam).join(StudentExamScore, StudentExamScore.exam_id == Exam.id).where(
+                    Exam.school_id == tool_context.school_id, StudentExamScore.school_id == tool_context.school_id,
+                    StudentExamScore.student_id == tool_context.student_id, Exam.id != current_exam.id,
+                    Exam.start_date < current_exam.start_date if current_exam.start_date else Exam.created_at < current_exam.created_at,
+                ).order_by(Exam.start_date.desc(), Exam.created_at.desc()).limit(1))
+                if previous is None:
+                    return ToolResult(ok=False, data={}, error_code='INSUFFICIENT_EXAMS')
+                previous_exam_id_str = str(previous.id)
             if current_exam_id_str and previous_exam_id_str:
                 current_exam_id = UUID(current_exam_id_str)
                 previous_exam_id = UUID(previous_exam_id_str)
@@ -294,6 +308,8 @@ class GetRankingChangeTool(BaseTool):
             # 对比各科
             subject_changes = []
             for subject_name in current_subjects.keys():
+                if args.get('subject_name') and subject_name != args['subject_name']:
+                    continue
                 if subject_name in previous_subjects:
                     curr = current_subjects[subject_name]
                     prev = previous_subjects[subject_name]
@@ -312,7 +328,7 @@ class GetRankingChangeTool(BaseTool):
                 data={
                     "current_exam_id": str(current_exam_id),
                     "previous_exam_id": str(previous_exam_id),
-                    "total_score_change": total_score_change,
+                    "total_score_change": None if args.get('subject_name') else total_score_change,
                     "subject_changes": subject_changes
                 },
                 evidence=[
@@ -328,6 +344,10 @@ class GetRankingChangeTool(BaseTool):
                         label="上次考试成绩",
                         as_of=previous_score.updated_at
                     )
+                ] if not args.get('subject_name') else [
+                    EvidenceRef(type='student_subject_score', resource_id=str(row.id), label=f'{label} · {name}', as_of=row.updated_at)
+                    for name in current_subjects if name == args['subject_name'] and name in previous_subjects
+                    for label, row in [('当前考试', current_subjects[name]), ('上次考试', previous_subjects[name])]
                 ]
             )
 

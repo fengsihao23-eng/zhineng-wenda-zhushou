@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
     g++ \
     postgresql-client \
     libpq-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件

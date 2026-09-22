@@ -87,11 +87,15 @@ class ResponseGuard:
             if 0 <= num <= 1000:
                 answer_numbers.add(num)
 
-        # 提取Context中的所有数字
-        context_str = context.to_prompt_context()
+        # Only structured numeric facts are evidence. Digits inside UUIDs,
+        # names and dates must not accidentally authorize invented scores.
         context_numbers = set()
-        for match in re.finditer(r'(?<!\d)(\d+(?:\.\d+)?)', context_str):
-            context_numbers.add(float(match.group(1)))
+        numeric_fields = {"total_score", "full_score", "score", "class_rank", "grade_rank", "class_student_count", "grade_student_count"}
+        for exam in [context.latest_exam or {}, *context.recent_exams]:
+            for key in numeric_fields:
+                value = exam.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    context_numbers.add(float(value))
         # Tool results are authoritative data gathered for this exact query.
         # Include them so a correct subject/rank answer is not rejected just
         # because the compact student context omits that field.

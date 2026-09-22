@@ -4,13 +4,12 @@ StudentContextBuilder - 动态加载学生上下文
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from datetime import datetime
 from typing import Optional
 
 from app.db.models.student import Student
 from app.db.models.exam import Exam
 from app.db.models.score import StudentExamScore
-from app.db.models.diagnosis import StudentEntitlement
+from app.core.diagnosis_access import has_diagnosis_entitlement
 
 
 class StudentContext:
@@ -46,7 +45,11 @@ class StudentContext:
             ""
         ]
 
-        if self.latest_exam:
+        if getattr(self, 'selected_subject_name', None):
+            lines.append(f"# 当前选定学科：{self.selected_subject_name}；本轮以该学科工具结果为准。")
+        if self.latest_exam and 'total_score' not in self.latest_exam:
+            lines.extend(["# 当前选定考试", f"- 考试名称: {self.latest_exam.get('exam_name', '')}", f"- 考试日期: {self.latest_exam.get('exam_date', '')}"])
+        elif self.latest_exam:
             lines.extend([
                 "# 最近一次考试",
                 f"- 考试名称: {self.latest_exam.get('exam_name', '')}",
@@ -57,7 +60,7 @@ class StudentContext:
                 ""
             ])
 
-        if len(self.recent_exams) > 1:
+        if len(self.recent_exams) > 1 and not getattr(self, 'selected_subject_name', None):
             lines.append("# 历史考试记录")
             for exam in self.recent_exams[:5]:
                 lines.append(f"- {exam.get('exam_name', '')} ({exam.get('exam_date', '')}): {exam.get('total_score', '')}分")
@@ -75,7 +78,8 @@ class StudentContextBuilder:
     async def build_context(
         self,
         student_id: UUID,
-        school_id: UUID
+        school_id: UUID,
+        selected_exam_id: UUID | None = None,
     ) -> StudentContext:
         """构建学生上下文"""
 
@@ -92,24 +96,15 @@ class StudentContextBuilder:
             raise ValueError(f"Student not found: {student_id}")
 
         # 2. 查询权益等级
-        entitlement_result = await self.db.execute(
-            select(StudentEntitlement).where(
-                and_(
-                    StudentEntitlement.student_id == student_id,
-                    StudentEntitlement.school_id == school_id,
-                    StudentEntitlement.status == "active",
-                    StudentEntitlement.starts_at <= datetime.now(),
-                    (StudentEntitlement.expires_at.is_(None) |
-                     (StudentEntitlement.expires_at >= datetime.now()))
-                )
-            ).limit(1)
-        )
-        entitlement = entitlement_result.scalar_one_or_none()
-        entitlement_level = "BASIC"
-        if entitlement and entitlement.product_code in {"DIAGNOSIS", "DIAGNOSIS_REPORT"}:
-            entitlement_level = "DIAGNOSIS"
+        entitlement_level = "DIAGNOSIS" if await has_diagnosis_entitlement(self.db, school_id, student_id) else "BASIC"
 
         # 3. 查询最近的考试成绩（最多5次）
+        exam_filter = []
+        if selected_exam_id:
+            selected = await self.db.scalar(select(Exam).where(Exam.id == selected_exam_id, Exam.school_id == school_id))
+            if selected is None:
+                raise ValueError("考试不在当前范围")
+            exam_filter = [Exam.start_date <= selected.start_date] if selected.start_date else [Exam.created_at <= selected.created_at]
         recent_scores_result = await self.db.execute(
             select(StudentExamScore, Exam).join(
                 Exam,
@@ -119,9 +114,10 @@ class StudentContextBuilder:
                 ),
             ).where(
                 StudentExamScore.student_id == student_id,
-                StudentExamScore.school_id == school_id
+                StudentExamScore.school_id == school_id,
+                *exam_filter,
             )
-            .order_by(Exam.start_date.desc())
+            .order_by((Exam.id == selected_exam_id).desc() if selected_exam_id else Exam.start_date.desc(), Exam.start_date.desc(), Exam.created_at.desc())
             .limit(5)
         )
         recent_scores = recent_scores_result.all()
@@ -136,7 +132,7 @@ class StudentContextBuilder:
                 "exam_name": exam.name,
                 "exam_date": exam.start_date.isoformat() if exam.start_date else None,
                 "total_score": float(score.total_score),
-                "full_score": float(score.full_score) if score.full_score else 150.0,
+                "full_score": float(score.full_score) if score.full_score and score.full_score > 0 else None,
                 "class_rank": score.class_rank,
                 "grade_rank": score.grade_rank,
                 "class_student_count": score.class_student_count,

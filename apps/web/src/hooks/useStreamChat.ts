@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiError, apiFetch } from '../services/api';
+import { errorMessage, isAbortError } from '../services/http';
+import { getAuthScope } from '../utils/auth';
+import { queryKeys, scopedQueryKey, useApiQuery, useAuthScope } from './useApi';
 
 export interface Message {
   id: string;
@@ -17,6 +21,7 @@ interface UseStreamChatOptions {
 interface UseStreamChatReturn {
   messages: Message[];
   isStreaming: boolean;
+  isLoading: boolean;
   error: string | null;
   canRetry: boolean;
   sendMessage: (content: string, clientMessageId?: string) => Promise<void>;
@@ -33,46 +38,59 @@ type ServerEvent = {
 };
 
 export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamChatReturn {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const scope = useAuthScope();
+  const queryClient = useQueryClient();
+  const historyKey = useMemo(() => scopedQueryKey(queryKeys.chat.messages(sessionId), scope), [sessionId, scope]);
+  const history = useApiQuery<Message[]>(`/chat/sessions/${sessionId}/messages`, queryKeys.chat.messages(sessionId), {
+    enabled: !!sessionId && !isStreaming,
+  });
+  const messages = history.data || [];
   const [error, setError] = useState<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const activeRef = useRef(true);
   const lastFailedRequestRef = useRef<{ content: string; clientMessageId: string } | null>(null);
   const resumeFromSeqRef = useRef<number | null>(null);
-  const cursorKey = `stream_cursor:${sessionId}`;
+  const cursorKey = `stream_cursor:${scope}:${sessionId}`;
+
+  const setMessages = useCallback((update: (previous: Message[]) => Message[]) => {
+    if (activeRef.current && scope === getAuthScope()) {
+      queryClient.setQueryData<Message[]>(historyKey, previous => update(previous || []));
+    }
+  }, [queryClient, historyKey, scope]);
 
   const loadMessages = useCallback(async () => {
-    const response = await apiFetch(`/chat/sessions/${sessionId}/messages`);
-    if (!response.ok) throw await apiError(response, '加载消息失败');
-    const data = await response.json();
-    setMessages(Array.isArray(data) ? data : data.messages || []);
-  }, [sessionId]);
+    await history.refetch({ throwOnError: true });
+  }, [history.refetch]);
 
   useEffect(() => {
-    loadMessages().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : '加载消息失败');
-    });
-    return () => abortRef.current?.abort();
-  }, [loadMessages]);
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, [sessionId, scope]);
 
   const sendMessage = useCallback(async (content: string, requestedClientMessageId?: string) => {
-    if (!content.trim() || isStreaming) return;
+    if (!content.trim() || abortRef.current || isStreaming || history.isLoading || scope !== getAuthScope()) return;
     const normalizedContent = content.trim();
     const clientMessageId = requestedClientMessageId || generateId();
     setError(null);
     setCanRetry(false);
     setIsStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    await queryClient.cancelQueries({ queryKey: historyKey, exact: true });
+    if (!activeRef.current || scope !== getAuthScope() || controller.signal.aborted) return;
     const userMessage: Message = {
       id: clientMessageId,
       role: 'user',
       content: normalizedContent,
       created_at: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => prev.some(message => message.id === clientMessageId) ? prev : [...prev, userMessage]);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
     try {
       const streamHeaders = new Headers({ Accept: 'text/event-stream' });
       if (resumeFromSeqRef.current !== null) {
@@ -111,6 +129,7 @@ export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamCha
       };
 
       const processBlock = (block: string) => {
+        if (!activeRef.current || scope !== getAuthScope() || controller.signal.aborted) return;
         const lines = block.split(/\r?\n/).map(line => line.trimEnd());
         const eventLine = lines.find(line => line.startsWith('event:'));
         const dataLines = lines.filter(line => line.startsWith('data:'));
@@ -160,7 +179,7 @@ export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamCha
           }
         } else if (eventName === 'error') {
           streamErrored = true;
-          setError(event.data.message || '生成回答时出错');
+          setError(errorMessage(event.data.message, '生成回答时出错'));
         }
       };
 
@@ -184,21 +203,25 @@ export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamCha
         await loadMessages().catch(() => undefined);
       }
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      if (!activeRef.current || scope !== getAuthScope()) return;
+      if (isAbortError(err)) {
         lastFailedRequestRef.current = { content: normalizedContent, clientMessageId };
         setCanRetry(true);
         setError('已停止生成，可点击重试');
       } else {
         lastFailedRequestRef.current = { content: normalizedContent, clientMessageId };
         setCanRetry(true);
-        setError(err instanceof Error ? err.message : '发送失败，请重试');
+        setError(errorMessage(err, '发送失败，请重试'));
         await loadMessages().catch(() => undefined);
       }
     } finally {
       abortRef.current = null;
-      setIsStreaming(false);
+      if (activeRef.current && scope === getAuthScope()) {
+        setIsStreaming(false);
+        void queryClient.invalidateQueries({ queryKey: scopedQueryKey(queryKeys.chat.sessions(), scope), exact: true });
+      }
     }
-  }, [isStreaming, sessionId]);
+  }, [isStreaming, sessionId, history.isLoading, scope, queryClient, historyKey, cursorKey, loadMessages, setMessages]);
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort();
@@ -220,7 +243,8 @@ export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamCha
   return {
     messages,
     isStreaming,
-    error,
+    isLoading: history.isLoading,
+    error: error || (history.error ? errorMessage(history.error) : null),
     canRetry,
     sendMessage,
     cancelStream,

@@ -6,20 +6,25 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    commit_token_revocations,
     decode_token,
+    ensure_account_environment,
+    revoke_session,
     revoke_token,
+    validate_token,
     verify_password,
 )
 from app.db.models.user import Role, User, UserRole
 from app.db.models.student import Student
-from app.api.deps import AuthenticatedUser, get_current_user
+from app.api.deps import get_current_user
 
 router = APIRouter()
 optional_security = HTTPBearer(auto_error=False)
@@ -104,6 +109,8 @@ async def login(
             detail="用户账号已被禁用"
         )
 
+    await ensure_account_environment(user, db)
+
     # 角色来自关联表，不能把每个登录用户伪装成 STUDENT。
     roles = await _load_roles(db, user)
 
@@ -122,7 +129,9 @@ async def login(
         "sub": str(user.id),
         "username": user.username,
         "school_id": str(user.school_id),
-        "roles": roles
+        "roles": roles,
+        "sid": str(uuid4()),
+        "session_exp": int((datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
 
     if student:
@@ -138,7 +147,7 @@ async def login(
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=3600,  # 1小时
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user={
             "id": str(user.id),
             "username": user.username,
@@ -157,7 +166,7 @@ async def refresh_token(
     """
     刷新访问令牌
     """
-    payload = decode_token(request.refresh_token, expected_type="refresh")
+    payload = await validate_token(request.refresh_token, db, expected_type="refresh")
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -187,6 +196,8 @@ async def refresh_token(
             detail="用户账号不可用",
         )
 
+    await ensure_account_environment(user, db)
+
     roles = await _load_roles(db, user)
     student_result = await db.execute(
         select(Student).where(
@@ -197,25 +208,34 @@ async def refresh_token(
     )
     student = student_result.scalar_one_or_none()
 
-    # Rotate the refresh token: the submitted token cannot be replayed.
-    revoke_token(request.refresh_token)
-
+    # The unique revocation key atomically consumes the submitted token.
+    # Commit before issuing a replacement so a concurrent worker cannot also
+    # rotate it, and a restart never resurrects an acknowledged credential.
+    if not await revoke_token(request.refresh_token, db, expected_type="refresh"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="刷新令牌已被使用，请重新登录",
+            headers={"X-Error-Code": "REFRESH_TOKEN_REUSED"},
+        )
     token_data = {
         "sub": str(user.id),
         "username": user.username,
         "school_id": str(user.school_id),
         "roles": roles,
+        "sid": payload["sid"],
+        "session_exp": payload["session_exp"],
     }
     if student:
         token_data["student_id"] = str(student.id)
 
+    await commit_token_revocations(db)
     new_access_token = create_access_token(token_data)
 
     return {
         "access_token": new_access_token,
         "refresh_token": create_refresh_token(token_data),
         "token_type": "bearer",
-        "expires_in": 3600
+        "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
 
@@ -223,15 +243,43 @@ async def refresh_token(
 async def logout(
     request: LogoutRequest | None = None,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Revoke the presented access token for this process lifetime."""
-    # The dependency has already validated the token.  Read the raw header
-    # again so the token can be added to the revocation registry.
-    if credentials is not None:
-        revoke_token(credentials.credentials)
-    if request and request.refresh_token:
-        revoke_token(request.refresh_token)
+    """Idempotently revoke only the caller's presented credentials.
+
+    Verify signatures even on repeat/expired logout, but do not require an
+    unrevoked token: that would turn the second identical logout into a 401.
+    """
+    access_token = credentials.credentials if credentials else None
+    refresh = request.refresh_token if request else None
+    access_payload = decode_token(access_token, expected_type="access", allow_expired=True) if access_token else None
+    refresh_payload = decode_token(refresh, expected_type="refresh", allow_expired=True) if refresh else None
+    if (access_token and not access_payload) or (refresh and not refresh_payload) or not (access_payload or refresh_payload):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无法验证退出凭据",
+            headers={"X-Error-Code": "INVALID_LOGOUT_TOKEN"},
+        )
+    if any(not payload.get("sub") for payload in (access_payload, refresh_payload) if payload):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无法验证退出凭据")
+    if access_payload and refresh_payload and access_payload["sub"] != refresh_payload["sub"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="不能撤销其他账号的凭据",
+            headers={"X-Error-Code": "LOGOUT_TOKEN_OWNER_MISMATCH"},
+        )
+    if access_payload and refresh_payload and access_payload["sid"] != refresh_payload["sid"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="退出凭据不属于同一登录会话",
+            headers={"X-Error-Code": "LOGOUT_SESSION_MISMATCH"},
+        )
+    if access_token:
+        await revoke_token(access_token, db, expected_type="access", allow_expired=True)
+    if refresh:
+        await revoke_token(refresh, db, expected_type="refresh", allow_expired=True)
+    await revoke_session(access_payload or refresh_payload, db)
+    await commit_token_revocations(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

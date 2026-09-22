@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -20,10 +20,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app.agent.agent_loop import AgentLoop
 from app.api.deps import AuthenticatedStudent, get_current_student, get_db
-from app.core.logging import get_logger
+from app.core.logging import get_logger, bind_context
 from app.core.prompt_registry import PromptRegistry
 from app.core.errors import ApiError
 from app.db.models.chat import ChatMessage, ChatSession
+from app.db.models.exam import Exam, Subject
+from app.db.models.score import StudentExamScore, StudentSubjectScore
+from app.services.learning_workbench import pin_sources
+from app.services.education_common import claim
 from app.db.models.trace import AuditLog
 from app.db.models.platform import PlatformFeedback
 from app.tools.init import init_tools
@@ -136,7 +140,8 @@ async def _run_agent(
         get_model_gateway(),
         prompt_registry=PromptRegistry(db),
     )
-    return await agent.run(
+    selected_subject = await db.scalar(select(Subject.name).where(Subject.id == session.selected_subject_id, Subject.school_id == current_user.school_id)) if session.selected_subject_id else None
+    result = await agent.run(
         user_query=content,
         student_id=current_user.student_id,
         school_id=current_user.school_id,
@@ -144,7 +149,11 @@ async def _run_agent(
         request_id=getattr(request.state, "request_id", str(uuid4())),
         chat_history=history[:-1],
         session_id=session.id,
+        selected_exam_id=session.selected_exam_id,
+        selected_subject_name=selected_subject,
     )
+    result.sources = await pin_sources(db, current_user, result.sources)
+    return result
 
 
 async def _save_user_message(
@@ -152,6 +161,9 @@ async def _save_user_message(
     request_data: MessageCreateRequest,
     db: AsyncSession,
 ) -> tuple[ChatMessage, bool]:
+    session = await db.scalar(select(ChatSession).where(ChatSession.id == session.id).with_for_update().execution_options(populate_existing=True))
+    if session.status != 'active':
+        raise ApiError(409, 'SESSION_INACTIVE', '会话已归档，请新建会话。')
     if request_data.client_message_id:
         existing_result = await db.execute(
             select(ChatMessage).where(ChatMessage.id == request_data.client_message_id)
@@ -175,6 +187,9 @@ async def _save_user_message(
         session_id=session.id,
         role="user",
         content=request_data.content.strip(),
+        selected_context={'exam_id': str(session.selected_exam_id) if session.selected_exam_id else None,
+                          'subject_id': str(session.selected_subject_id) if session.selected_subject_id else None,
+                          'version': session.context_version},
     )
     db.add(message)
     session.last_message_at = datetime.now(timezone.utc)
@@ -251,6 +266,7 @@ async def _find_idempotent_reply(
 
 
 def _message_response(session: ChatSession, assistant: ChatMessage, sources: list[dict[str, Any]] | None = None) -> MessageResponse:
+    sources = assistant.sources if sources is None else sources
     return MessageResponse(
         session_id=str(session.id),
         message=ChatMessageOut(
@@ -273,6 +289,12 @@ async def create_session(
     current_user: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    logger.info(
+        "chat_session_create_start",
+        student_id=str(current_user.student_id),
+        school_id=str(current_user.school_id),
+        title=data.title if data else None,
+    )
     session = ChatSession(
         school_id=current_user.school_id,
         student_id=current_user.student_id,
@@ -282,6 +304,11 @@ async def create_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
+    logger.info(
+        "chat_session_created",
+        session_id=str(session.id),
+        student_id=str(current_user.student_id),
+    )
     return SessionOut(
         id=str(session.id),
         title=session.title,
@@ -340,10 +367,60 @@ async def get_session_messages(
             role=message.role,
             content=message.content,
             created_at=message.created_at.isoformat(),
+            sources=message.sources or [],
             agent_run_id=str(message.agent_run_id) if message.agent_run_id else None,
         )
         for message in result.scalars().all()
     ]
+
+
+class SessionContextRequest(BaseModel):
+    exam_id: UUID | None = None
+    subject_id: UUID | None = None
+    expected_version: int = Field(ge=1)
+
+
+@router.get('/sessions/{session_id}/context')
+async def get_session_context(session_id: UUID, current_user: AuthenticatedStudent = Depends(get_current_student), db: AsyncSession = Depends(get_db)):
+    session = await _get_session(session_id, current_user, db)
+    exams = (await db.execute(select(Exam.id, Exam.name).join(StudentExamScore, StudentExamScore.exam_id == Exam.id).where(
+        Exam.school_id == current_user.school_id, StudentExamScore.school_id == current_user.school_id,
+        StudentExamScore.student_id == current_user.student_id).order_by(Exam.start_date.desc()).limit(100))).all()
+    query = select(Subject.id, Subject.name).join(StudentSubjectScore, StudentSubjectScore.subject_id == Subject.id).where(
+        Subject.school_id == current_user.school_id, StudentSubjectScore.school_id == current_user.school_id,
+        StudentSubjectScore.student_id == current_user.student_id)
+    if session.selected_exam_id:
+        query = query.where(StudentSubjectScore.exam_id == session.selected_exam_id)
+    subjects = (await db.execute(query.distinct())).all()
+    return {'exam_id': str(session.selected_exam_id) if session.selected_exam_id else None,
+            'subject_id': str(session.selected_subject_id) if session.selected_subject_id else None,
+            'version': session.context_version, 'exams': [{'id': str(i), 'name': n} for i,n in exams],
+            'subjects': [{'id': str(i), 'name': n} for i,n in subjects], 'output_policy': 'guarded_complete_answer'}
+
+
+@router.put('/sessions/{session_id}/context')
+async def set_session_context(session_id: UUID, body: SessionContextRequest, current_user: AuthenticatedStudent = Depends(get_current_student), db: AsyncSession = Depends(get_db)):
+    await _get_session(session_id, current_user, db)
+    session = await db.scalar(select(ChatSession).where(ChatSession.id == session_id).with_for_update().execution_options(populate_existing=True))
+    if session.selected_exam_id == body.exam_id and session.selected_subject_id == body.subject_id:
+        return await get_session_context(session_id, current_user, db)
+    if session.context_version != body.expected_version:
+        raise ApiError(409, 'CONTEXT_CONFLICT', '会话范围已变化，请刷新后重试。')
+    pending = await db.scalar(select(ChatMessage.id).where(ChatMessage.session_id == session_id, ChatMessage.role == 'user', ChatMessage.agent_run_id.is_(None)).limit(1))
+    if pending:
+        raise ApiError(409, 'MESSAGE_IN_PROGRESS', '请等待当前回答结束后切换范围。')
+    if body.exam_id and not await db.scalar(select(StudentExamScore.id).where(StudentExamScore.exam_id == body.exam_id, StudentExamScore.school_id == current_user.school_id, StudentExamScore.student_id == current_user.student_id)):
+        raise ApiError(404, 'EXAM_NOT_AVAILABLE', '该考试没有你的可访问成绩。')
+    if body.subject_id:
+        query = select(StudentSubjectScore.id).where(StudentSubjectScore.subject_id == body.subject_id, StudentSubjectScore.school_id == current_user.school_id, StudentSubjectScore.student_id == current_user.student_id)
+        if body.exam_id:
+            query = query.where(StudentSubjectScore.exam_id == body.exam_id)
+        if not await db.scalar(query.limit(1)):
+            raise ApiError(404, 'SUBJECT_NOT_AVAILABLE', '当前考试没有该学科的本人数据。')
+    session.selected_exam_id, session.selected_subject_id = body.exam_id, body.subject_id
+    session.context_version += 1
+    await db.commit()
+    return await get_session_context(session_id, current_user, db)
 
 
 @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
@@ -381,6 +458,8 @@ async def send_message(
         role="assistant",
         content=result.final_answer,
         agent_run_id=UUID(result.agent_run_id),
+        sources=getattr(result, 'sources', []),
+        selected_context=user_message.selected_context,
     )
     session.last_message_at = datetime.now(timezone.utc)
     db.add(assistant)
@@ -440,6 +519,9 @@ async def stream_message(
                 seq += 1
                 yield _sse("content_delta", {"content": existing.content}, request_id, seq)
                 seq += 1
+                for source in existing.sources or []:
+                    yield _sse('source', source, request_id, seq)
+                    seq += 1
                 yield _sse(
                     "message_end",
                     {"message_id": str(existing.id), "agent_run_id": str(existing.agent_run_id)},
@@ -496,6 +578,8 @@ async def stream_message(
                 role="assistant",
                 content=result.final_answer,
                 agent_run_id=UUID(result.agent_run_id),
+                sources=sources,
+                selected_context=user_message.selected_context,
             )
             session.last_message_at = datetime.now(timezone.utc)
             db.add(assistant)
@@ -512,6 +596,14 @@ async def stream_message(
             yield _sse("done", {"session_id": str(session.id)}, request_id, seq)
         except Exception as exc:
             logger.exception("chat stream failed", extra={"request_id": request_id})
+            logger.error(
+                "chat_stream_failed",
+                request_id=request_id,
+                session_id=str(session.id),
+                student_id=str(current_user.student_id),
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
             await db.rollback()
             if user_message is not None and not assistant_committed:
                 await db.execute(
@@ -560,6 +652,7 @@ async def archive_session(
 async def submit_feedback(
     message_id: UUID,
     data: FeedbackRequest,
+    idempotency_key: UUID | None = Header(None, alias='Idempotency-Key'),
     current_user: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
@@ -568,9 +661,10 @@ async def submit_feedback(
         .join(ChatSession, ChatSession.id == ChatMessage.session_id)
         .where(
             ChatMessage.id == message_id,
+            ChatMessage.role == 'assistant',
             ChatSession.school_id == current_user.school_id,
             ChatSession.student_id == current_user.student_id,
-        )
+        ).with_for_update(of=ChatMessage)
     )
     message = result.scalar_one_or_none()
     if not message:
@@ -579,6 +673,16 @@ async def submit_feedback(
             detail="消息不存在或无权访问",
             headers={"X-Error-Code": "MESSAGE_NOT_FOUND"},
         )
+    existing = await db.scalar(select(PlatformFeedback).where(PlatformFeedback.message_id == message_id,
+        PlatformFeedback.user_id == current_user.user_id, PlatformFeedback.school_id == current_user.school_id).order_by(PlatformFeedback.created_at).limit(1))
+    if existing:
+        if existing.rating != data.rating or existing.note != data.note:
+            raise ApiError(409, 'MESSAGE_FEEDBACK_EXISTS', '这条回答已有反馈，请在支持中心查看处理进度。')
+        return {'accepted': True, 'id': str(existing.id)}
+    identifier, fresh = await claim(db, current_user, 'message.feedback', idempotency_key,
+                                    {'message_id': str(message_id), **data.model_dump()})
+    if not fresh:
+        return {'accepted': True, 'id': str(identifier)}
     db.add(
         AuditLog(
             action="message_feedback",
@@ -595,6 +699,7 @@ async def submit_feedback(
     # operations item so school/city teams can triage feedback in one queue.
     db.add(
         PlatformFeedback(
+            id=identifier,
             school_id=current_user.school_id,
             user_id=current_user.user_id,
             student_id=current_user.student_id,
@@ -605,4 +710,16 @@ async def submit_feedback(
         )
     )
     await db.commit()
-    return {"accepted": True}
+    return {"accepted": True, "id": str(identifier)}
+
+
+@router.get('/messages/{message_id}/feedback')
+async def read_message_feedback(message_id: UUID, current_user: AuthenticatedStudent = Depends(get_current_student), db: AsyncSession = Depends(get_db)):
+    message = await db.scalar(select(ChatMessage.id).join(ChatSession, ChatSession.id == ChatMessage.session_id).where(
+        ChatMessage.id == message_id, ChatMessage.role == 'assistant', ChatSession.school_id == current_user.school_id,
+        ChatSession.student_id == current_user.student_id))
+    if message is None:
+        raise ApiError(404, 'MESSAGE_NOT_FOUND', '回答不存在或无权访问。')
+    feedback = await db.scalar(select(PlatformFeedback).where(PlatformFeedback.school_id == current_user.school_id,
+        PlatformFeedback.user_id == current_user.user_id, PlatformFeedback.message_id == message_id).order_by(PlatformFeedback.created_at).limit(1))
+    return {'feedback': {'id': str(feedback.id), 'rating': feedback.rating, 'status': feedback.status} if feedback else None}

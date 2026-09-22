@@ -1,0 +1,26 @@
+
+Running 17 tests using 2 workers
+
+(node:25787) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:25786) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › tests/e2e/errors.spec.ts:16:7 › 统一错误处理 › 管理操作失败就地显示提示，保留表单且没有 alert 弹窗 (1.4s)
+  ✓   3 [chromium] › tests/e2e/errors.spec.ts:35:7 › 统一错误处理 › 支持页提交失败显示错误，320px 下提示与重试按钮不溢出 (880ms)
+  ✓   2 [chromium] › tests/e2e/errors.spec.ts:6:7 › 统一错误处理 › 管理学生列表断网后显示统一错误并可重试 (2.6s)
+  ✓   5 [chromium] › tests/e2e/profile.spec.ts:9:9 › 成绩概览页 /profile › 真实登录 张三 显示本人总分与全部科目 (798ms)
+  ✓   4 [chromium] › tests/e2e/errors.spec.ts:47:7 › 统一错误处理 › 渲染异常由 ErrorBoundary 显示可恢复提示 (1.4s)
+  ✓   6 [chromium] › tests/e2e/profile.spec.ts:9:9 › 成绩概览页 /profile › 真实登录 李四 显示本人总分与全部科目 (753ms)
+  ✓   8 [chromium] › tests/e2e/profile.spec.ts:47:7 › 成绩概览页 /profile › 雷达轴线透明，趋势图分别使用分数轴和百分比轴 (904ms)
+  ✓   7 [chromium] › tests/e2e/profile.spec.ts:24:7 › 成绩概览页 /profile › 同标签页退出并切换账号后，侧栏导航不复用上一个账号的成绩 (1.7s)
+  ✓   9 [chromium] › tests/e2e/profile.spec.ts:68:9 › 成绩概览页 /profile › 满分为 null 时总分、科目、趋势不计算无效百分比 (1.0s)
+  ✓  10 [chromium] › tests/e2e/profile.spec.ts:68:9 › 成绩概览页 /profile › 满分为 0 时总分、科目、趋势不计算无效百分比 (890ms)
+  ✓  11 [chromium] › tests/e2e/profile.spec.ts:68:9 › 成绩概览页 /profile › 满分为 -1 时总分、科目、趋势不计算无效百分比 (1.3s)
+  ✓  13 [chromium] › tests/e2e/profile.spec.ts:108:7 › 成绩概览页 /profile › 概览样式加载后返回首页，五个进度条仍为 5px (757ms)
+  ✓  12 [chromium] › tests/e2e/profile.spec.ts:96:7 › 成绩概览页 /profile › 断网显示中文错误，恢复后可通过重试加载成绩 (2.1s)
+  ✓  14 [chromium] › tests/e2e/profile.spec.ts:119:9 › 成绩概览页 /profile › 320px 初始视口下内容与图表不横向溢出 (720ms)
+  ✓  15 [chromium] › tests/e2e/profile.spec.ts:119:9 › 成绩概览页 /profile › 375px 初始视口下内容与图表不横向溢出 (717ms)
+  ✓  16 [chromium] › tests/e2e/profile.spec.ts:119:9 › 成绩概览页 /profile › 390px 初始视口下内容与图表不横向溢出 (729ms)
+  ✓  17 [chromium] › tests/e2e/profile.spec.ts:119:9 › 成绩概览页 /profile › 768px 初始视口下内容与图表不横向溢出 (749ms)
+
+  17 passed (10.4s)

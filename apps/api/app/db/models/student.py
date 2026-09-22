@@ -1,7 +1,7 @@
 """
 学生模型
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint, Index
 from app.db.types import UUID
 from sqlalchemy.sql import func
 import uuid
@@ -30,6 +30,7 @@ class Student(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
+        Index("uq_students_bound_user", "school_id", "user_id", unique=True, postgresql_where=user_id.is_not(None), sqlite_where=user_id.is_not(None)),
         UniqueConstraint("school_id", "external_student_id", name="uq_school_external_student"),
         UniqueConstraint("school_id", "student_no", name="uq_school_student_no"),
         UniqueConstraint("school_id", "id", name="uq_students_school_id_id"),

@@ -34,6 +34,7 @@ class GetScoreTrendTool(BaseTool):
         return {
             "type": "object",
             "properties": {
+                "exam_id": {"type": "string", "description": "趋势截止的本人考试"},
                 "limit": {
                     "type": "integer",
                     "description": "返回最近N次考试，默认5次",
@@ -56,6 +57,14 @@ class GetScoreTrendTool(BaseTool):
         subject_name = args.get("subject_name")
 
         try:
+            exam_filters = []
+            if args.get('exam_id'):
+                selected = await self.db.scalar(select(Exam).join(StudentExamScore, StudentExamScore.exam_id == Exam.id).where(
+                    Exam.id == UUID(args['exam_id']), Exam.school_id == tool_context.school_id,
+                    StudentExamScore.student_id == tool_context.student_id, StudentExamScore.school_id == tool_context.school_id))
+                if selected is None:
+                    return ToolResult(ok=False, data={}, error_code='EXAM_NOT_AVAILABLE')
+                exam_filters = [Exam.start_date <= selected.start_date] if selected.start_date else [Exam.created_at <= selected.created_at]
             # 查询最近N次考试的总分
             scores_result = await self.db.execute(
                 select(StudentExamScore, Exam).join(
@@ -66,9 +75,10 @@ class GetScoreTrendTool(BaseTool):
                     ),
                 ).where(
                     StudentExamScore.student_id == tool_context.student_id,
-                    StudentExamScore.school_id == tool_context.school_id
+                    StudentExamScore.school_id == tool_context.school_id,
+                    *exam_filters,
                 )
-                .order_by(Exam.start_date.desc())
+                .order_by(Exam.start_date.desc(), Exam.created_at.desc())
                 .limit(limit)
             )
             scores_with_exams = scores_result.all()
@@ -119,6 +129,8 @@ class GetScoreTrendTool(BaseTool):
                     ).limit(1)
                 )
                 subject = subject_result.scalar_one_or_none()
+                if subject is None:
+                    return ToolResult(ok=False, data={}, error_code='NO_SUBJECT_SCORES_FOUND')
 
                 if subject:
                     exam_ids = [score.exam_id for score, _ in scores_with_exams]
@@ -142,7 +154,9 @@ class GetScoreTrendTool(BaseTool):
                     subject_scores = subject_scores_result.all()
 
                     subject_trend = []
+                    evidence = []
                     for sub_score, exam in reversed(subject_scores):
+                        evidence.append(EvidenceRef(type='student_subject_score', resource_id=str(sub_score.id), label=f'{exam.name} · {subject.name}', as_of=sub_score.updated_at))
                         subject_trend.append({
                             "exam_id": str(exam.id),
                             "exam_name": exam.name,
@@ -153,10 +167,10 @@ class GetScoreTrendTool(BaseTool):
                             "grade_rank": sub_score.grade_rank
                         })
 
-                    result_data["subject_trend"] = {
+                    result_data = {"exam_count": len(subject_trend), "subject_trend": {
                         "subject_name": subject.name,
                         "data": subject_trend
-                    }
+                    }}
 
             return ToolResult(
                 ok=True,
@@ -368,89 +382,31 @@ class GetDiagnosisTool(BaseTool):
         tool_context: ToolContext,
         args: dict
     ) -> ToolResult:
-        """执行Tool"""
-        # 验证权益
-        self.validate_entitlement(tool_context)
-
-        exam_id_str = args.get("exam_id")
-
+        """Re-check database grants on every call; context claims are not authority."""
+        from app.core.diagnosis_access import authorized_reports, require_diagnosis, audit_report_access
+        from app.core.errors import ApiError
         try:
-            # 确定考试ID
-            if exam_id_str:
-                exam_id = UUID(exam_id_str)
-            else:
-                # 获取最近一次考试
-                score_result = await self.db.execute(
-                    select(StudentExamScore)
-                    .where(
-                        StudentExamScore.student_id == tool_context.student_id,
-                        StudentExamScore.school_id == tool_context.school_id
-                    )
-                    .order_by(StudentExamScore.created_at.desc())
-                    .limit(1)
-                )
-                score = score_result.scalar_one_or_none()
-                if not score:
-                    return ToolResult(
-                        ok=False,
-                        error_code="NO_EXAM_FOUND",
-                        error_message="未找到考试记录",
-                        data={}
-                    )
-                exam_id = score.exam_id
-
-            # 查询诊断报告
-            report_result = await self.db.execute(
-                select(DiagnosisReport, Exam).join(
-                    Exam,
-                    and_(
-                        DiagnosisReport.exam_id == Exam.id,
-                        Exam.school_id == tool_context.school_id,
-                    ),
-                ).where(
-                    and_(
-                        DiagnosisReport.student_id == tool_context.student_id,
-                        DiagnosisReport.exam_id == exam_id,
-                        DiagnosisReport.school_id == tool_context.school_id
-                    )
-                )
-            )
-            result = report_result.first()
-
-            if not result:
-                return ToolResult(
-                    ok=False,
-                    error_code="DIAGNOSIS_NOT_FOUND",
-                    error_message="未找到诊断报告",
-                    data={}
-                )
-
-            report, exam = result
-
-            return ToolResult(
-                ok=True,
-                data={
-                    "exam_id": str(exam.id),
-                    "exam_name": exam.name,
-                    "report_type": report.report_type,
-                    "status": report.status,
-                    "structured": report.structured_json,
-                    "generated_at": report.generated_at.isoformat() if report.generated_at else None
-                },
-                evidence=[
-                    EvidenceRef(
-                        type="diagnosis_report",
-                        resource_id=str(report.id),
-                        label=f"{exam.name}诊断报告",
-                        as_of=report.updated_at
-                    )
-                ]
-            )
-
-        except Exception as e:
-            return ToolResult(
-                ok=False,
-                error_code="TOOL_EXECUTION_ERROR",
-                error_message="数据查询失败，请稍后重试",
-                data={}
-            )
+            await require_diagnosis(self.db, tool_context)
+            query = authorized_reports(tool_context.school_id, tool_context.student_id)
+            if args.get("exam_id"):
+                query = query.where(DiagnosisReport.exam_id == UUID(args["exam_id"]))
+            report = await self.db.scalar(query.order_by(DiagnosisReport.generated_at.desc(), DiagnosisReport.id.desc()).limit(1))
+            if report is None:
+                await audit_report_access(self.db, tool_context, False, reason="REPORT_NOT_AVAILABLE")
+                return ToolResult(ok=False, data={}, error_code="DIAGNOSIS_NOT_FOUND", error_message="没有可读取的正式诊断报告")
+            exam = await self.db.scalar(select(Exam).where(Exam.id == report.exam_id, Exam.school_id == tool_context.school_id)) if report.exam_id else None
+            await audit_report_access(self.db, tool_context, True, report.id)
+            return ToolResult(ok=True, data={
+                "report_id": str(report.id), "version": report.version,
+                "exam_id": str(report.exam_id) if report.exam_id else None,
+                "exam_name": exam.name if exam else None, "report_type": report.report_type,
+                "status": report.status, "structured": report.structured_json,
+                "generated_at": report.generated_at.isoformat() if report.generated_at else None,
+            }, evidence=[EvidenceRef(type="diagnosis_report", resource_id=str(report.id),
+                                    label=f"{exam.name if exam else '综合学情'}诊断报告", as_of=report.updated_at)])
+        except ApiError as exc:
+            return ToolResult(ok=False, data={}, error_code=exc.code, error_message=exc.user_message)
+        except (ValueError, TypeError):
+            return ToolResult(ok=False, data={}, error_code="INVALID_ARGUMENT", error_message="考试参数格式不正确")
+        except Exception:
+            return ToolResult(ok=False, data={}, error_code="TOOL_EXECUTION_ERROR", error_message="数据查询失败，请稍后重试")

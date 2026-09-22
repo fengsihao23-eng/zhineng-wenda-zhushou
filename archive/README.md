@@ -11,6 +11,6 @@
 ## 当前文档位置
 
 正式文档请参考：
-- 项目文档: [docs/](../docs/)
-- 开发文档: [开发/PRD/](../开发/PRD/)
+- 项目文档: [docs/](../docs/)、[docs/README.md](../docs/README.md)
+- 开发文档: [docs/02-PRD设计与实施/](../docs/02-PRD设计与实施/)
 - README: [README.md](../README.md)

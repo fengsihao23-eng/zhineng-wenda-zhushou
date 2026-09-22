@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Message } from '../hooks/useStreamChat';
+import { getUserInfo } from '../utils/auth';
 import { MessageBubble } from './MessageBubble';
 import './MessageList.css';
 
@@ -10,6 +11,7 @@ interface MessageListProps {
 
 export const MessageList: React.FC<MessageListProps> = ({ messages, isStreaming }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const displayName = getUserInfo()?.display_name || '';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -25,7 +27,9 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, isStreaming 
         <div className="message-list__empty">
           <div className="empty-state">
             <div className="empty-state__icon">💬</div>
-            <h3 className="empty-state__title">开始对话</h3>
+            <h3 className="empty-state__title">
+              {displayName ? `${displayName}，想了解什么，尽管问吧！` : '想了解什么，尽管问吧！'}
+            </h3>
             <p className="empty-state__text">
               问我任何关于你成绩的问题
             </p>

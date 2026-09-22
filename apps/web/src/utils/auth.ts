@@ -10,8 +10,26 @@ const AUTH_CHANGED_EVENT = 'auth:changed';
 // Access tokens live only in memory.  The refresh token is scoped to the
 // browser tab so a copied token does not survive a full browser restart.
 let accessToken: string | null = null;
+let sessionRevision = 0;
+let sessionController = new AbortController();
+const listeners = new Set<() => void>();
+
+function rotateSession(): void {
+  const previous = sessionController;
+  sessionController = new AbortController();
+  sessionRevision += 1;
+  previous.abort();
+}
+
+export const getAuthSignal = (): AbortSignal => sessionController.signal;
+export const getAuthScope = (): string => `${sessionRevision}:${getAuthIdentity()}`;
+export const subscribeAuth = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
 
 function notifyAuthChanged(): void {
+  listeners.forEach(listener => listener());
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
   }
@@ -87,11 +105,19 @@ export const getRefreshToken = (): string | null => {
  * 清除所有认证信息
  */
 export const clearAuth = (): void => {
+  rotateSession();
   accessToken = null;
   getSessionStorage()?.removeItem(REFRESH_TOKEN_KEY);
   getSessionStorage()?.removeItem(USER_INFO_KEY);
   // Remove tokens written by versions that used persistent localStorage.
   removeLegacyPersistentAuth();
+  const storage = getSessionStorage();
+  if (storage) {
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (key?.startsWith('stream_cursor:')) storage.removeItem(key);
+    }
+  }
   notifyAuthChanged();
 };
 
@@ -99,7 +125,20 @@ export const clearAuth = (): void => {
  * 保存用户信息
  */
 export const setUserInfo = (userInfo: UserInfo): void => {
+  const previous = getAuthIdentity();
+  const previousPermissions = JSON.stringify([getUserInfo()?.school_id, getUserInfo()?.roles]);
   getSessionStorage()?.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+  if (previous !== getAuthIdentity() || previousPermissions !== JSON.stringify([userInfo.school_id, userInfo.roles])) rotateSession();
+  notifyAuthChanged();
+};
+
+/** Publish login credentials and identity together so observers never see a half-login. */
+export const setAuthSession = (token: string, refreshToken: string, userInfo: UserInfo): void => {
+  rotateSession();
+  accessToken = token;
+  getSessionStorage()?.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  getSessionStorage()?.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+  notifyAuthChanged();
 };
 
 /**
@@ -121,6 +160,16 @@ export const getUserInfo = (): UserInfo | null => {
 export const isAuthenticated = (): boolean => {
   // A tab with a refresh token can silently obtain a fresh access token.
   return !!getToken() || !!getRefreshToken();
+};
+
+/**
+ * 返回当前登录身份标识，用于隔离 TanStack Query 缓存。
+ * 同一浏览器标签页切换到另一个账号时，查询键必须随身份变化。
+ */
+export const getAuthIdentity = (): string => {
+  const user = getUserInfo();
+  if (!user) return 'anonymous';
+  return `${user.user_id}:${user.student?.id || 'no-student'}`;
 };
 
 export { AUTH_CHANGED_EVENT };

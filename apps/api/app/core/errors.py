@@ -1,5 +1,5 @@
 """
-错误定义
+错误定义 - 统一错误格式和友好提示
 """
 from fastapi import HTTPException, status
 
@@ -7,12 +7,20 @@ from fastapi import HTTPException, status
 class ApiError(HTTPException):
     """HTTP error carrying the stable machine-readable API error code."""
 
-    def __init__(self, status_code: int, code: str, message: str, details: dict | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict | None = None,
+        user_message: str | None = None,
+    ):
         self.code = code
         self.details = details or {}
+        self.user_message = user_message or message
         super().__init__(
             status_code=status_code,
-            detail=message,
+            detail={"message": message, "user_message": self.user_message, "code": code, "details": self.details},
             headers={"X-Error-Code": code},
         )
 

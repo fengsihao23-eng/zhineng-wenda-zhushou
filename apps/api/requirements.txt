@@ -34,5 +34,9 @@ anthropic==0.18.0
 # Cache
 redis==5.0.1
 
+# Private paper validation, page rendering and OCR crops
+Pillow>=11.0,<13
+pypdfium2>=4.30,<6
+
 # Template
 jinja2==3.1.3

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_global_prompt_publisher
 from app.core.prompt_registry import PromptRegistry
 from app.core.errors import NotFoundError, ApiError
 from app.schemas.prompt import (
@@ -22,7 +22,7 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=PromptTemplateOut)
+@router.post("/", response_model=PromptTemplateOut, dependencies=[Depends(require_global_prompt_publisher)])
 async def create_prompt(
     data: PromptTemplateCreate,
     db: AsyncSession = Depends(get_db)
@@ -62,7 +62,7 @@ async def list_prompts(
     return prompts
 
 
-@router.post("/{name}/{version}/publish")
+@router.post("/{name}/{version}/publish", dependencies=[Depends(require_global_prompt_publisher)])
 async def publish_prompt(
     name: str,
     version: str,
@@ -74,7 +74,7 @@ async def publish_prompt(
     return {"status": "published", "name": name, "version": version}
 
 
-@router.post("/{name}/{version}/deprecate")
+@router.post("/{name}/{version}/deprecate", dependencies=[Depends(require_global_prompt_publisher)])
 async def deprecate_prompt(
     name: str,
     version: str,

@@ -1,38 +1,35 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getCurrentUserApi, loginApi } from '../services/auth'
-import { setToken, setUserInfo } from '../utils/auth'
+import { setAuthSession } from '../utils/auth'
+import { ErrorDisplay } from '../components/ErrorDisplay'
+import { useMutation } from '@tanstack/react-query'
 import './Login.css'
 
 export function Login() {
+  const showTestAccounts = !import.meta.env.PROD
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const submittingRef = useRef(false)
   const navigate = useNavigate()
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    try {
+  const login = useMutation({
+    mutationFn: async () => {
       const response = await loginApi({ username, password })
-
-      // 保存token
-      setToken(response.access_token, response.refresh_token)
-
-      // 从服务端获取完整的学校、角色和学生绑定信息
-      const currentUser = await getCurrentUserApi(response.access_token)
-      setUserInfo(currentUser)
-
-      // 跳转到聊天页面
+      const user = await getCurrentUserApi(response.access_token)
+      return { response, user }
+    },
+    onSuccess: ({ response, user }) => {
+      setAuthSession(response.access_token, response.refresh_token, user)
       navigate('/')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败，请重试')
-    } finally {
-      setLoading(false)
-    }
+    },
+    onSettled: () => { submittingRef.current = false },
+  })
+  const loading = login.isPending
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (submittingRef.current || loading || !username.trim() || !password) return
+    submittingRef.current = true
+    login.mutate()
   }
 
   return (
@@ -44,11 +41,7 @@ export function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
-          {error && (
-            <div className="error-message">
-              {error}
-            </div>
-          )}
+          <ErrorDisplay error={login.error} title="登录失败" />
 
           <div className="form-group">
             <label htmlFor="username">用户名</label>
@@ -84,7 +77,7 @@ export function Login() {
             {loading ? '登录中...' : '登录'}
           </button>
 
-          <div className="test-accounts">
+          {showTestAccounts && <div className="test-accounts">
             <p className="test-title">测试账号</p>
             <div className="test-account-list">
               <button type="button" className="test-account" onClick={() => { setUsername('student_basic'); setPassword('password123') }}>
@@ -108,7 +101,7 @@ export function Login() {
                 <span>city_operator_demo / password123</span>
               </button>
             </div>
-          </div>
+          </div>}
         </form>
       </div>
     </div>

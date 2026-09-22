@@ -46,6 +46,9 @@ async def test_knowledge_review_lifecycle(client, test_db, sample_school_id):
     management_user = AuthenticatedUser(
         user_id=uuid4(), school_id=sample_school_id, username="admin", roles=["SCHOOL_ADMIN"]
     )
+    from app.db.models.user import User
+    test_db.add(User(id=management_user.user_id, school_id=sample_school_id, username="synthetic-admin", password_hash="unused"))
+    await test_db.commit()
     app.dependency_overrides[get_current_user] = lambda: management_user
     try:
         created = await client.post(

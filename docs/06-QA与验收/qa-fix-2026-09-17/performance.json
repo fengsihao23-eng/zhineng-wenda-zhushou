@@ -1,0 +1,18 @@
+[
+  {
+    "url": "http://localhost/profile",
+    "httpCache": "disabled",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "thresholdMs": 2000,
+    "measurements": [
+      213.69999998807907,
+      212.5,
+      209.79999995231628,
+      201.5,
+      394
+    ]
+  }
+]

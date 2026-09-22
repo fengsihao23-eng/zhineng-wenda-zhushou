@@ -1,0 +1,142 @@
+[
+  {
+    "width": 320,
+    "boxes": [
+      {
+        "class": "workspace-main",
+        "width": 230,
+        "scroll": 230
+      },
+      {
+        "class": "profile-container",
+        "width": 230,
+        "scroll": 230
+      },
+      {
+        "class": "trend-chart",
+        "width": 214,
+        "scroll": 214
+      },
+      {
+        "class": "subject-radar",
+        "width": 214,
+        "scroll": 214
+      }
+    ],
+    "axisFill": "none",
+    "score": "603/ 750",
+    "percent": "80.4%"
+  },
+  {
+    "width": 375,
+    "boxes": [
+      {
+        "class": "workspace-main",
+        "width": 285,
+        "scroll": 285
+      },
+      {
+        "class": "profile-container",
+        "width": 285,
+        "scroll": 285
+      },
+      {
+        "class": "trend-chart",
+        "width": 269,
+        "scroll": 269
+      },
+      {
+        "class": "subject-radar",
+        "width": 269,
+        "scroll": 269
+      }
+    ],
+    "axisFill": "none",
+    "score": "603/ 750",
+    "percent": "80.4%"
+  },
+  {
+    "width": 390,
+    "boxes": [
+      {
+        "class": "workspace-main",
+        "width": 300,
+        "scroll": 300
+      },
+      {
+        "class": "profile-container",
+        "width": 300,
+        "scroll": 300
+      },
+      {
+        "class": "trend-chart",
+        "width": 284,
+        "scroll": 284
+      },
+      {
+        "class": "subject-radar",
+        "width": 284,
+        "scroll": 284
+      }
+    ],
+    "axisFill": "none",
+    "score": "603/ 750",
+    "percent": "80.4%"
+  },
+  {
+    "width": 768,
+    "boxes": [
+      {
+        "class": "workspace-main",
+        "width": 648,
+        "scroll": 648
+      },
+      {
+        "class": "profile-container",
+        "width": 648,
+        "scroll": 648
+      },
+      {
+        "class": "trend-chart",
+        "width": 600,
+        "scroll": 600
+      },
+      {
+        "class": "subject-radar",
+        "width": 600,
+        "scroll": 600
+      }
+    ],
+    "axisFill": "none",
+    "score": "603/ 750",
+    "percent": "80.4%"
+  },
+  {
+    "width": 1440,
+    "boxes": [
+      {
+        "class": "workspace-main",
+        "width": 1148,
+        "scroll": 1148
+      },
+      {
+        "class": "profile-container",
+        "width": 1132,
+        "scroll": 1132
+      },
+      {
+        "class": "trend-chart",
+        "width": 660,
+        "scroll": 660
+      },
+      {
+        "class": "subject-radar",
+        "width": 400,
+        "scroll": 400
+      }
+    ],
+    "axisFill": "none",
+    "score": "603/ 750",
+    "percent": "80.4%"
+  }
+]

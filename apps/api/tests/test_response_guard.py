@@ -41,6 +41,15 @@ async def test_number_accuracy(mock_student_context):
 
 
 @pytest.mark.asyncio
+async def test_identity_digits_are_not_numeric_evidence(mock_student_context):
+    from uuid import UUID
+    mock_student_context.student_id = UUID("00000525-0000-0000-0000-000000000000")
+    mock_student_context.student_name = "测试525"
+    result = await ResponseGuard().validate("你这次考了525分", mock_student_context, "BASIC")
+    assert result.action == "block"
+
+
+@pytest.mark.asyncio
 async def test_valid_answer_passes(mock_student_context):
     """测试合规答案通过"""
     guard = ResponseGuard()

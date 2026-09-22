@@ -1,0 +1,518 @@
+<!doctype html>
+<!--
+================================================================================
+ bang 平台 · 业务流程图（基础框架 L1）—— 单文件网页，双击即可用浏览器打开
+================================================================================
+【文件说明】
+ · 纯静态单文件：无任何外部依赖（不联网、不需服务器、不需构建工具）。
+ · 图形全部为内联 SVG，缩放不失真；改完源码保存后刷新浏览器即可看到效果。
+ · 需要 PDF：浏览器 Ctrl+P 打印（已适配打印样式）。
+
+【改哪里 —— 快速索引】
+ ┌──────────────────────────────┬─────────────────────────────────────────────┐
+ │ 想改的内容                    │ 修改位置（搜索关键字即可定位）                  │
+ ├──────────────────────────────┼─────────────────────────────────────────────┤
+ │ 页头标题与说明文字             │ <header> 区块                                │
+ │ 页面配色 / 字号 / 布局         │ <style> 样式区                               │
+ │ 总览泳道的角色列（横向）        │ const ROLES = [...]                         │
+ │ 总览泳道的场景行与卡片（纵向）  │ const SCENES = [...]                        │
+ │ 子流程状态徽标（待细化/已细化） │ const SF_STATUS = {...}                     │
+ │ 子流程的具体流程图步骤          │ const SF_FLOWS = {...}（核心数据区）           │
+ │ 流程图的画法 / 形状 / 颜色      │ function flowSVG(steps)                     │
+ │ 子流程页的文案与"关键规则"      │ SF_FLOWS[名称].rules 与"子流程面板"区块        │
+ └──────────────────────────────┴─────────────────────────────────────────────┘
+
+【新增一个子流程 —— 三步】
+ 1. 在 SCENES 对应场景的 cols[0]（运营管理员列）里写卡片文字 —— 该卡片会自动变成
+    子流程入口（可点击、带"子流程 ↗"角标、自动进入顶部导航下拉菜单）。
+    注意：cols[0] 第一列即运营管理员列，其余列依次是校长 / 教师 / 学生。
+ 2. 在 SF_FLOWS 里以"卡片文字"为键，填入 { tabs:[...], rules:[...] }（写法见下方
+    SF_FLOWS 区的注释）。填了就会显示完整流程图，不填则是占位页。
+ 3. 在 SF_STATUS 里把状态标为 'done'（已细化）或 'draft'（初稿），徽标会同步更新。
+    未标注的默认显示"待细化"。
+
+【节点类型规范（必须遵守，与页面顶部图例一致）】
+  start / end  → 绿色圆角胶囊：流程起止
+  p            → 白色方框：普通处理步骤
+  dec          → 黄色菱形：条件判断（按连线标签选择继续或右侧分支）
+  f            → 蓝色方框：关键生效或系统动作（建号、入库、写日志等）
+  虚线          → 仅用于"处理后返回检查"的回流，由 dec 的 ex.back 自动生成
+
+【协作提示】
+ · 建议文件名带上版本与修改人，例如：bang_业务流程图_L1_v2_20260920_张三.html
+ · 多人协作请走 Git / 共享盘做版本管理，避免互相覆盖。
+ · 改数据即可，不建议动 flowSVG 渲染逻辑；确有需要请同步更新顶部图例。
+================================================================================
+-->
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>bang 业务流程图 · 基础框架 L1</title>
+<!-- ========== 样式区：页面配色、字号、布局、图例形状。只改外观就动这里 ========== -->
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#25354a;font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif}header{max-width:1344px;margin:auto;padding:30px 32px 22px}h1{font-size:28px;letter-spacing:.3px;margin:8px 0 10px}header p{color:#627187;font-size:14px;margin:0;line-height:1.7}.eyebrow{color:#547399;font-size:12px;letter-spacing:2px}.toolbar{position:sticky;top:0;z-index:2;background:#f3f5f8f5;border-bottom:1px solid #dbe2e9;backdrop-filter:blur(8px)}.bar{max-width:1344px;padding:12px 32px;margin:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}.tabs{display:flex;gap:8px;flex:1;flex-wrap:wrap;align-items:stretch}button{font:inherit;font-size:14px;padding:10px 18px;background:white;border:1px solid #ccd6e2;border-radius:6px;color:#405774;cursor:pointer;transition:background .15s,border-color .15s}button:hover{background:#e9eff7}button:focus-visible{outline:3px solid #90b8f0;outline-offset:2px}button[aria-selected=true]{color:white;background:#294d79;border-color:#294d79;font-weight:600}.nav-group{position:relative;display:flex}.nav-group .scene-btn{border-radius:6px 0 0 6px;font-weight:600}.nav-group.sel .scene-btn,.nav-group.sel .caret{background:#294d79;border-color:#294d79;color:white}.nav-group.sel .scene-btn{color:white}.nav-group .caret{padding:10px 9px;border-left:none;border-radius:0 6px 6px 0;font-size:10px;color:#68778a;line-height:1}.menu{position:absolute;top:calc(100% + 4px);left:0;min-width:250px;background:white;border:1px solid #ccd6e2;border-radius:8px;box-shadow:0 10px 28px rgba(20,40,70,.14);display:none;z-index:9;padding:6px}.menu.open{display:block}.menu .grp{font-size:11px;color:#8291a5;padding:6px 12px 4px;letter-spacing:1px}.menu button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:none;border-radius:6px;padding:9px 12px;font-size:13.5px;margin:1px 0}.menu button:hover{background:#e9eff7}.menu .st{font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;background:#f0f3f7;color:#8291a5}.menu .st.draft{background:#e8f1fb;color:#2f6bab}.chip{display:inline-block;font-size:12px;padding:3px 12px;border-radius:12px;background:#f0f3f7;color:#68778a;margin-left:10px;vertical-align:middle}.chip.draft{background:#e8f1fb;color:#2f6bab}.crumb{font-size:13px;color:#68778a;margin:0 0 6px}.crumb a{color:#2f6bab;cursor:pointer;text-decoration:none}.crumb a:hover{text-decoration:underline}main{max-width:1344px;margin:auto;padding:22px 32px 48px}.panel[hidden]{display:none}.panel-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}h2{font-size:21px;margin:0 0 10px}.lead{font-size:14px;line-height:1.8;margin:0 0 16px;color:#586b83}.legend{font-size:12px;display:flex;gap:22px;color:#68778a;margin:10px 0 18px;flex-wrap:wrap}.legend[hidden]{display:none}.legend span{display:flex;align-items:center;gap:8px}.key{width:18px;height:12px;border:1px solid #7d8a9a;background:white;display:inline-block;border-radius:3px}.key.role{background:#eef4ff;border-color:#6c8ebd}.key.sf{background:#fff8e8;border-color:#b5882c}.k-pill{width:26px;height:14px;border:1.4px solid #528867;background:#eaf5ee;border-radius:8px;display:inline-block}.k-step{width:24px;height:14px;border:1.2px solid #7d8a9a;background:white;border-radius:3px;display:inline-block}.k-dia{width:15px;height:15px;border:1.4px solid #b5882c;background:#fdf6e3;transform:rotate(45deg);border-radius:2px;display:inline-block;margin:0 4px}.k-sys{width:24px;height:14px;border:1.2px solid #4d7fb5;background:#eaf2fb;border-radius:3px;display:inline-block}.k-dash{width:26px;border-top:2px dashed #a48b5c;display:inline-block}.sheet{background:white;border:1px solid #dce3ec;border-radius:8px;overflow:auto}.sheet svg{display:block;width:100%;min-width:850px;height:auto}.sheet svg [data-sf]{cursor:pointer}.sheet svg [data-sf]:hover rect{stroke:#294d79;stroke-width:2;fill:#f4f8fd}.placeholder{border:2px dashed #c4cfdb;border-radius:8px;background:#fafbfd;padding:44px 32px;text-align:center;color:#8291a5;font-size:14px;line-height:2}.placeholder b{color:#405774;font-size:15px}.rules{margin-top:20px;background:white;border:1px solid #dce3ec;border-radius:8px;padding:20px 24px}h3{font-size:16px;margin:0 0 12px}.rule{display:grid;grid-template-columns:170px 1fr;gap:16px;padding:10px 0;border-bottom:1px dashed #e3e9f0;font-size:14px;line-height:1.7}.rule:last-child{border-bottom:none}.rule b{color:#294d79;font-weight:600}.mobile-hint{font-size:13px;color:#8291a5;margin:0 0 12px}.backrow{margin:0 0 14px}.sf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}.sf-card{display:flex;align-items:center;gap:14px;background:white;border:1px solid #d5dde7;border-radius:8px;padding:16px 18px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s;text-decoration:none;color:inherit}.sf-card:hover{border-color:#294d79;box-shadow:0 6px 18px rgba(20,40,70,.10);transform:translateY(-1px)}.sf-card .sf-idx{flex:none;width:34px;height:34px;border-radius:8px;background:#eef4ff;color:#2f5d8a;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.sf-card .sf-body{flex:1;min-width:0}.sf-card b{display:block;font-size:15px;color:#25354a;margin-bottom:4px}.sf-card p{margin:0;font-size:12.5px;color:#8291a5}.sf-card .st{flex:none;font-size:11px;padding:3px 10px;border-radius:10px;background:#f0f3f7;color:#8291a5}.sf-card .st.draft{background:#e8f1fb;color:#2f6bab}.st.done,.chip.done{background:#e6f4ea;color:#2e7d4f}.chip.done{background:#e6f4ea;color:#2e7d4f}.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 16px}.subtabs button{font-size:13px;padding:8px 14px}.subtabs button[aria-selected=true]{background:#294d79;color:white;border-color:#294d79;font-weight:600}.flead{font-size:13.5px;line-height:1.8;margin:0 0 14px;color:#586b83}@media print{.toolbar{display:none}body{background:white}.panel[hidden]{display:block}.sheet{border:none}.placeholder{border-color:#aab}}
+.flow-note{margin:0 0 16px;padding:13px 16px;background:#eef4ff;border:1px solid #cfdef0;border-left:4px solid #2f5d8a;border-radius:6px;font-size:14px;line-height:1.8;color:#405774}.template-details{margin:0 0 18px;background:#fff;border:1px solid #dce3ec;border-radius:8px}.template-details summary{padding:13px 16px;color:#294d79;font-weight:600;cursor:pointer}.template-source{margin:0;padding:0 16px 12px;color:#627187;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.template-rows{padding:0 16px 12px}.template-rows .rule{grid-template-columns:150px 1fr}.template-rows small{display:block;color:#68778a;font-size:12px;margin-top:3px}@media(max-width:640px){.template-rows .rule{grid-template-columns:1fr;gap:4px}}
+.permission-matrix{margin:0 0 18px;background:#fff;border:1px solid #dce3ec;border-radius:8px;overflow:hidden}.permission-matrix summary{padding:13px 16px;color:#294d79;font-weight:600;cursor:pointer}.permission-caption{margin:0;padding:0 16px 12px;color:#627187;font-size:13px;line-height:1.8}.permission-table-wrap{overflow-x:auto}.permission-table{width:100%;min-width:980px;border-collapse:collapse;font-size:13px;line-height:1.75;text-align:left}.permission-table th{padding:11px 14px;background:#eef4ff;color:#294d79;border-top:1px solid #dce3ec;border-bottom:1px solid #dce3ec}.permission-table td{padding:12px 14px;vertical-align:top;border-bottom:1px solid #e3e9f0;white-space:pre-line}.permission-table tr:last-child td{border-bottom:0}.permission-table td:first-child{min-width:120px;font-weight:600;color:#294d79}.permission-table th:nth-child(2){width:18%}.permission-table th:nth-child(3){width:25%}.permission-table th:nth-child(4){width:22%}@media(max-width:640px){.rules .rule{grid-template-columns:1fr;gap:4px}}
+</style></head><body><header><div class="eyebrow">BANG 平台 · 业务流程</div><h1>业务流程图（基础框架 L1）</h1><p>横向泳道 = 角色用户 ｜ 纵向泳道 = 业务场景 ｜ 粒度：场景级主干。运营管理员列的每张卡片对应一个子流程 —— 点场景按钮展开子流程下拉，或直接点总览中的卡片。更新：2026-09-21</p></header><div class="toolbar"><div class="bar"><div class="tabs" role="tablist" aria-label="选择视图" id="tabs"><button role="tab" id="tab-all" aria-controls="panel-all" aria-selected="true" tabindex="0" data-target="all">总览 · 全泳道</button></div></div></div><main><div class="legend" id="legend-all"><span><i class="key role"></i>角色泳道（列）</span><span><i class="key"></i>业务节点（场景级主干）</span><span><i class="key sf"></i>可点击 = 运营管理员子流程入口</span><span>纵向泳道 = 业务场景（行）</span></div><div class="legend" id="legend-sf" hidden><span><i class="k-pill"></i>起止</span><span><i class="k-step"></i>处理步骤</span><span><i class="k-dia"></i>条件判断</span><span><i class="k-sys"></i>关键生效或系统动作</span><span><i class="k-dash"></i>虚线：处理后返回检查</span></div><p class="mobile-hint" id="hint-all">可左右滑动流程图查看完整泳道。</p><section id="panel-all" class="panel" role="tabpanel" aria-labelledby="tab-all"><div class="panel-head"><h2>总览 · 五大业务场景 × 四类角色</h2></div><p class="lead">教师、学生新增均由运营上传对应的 Excel 模板，系统按顺序查重并提醒核查，保留全部上传记录；管理员处理提醒、重新上传复检并二次确认后导入，师生使用分配的账号登录。<b>运营管理员列的卡片可点击</b>，直达对应子流程页。</p><div class="sheet" id="sheet-all"></div></section><div id="sf-panels"></div></main><script>
+/* ============================================================================
+ * 一、总览泳道的数据区
+ * ----------------------------------------------------------------------------
+ * ROLES：横向泳道的角色列（从左到右），c 为列头底色。
+ *        增删角色列时，SCENES 里每个场景的 cols 数组长度要同步跟上。
+ * SCENES：纵向泳道的业务场景行（从上到下）。
+ *        cols[0] = 运营管理员列，cols[1] = 校长，cols[2] = 教师，cols[3] = 学生。
+ *        只有 cols[0]（运营管理员）里的卡片会被识别为"子流程入口"。
+ *        卡片文字里可用 \n 换行；文字必须与 SF_FLOWS 的键完全一致才能挂上流程图。
+ * ==========================================================================*/
+const ROLES=[{name:'运营管理员',c:'#2f5d8a'},{name:'校长',c:'#3273a0'},{name:'教师',c:'#3c8ba6'},{name:'学生',c:'#5aa3bd'}];
+const SCENES=[
+{id:'s0',name:'① 基础数据与权限',cols:[['维护教师 / 学生档案','配置用户账号与角色权限'],['查看全校基础数据概览'],['查看任教班级学生名单'],['查看个人资料']]},
+{id:'s1',name:'② 考务管理',cols:[['创建考试科目与范围'],['查看全校考务情况'],['查看任教科目考试情况'],[]]},
+{id:'s2',name:'③ 成绩与报告',cols:[['导入成绩 Excel','导入年级 / 分班','导入AI作文批改报告、学情诊断报告'],['查看全校成绩统计'],['查看班级成绩与薄弱知识点'],['查看个人成绩与薄弱点']]},
+{id:'s3',name:'④ 智能问答助手',cols:[['维护学段提示词','人工对话兜底'],['提问全校学情：\n年级对比 / 学科排名'],['提问班级学情：\n薄弱点 / 重点关注'],['提问个人学情：\n薄弱点 / 成绩波动']]},
+{id:'s4',name:'⑤ AI 接入配置',cols:[['配置大模型','知识库接入与向量化','问答内容限制'],[],[],[]]}];
+/* ----------------------------------------------------------------------------
+ * 二、子流程注册表（自动生成，一般不用手改）
+ *   SUBFLOWS：由 SCENES 的 cols[0] 自动生成，卡片文字 -> {id, 所属场景, 状态}
+ *   SF_STATUS：手动标注子流程状态 —— 'done' 已细化 ｜ 'draft' 初稿 ｜ 不写则"待细化"
+ *   子流程页的 URL 锚点为 #sf0、#sf1……，可直接发链接定位。
+ * --------------------------------------------------------------------------*/
+const SUBFLOWS={};   // 卡片文字 -> 子流程元数据
+const SF_STATUS={};  // name -> 'done' | 'draft' | 'todo'
+(function initSF(){let k=0;SCENES.forEach(s=>{s.cols[0].forEach(n=>{const id='sf'+(k++);SUBFLOWS[n]={id,scene:s,name:n,status:SF_STATUS[n]||'todo'};});});})();
+SF_STATUS['维护教师 / 学生档案']='done'; // L2 已细化
+SF_STATUS['配置用户账号与角色权限']='done'; // 运营配置、六类查看流程与权限变更
+const stLabel=st=>({draft:'初稿已有',done:'已细化',todo:'待细化'}[st]||'待细化');
+Object.values(SUBFLOWS).forEach(sf=>{if(SF_STATUS[sf.name])sf.status=SF_STATUS[sf.name];});
+/* 页签说明的兜底文案：{ '子流程名': { 页签序号: '一句话说明' } }。
+   新增子流程 / 页签时，更推荐在 tab 里直接写 lead 字段，不必改这里。 */
+const FLEAD_FALLBACK={};
+const LBL_W=170,COL_W=290,SLOT_H=76,PAD=28,HEAD_H=52;
+const TOTAL_W=LBL_W+COL_W*ROLES.length;
+const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function sfIdOf(t){return SUBFLOWS[t]?SUBFLOWS[t].id:'';}
+function gridSVG(sceneIdx){
+ const rows=sceneIdx==null?SCENES:[SCENES[sceneIdx]];
+ const rh=rows.map(s=>Math.max(...s.cols.map(c=>c.length))*SLOT_H+PAD*2);
+ const H=HEAD_H+rh.reduce((a,b)=>a+b,0);
+ let g='',y=HEAD_H;
+ g+=`<rect x="0" y="0" width="${TOTAL_W}" height="${H}" fill="#ffffff"/>`;
+ ROLES.forEach((r,i)=>{g+=`<rect x="${LBL_W+i*COL_W+2}" y="6" width="${COL_W-4}" height="${HEAD_H-12}" rx="5" fill="${r.c}"/>`;
+  g+=`<text x="${LBL_W+i*COL_W+COL_W/2}" y="${HEAD_H/2+5}" text-anchor="middle" font-size="17" font-weight="600" fill="#ffffff">${r.name}</text>`;});
+ g+=`<rect x="0" y="0" width="${LBL_W}" height="${HEAD_H}" fill="#eef1f5"/><text x="${LBL_W/2}" y="${HEAD_H/2+5}" text-anchor="middle" font-size="12" fill="#68778a">业务场景 ╲ 角色</text>`;
+ rows.forEach((s,k)=>{
+  const h=rh[k];
+  g+=`<rect x="0" y="${y}" width="${LBL_W}" height="${h}" fill="#eef1f5" stroke="#dbe2e9"/>`;
+  g+=`<text x="${LBL_W/2}" y="${y+h/2}" text-anchor="middle" font-size="15" font-weight="600" fill="#294d79">${esc(s.name)}</text>`;
+  for(let i=0;i<=ROLES.length;i++){g+=`<line x1="${LBL_W+i*COL_W}" y1="${y}" x2="${LBL_W+i*COL_W}" y2="${y+h}" stroke="#e3e9f0"/>`;}
+  g+=`<line x1="0" y1="${y+h}" x2="${TOTAL_W}" y2="${y+h}" stroke="#dbe2e9"/>`;
+  s.cols.forEach((nodes,ci)=>{
+   const x0=LBL_W+ci*COL_W+18,x1=LBL_W+(ci+1)*COL_W-18,w=x1-x0,cx=(x0+x1)/2;
+   let ny=y+PAD+24;
+   nodes.forEach(t=>{
+    const lines=t.split('\n'),lh=20,bh=lines.length*lh+18,by=ny-24;
+    const sf=ci===0?sfIdOf(t):'';
+    if(sf)g+=`<g data-sf="${sf}">`;
+    g+=`<rect x="${x0}" y="${by}" width="${w}" height="${bh}" rx="4" fill="#ffffff" stroke="#b8c5d4" stroke-width="1.4"/>`;
+    lines.forEach((ln,li)=>{g+=`<text x="${cx}" y="${by+16+li*lh}" text-anchor="middle" font-size="13.5" fill="${sf?'#294d79':'#25354a'}"${sf?' font-weight="600"':''}>${esc(ln)}</text>`;});
+    if(sf){g+=`<text x="${x1-10}" y="${by+bh-8}" text-anchor="end" font-size="10" fill="#b5882c">子流程 ↗</text></g>`;}
+    ny+=SLOT_H;});
+  });
+  y+=h;});
+ g+=`<line x1="${LBL_W}" y1="${HEAD_H}" x2="${LBL_W}" y2="${H}" stroke="#dbe2e9"/>`;
+ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${TOTAL_W} ${H}" role="img"><title>bang 业务流程图（基础框架 L1）</title>${g}</svg>`;
+}
+document.getElementById('sheet-all').innerHTML=gridSVG(null);
+/* ============================================================================
+ * 三、子流程 L2 流程图的数据区（★ 重点维护区 ★）
+ * ----------------------------------------------------------------------------
+ * 结构：SF_FLOWS['卡片文字（需与 SCENES 中完全一致）'] = { tabs:[...], rules:[...] }
+ *
+ *   tabs[]：分支流程页签。每个页签 = { name:'1. 页签名', steps:[...] }
+ *   rules[]：页面底部"关键规则"，每项 = ['规则标题','规则说明']
+ *   matrix（可选）：{ title, note, headers:[], rows:[...] }，可展开的业务规则对照表
+ *   actors（可选）：子流程参与角色；note（可选）：业务口径说明
+ *   reviewNotice（可选）：{ title, summary, examples:[[标题,说明]], actions }，核查提醒示例
+ *
+ * steps[] 节点写法：
+ *   { t:'start', x:'新增教师' }                      绿色胶囊（流程开始）
+ *   { t:'p',     x:'填写信息', sub:'灰色补充说明' }    白色步骤框（sub 可省略）
+ *   { t:'f',     x:'创建账号', sub:'系统动作说明' }    蓝色框（关键生效 / 系统动作）
+ *   { t:'dec',   x:'校验通过？', sub:'判断说明',       黄色菱形（条件判断）
+ *     ex:{ x:'校验失败', sub:'失败提示', back:1 } }    右侧异常框 + 虚线回流
+ *   { t:'end',   x:'流程结束' }                      绿色胶囊（流程终止）
+ *
+ * 字段说明：
+ *   t    = 节点类型（start / p / f / dec / end，五种，与页面顶部图例严格对应）
+ *   x    = 主标题文字，建议不超过 14 字，换行用 \n
+ *   sub  = 灰色副说明（可选），用于写字段、规则、系统行为
+ *   ex   = 仅 dec 可用：右侧分支处理框，连线标签默认为"否"
+ *   mainLabel / ex.label = 主干 / 右侧分支的标签，默认"是" / "否"
+ *   back = ex 回流目标节点的下标（从 0 开始），省略则不画回流
+ *   ex.end = true：右侧分支在此结束，使用绿色起止胶囊，不设置 back
+ *
+ * 已细化：维护教师 / 学生档案；配置用户账号与角色权限。
+ * 依据：运营统一维护口径、已核对的教师 Excel 模板及各岗位成绩查看规则。
+ * ==========================================================================*/
+const SF_FLOWS={};
+// 新增一人和批量新增共用分级查重流程；命中仅提醒，处理结果须管理员确认。
+function rosterImportSteps(person,batch=false){
+ const teacher=person==='教师';
+ return [
+  {t:'start',x:batch?`运营批量导入${person}`:`运营通过 Excel 新增${person}`},
+  {t:'p',x:`填写${person} Excel 模板`,sub:teacher?'保留 15 列表头，每位教师一行':'使用学生专用模板，每位学生一行'},
+  {t:'p',x:`上传${person} Excel 文件`,sub:'系统保留原始文件、全部记录与行号'},
+  {t:'f',x:'解析模板与必要字段',sub:'规范空格与分隔符，保留原值供核查'},
+  {t:'dec',x:'文件与必要字段有效？',ex:{x:'格式问题，暂停导入',sub:'按行提示原因；修正后重新上传',end:true}},
+  {t:'dec',x:teacher?'存在相同手机号？':'存在相同学号或账号？',sub:teacher?'优先检查：已有人员与本表记录':'优先检查：已有学生与本表记录',mainLabel:'否',ex:{label:'是',x:teacher?'一级提醒：手机号重复':'身份重复，待核查',sub:'对照候选人员，处理后重新上传',end:true}},
+  {t:'f',x:teacher?'再查同名同年级同科':'再核验姓名与班级资料',sub:teacher?'按每条任教组合匹配，手机号可不同':'学生不适用教师的任教学科条件'},
+  {t:'dec',x:teacher?'仍有疑似重复待确认？':'姓名与归属核验通过？',sub:teacher?'无命中或保留确认有效才继续':'姓名与归属须匹配学校名册',mainLabel:teacher?'否':'是',ex:{label:teacher?'是':'否',x:teacher?'二级提醒：疑似同一教师':'资料存疑，待核查',sub:'管理员核实并确认，重传后复检',end:true}},
+  {t:'f',x:'生成完整人员处理清单',sub:'列出拟导入及管理员明确不导入人员'},
+  {t:'dec',x:'仍有计划导入人员？',ex:{x:'无新增，返回处理回执',sub:'保留各行去向及不导入的确认记录',end:true}},
+  {t:'p',x:'管理员二次确认导入',sub:'确认人员、总数和每条处理结果'},
+  {t:'f',x:'写入前复核查重结果',sub:'按相同顺序复检；变更须重新核查'},
+  {t:'dec',x:'确认结果仍然有效？',ex:{x:'新增冲突，重新提醒',sub:'保留待核查；不得直接跳过写入',end:true}},
+  {t:'f',x:'按确认清单建立档案账号',sub:'每人的档案、账号、权限一起保存'},
+  {t:'f',x:'返回逐行处理回执',sub:'成功、明确不导入与失败均可回查'},
+  {t:'p',x:'交付导入成功的账号'},
+  {t:'end',x:`本次${person}导入处理完成`}
+ ];
+}
+SF_FLOWS['维护教师 / 学生档案']={
+actors:'运营上传；系统分级查重；管理员核查并二次确认',
+note:'教师导入先查相同手机号，处理后再查“同姓名＋同年级＋同任教学科”，手机号不同也要提醒。命中后暂停本批入库，保留所有记录及候选人员，管理员处理并重新上传复检后再确认导入；完全相同的记录也不会静默过滤。学生仍按学号（账号）核查，重复同样须明确确认。',
+template:{
+ name:'副本阳江一中高中教师资料模板0511.xlsx',
+ studentNote:'本次附件为已核对的教师模板。学生新增与批量新增均使用对应的学生 Excel 模板，具体列名以学生模板为准，以下教师岗位字段不套用于学生。',
+ fields:[
+  ['学校与部门','学校编号 · 学校名称 · 部门名称','运营核对学校归属与部门，学校编号按文本保留。'],
+  ['教师身份','教师姓名 · 教师账号','优先用教师账号中的完整手机号查重；一级问题处理后，再查同姓名、同年级、同任教学科的人员。命中只提醒，须管理员处理确认。'],
+  ['状态与联系方式','状态 · 说明 · 手机号码','联系手机号可空或脱敏，以账号中的完整手机号查重；若两列完整号码不一致，或没有可用完整号码，先提示核查，不把无法比对当成未重复。'],
+  ['任课与班主任','任课年级班级 · 班主任年级班级','任课示例：数学:10.1,10.2;。按真实任教关系拆出年级＋学科组合用于二级查重；班级不同仍可命中，不交叉拼接不同任教关系。'],
+  ['教研与年级岗位','教研组长负责年级科目 · 年级长负责年级','示例：11.数学、11。按运营确认的年级与学科设置范围；新增时空白不授予对应岗位。'],
+  ['管理岗位','是否教务主任 · 是否校长 · 是否总务主任','运营确认岗位标记后配置角色；新增时空白不授权，说明文本不直接转成权限。']
+ ]},
+matrix:{
+ title:'分级查重、核查提醒与处理方式',
+ note:'依次查手机号、再查姓名＋年级＋任教学科；不先比较整行全部资料。系统定位需要核查的人员，保留全部原始行。存在待核查或格式错误时，本批导入按钮停用，管理员无需在原表中人工搜索重复。',
+ headers:['顺序 / 情况','判断范围','页面如何提醒','管理员如何处理','放行条件'],
+ rows:[
+  ['一级：相同手机号','与系统已有人员及同一 Excel 内其他行匹配完整手机号，不要求其他资料一致','红色“手机号重复”标记；展示原行号、已有人或同表候选行、姓名及任教信息','资料填错：修正 Excel 后重传。确属同一人：明确确认该行不导入；确需修改原档案时另走维护','先处理并重传复检，再进行二级查重；同手机号冲突不能直接强行新建'],
+  ['二级：同名同年级同科','同校、同姓名、同年级且同教一科；手机号或班级不同仍可命中','黄色“疑似重复”标记；高亮相同姓名、年级、学科，并列手机号与班级供核查','确认同一人：明确不导入并记录原因。确认不同人：选择保留并填写原因；无法确认：保留待核查','处理后重传复检；只有已确认保留且记录及候选信息未变，才允许带确认结果继续'],
+  ['同一文件内重复行','采用同样的手机号及任教组合规则；完全相同也保留每条原始行','把相关行展示为候选组，不预选删除行、不自动合并或过滤','管理员明确选择保留哪条、哪些不导入；展示姓名及行号后再次确认','每条原始行都有明确去向，不采用第一行或最后一行自动覆盖'],
+  ['学生学号或账号重复','沿用学生身份核对，匹配已有学生及同表记录，不套用教师任教学科条件','标记“学生身份重复”；显示学号、姓名、班级及候选记录','修正学号后重传，或确认属于已有学生并明确不导入；不允许强行复用同一账号','身份冲突处理完并重传复检，再二次确认拟导入人员'],
+  ['格式错误或字段不足','模板、必要字段、号码、年级班级或学科无法识别','显示文件或原行号、字段、原值与原因，提供核查清单下载','联系资料提供方核实，修正对应 Excel 后重新上传','缺项未解决不能按“未重复”放行，问题记录持续可见'],
+  ['全部核查完成','无未处理问题；保留、不导入或修正均已记录，重传后检查通过','汇总原始人数、拟导入、明确不导入与待核查数量；待核查须为 0','管理员再次确认最终人员及数量，执行导入','仅按明确确认的清单写入，逐行回执保留每个人的处理结果']
+ ]},
+reviewNotice:{
+ title:'核查提醒示例与处理入口',
+ summary:'本次上传 100 条：80 条初检无问题，20 条待核查，尚未写入。请处理提醒并重新上传复检后，确认最终导入名单。',
+ examples:[
+  ['一级提醒 · 手机号重复','示例：第 12 行与系统已有人员的手机号相同。并列显示上传人员、已有人员、手机号及任教信息，请核查归属后处理。'],
+  ['二级提醒 · 疑似重复','示例：第 28 行与已有人员同名，同在高一年级任教数学；手机号不同仍需核查。请确认是同一人还是不同人。']
+ ],
+ actions:'处理入口：修正资料并重传；确认同一人，明确不导入；仅二级疑似可确认不同人、填写原因后保留；暂无法确认则保留待核查。所有不导入操作都展示具体人员、行号和数量，再次确认后才生效。'
+},
+tabs:[
+{name:'1. 教师新增（Excel 导入）',lead:'新增一人也先查相同手机号，再查同姓名、同年级、同任教学科。命中时提醒核查并保留原记录，处理后重新上传；管理员二次确认后才导入。',steps:rosterImportSteps('教师')},
+{name:'2. 教师编辑与删除',lead:'教师资料、任教和岗位调整均由运营办理；修改沿用模板口径，停用收回访问，有业务关联时拦截删除。',steps:[
+ {t:'start',x:'运营维护教师资料'},
+ {t:'p',x:'检索并核对教师身份',sub:'按学校 · 教师账号 · 教师姓名查找'},
+ {t:'p',x:'选择修改、停用或删除',sub:'修改沿用模板字段，核对任教与岗位'},
+ {t:'dec',x:'本次操作允许执行？',sub:'资料合法；删除无业务关联',ex:{x:'暂不执行，运营核查',sub:'修正冲突；有历史关联改为停用',back:2}},
+ {t:'p',x:'预览账号与权限变更',sub:'保留同一身份；收回岗位须明确确认'},
+ {t:'f',x:'确认执行并同步权限',sub:'停用收回访问，不删除历史业务数据'},
+ {t:'f',x:'记录变更与操作日志'},
+ {t:'end',x:'教师资料维护完成'}]},
+{name:'3. 教师批量导入',lead:'系统按优先级定位重复候选：先手机号，处理后再查同名同年级同科。待核查记录全部保留，本批暂停入库；管理员处理、重传复检并确认最终人员清单。',steps:rosterImportSteps('教师',true)},
+{name:'4. 学生新增（Excel 导入）',lead:'学生仍优先核查学号（账号），重复或资料冲突时提醒处理并保留记录。管理员修正或明确不导入后重传复检，二次确认后建档，不套用教师任教学科条件。',steps:rosterImportSteps('学生')},
+{name:'5. 学生编辑 · 调班 · 毕业',lead:'运营统一办理学生资料修改、调班和毕业，同步账号状态与访问范围，保留成绩、报告及历史档案。',steps:[
+ {t:'start',x:'运营维护学生资料'},
+ {t:'p',x:'检索并核对目标学生',sub:'按学校 · 学生标识 · 姓名 / 班级查找'},
+ {t:'p',x:'录入修改、调班或毕业',sub:'运营核对变更原因、目标班级与状态'},
+ {t:'dec',x:'资料与变更范围有效？',ex:{x:'运营修正后重新提交',sub:'核对学生身份、重复资料或目标班级',back:2}},
+ {t:'p',x:'确认资料与账号影响',sub:'调班更新归属；毕业停用账号并归档'},
+ {t:'f',x:'保存变更并同步范围',sub:'保持学生身份与历史成绩、报告关联'},
+ {t:'f',x:'记录操作日志并核对结果'},
+ {t:'end',x:'学生资料与账号状态更新'}]},
+{name:'6. 学生批量导入',lead:'系统按学号（账号）定位重复学生并核对姓名及归属，逐行展示待核查记录。完全相同的记录也须明确确认处理，复检完成后由管理员确认最终名单再导入。',steps:rosterImportSteps('学生',true)},
+{name:'7. 核查提醒与二次确认',lead:'系统标明问题人员、原始行号、命中原因和候选资料。管理员只核查这些提醒，选择修正、明确不导入或确认不同人保留，重新上传复检后确认最终导入人数。',steps:[
+ {t:'start',x:'系统发现重复或格式问题'},
+ {t:'f',x:'显示醒目提醒与待核查数',sub:'保留原始文件与所有行，停用导入按钮'},
+ {t:'f',x:'展示上传与候选资料对照',sub:'原行号 · 命中原因 · 姓名 · 任教信息'},
+ {t:'p',x:'核实身份并选择处理方式',sub:'修正资料／明确不导入／确认不同人'},
+ {t:'dec',x:'结论明确且允许执行？',ex:{x:'保留待核查，暂停导入',sub:'联系资料负责人核实，不删除原行',end:true}},
+ {t:'p',x:'二次确认人员与处理原因',sub:'同手机号须处理；仅二级疑似可保留'},
+ {t:'f',x:'保存原行与核查处理记录',sub:'不导入须明确确认，保留须填写原因'},
+ {t:'p',x:'按处理结果重新上传模板',sub:'关联原批次，保留所有原行处理去向'},
+ {t:'f',x:'重跑格式与分级查重',sub:'数据或候选变化时，原保留确认失效'},
+ {t:'dec',x:'复检通过且无待核查？',ex:{x:'重新提醒管理员核查',sub:'定位剩余问题，处理后再次上传',back:7}},
+ {t:'p',x:'确认最终名单及导入人数',sub:'原始条数＝拟导入＋明确不导入'},
+ {t:'end',x:'返回导入流程执行写入'}]}],
+rules:[
+['系统查重，管理员确认','新增一人或多人均由系统定位问题人员；管理员只核查系统列出的提醒。疑似、完全重复或格式错误记录均保留，不因命中规则而自动过滤、删除或覆盖。'],
+['优先查相同手机号','完成必要的文件解析后，首先对教师完整手机号做精确匹配，核查系统已有人员及同表其他行。命中即提醒处理，本批暂停入库，处理并重传后再进入第二级。'],
+['然后查同名同年级同科','第二级限定同校：姓名相同、年级相同且至少有一个实际任教学科相同就提醒；手机号和班级不同不影响命中。按每人的真实“年级＋学科”组合比较，不能把不同任教关系交叉拼接。'],
+['不先比较所有资料','不以整行全部资料是否相同作为第一步。先查手机号，再按姓名、年级、学科筛出候选，仅展示核查所需的字段；不能把所有资料不同视为没有重复人员。'],
+['手机号来源与缺项','教师账号中的完整手机号用于一级核查；联系手机号可为空或脱敏。两列完整号码不一致时先核实，无可用完整号码时提示补正，不能把无法匹配当成未重复。'],
+['管理岗位无任课','只有学校确认无需任课的纯管理岗位，二级“同名同年级同科”检查才标为不适用；应填而缺失的年级或学科须提示补正，空值不视为所有学科或自动通过。'],
+['提醒要具体可处理','页面顶部持续显示待核查人数，停用本批导入按钮；每个问题显示原 Excel 行号、匹配原因、上传资料与候选资料。支持定位、筛选及下载核查清单，不让管理员在原表中自行查重。'],
+['同手机号的处理','填错号码则修正后重传；确属同一人且无需新增，选择“明确不导入”并再次确认具体人员。确需更正已有人员资料另走维护流程；不同人使用同一账号时必须先纠正账号，不能强制新增。'],
+['二级疑似的处理','确认同一人时明确不导入并记录原因；确认不同人时可选择保留，填写核查原因并再次确认；无法确认时继续待核查。二级保留不解除手机号、账号唯一性或格式校验。'],
+['同表重复也须确认','同一 Excel 内重复行全部展示为候选，不预选保留、删除或合并。管理员明确确认各行去向后才形成导入名单，所有资料完全相同也按提醒处理。'],
+['学生身份规则','学生沿用学号（账号）优先、姓名及班级核验的规则；重复同样进入待核查，不能自动跳过。教师的“同教一科”条件不适用于学生，不增加未确认的学生查重条件。'],
+['处理后重传复检','管理员处理提醒后关联原批次重新上传，对仍拟导入的记录从格式及一级核查重新执行。已明确确认不导入的原行继续留在处理清单，不再次作为拟导入行；二级不同人保留确认仅在原人员、关键字段及候选记录均未变化时有效，否则再次提醒。仅改行号不作为确认依据。'],
+['原始记录不得丢失','保存原始上传版本、每条原始行及处理记录；从新文件移除某人不会自动视为放弃导入，须明确确认其去向。任何“不导入”操作都展示姓名、行号和数量，管理员二次确认并留痕。'],
+['本批写入前的门槛','存在待核查或格式问题时，本批暂不正式写入；处理并复检完成后，展示拟导入和明确不导入的完整清单，由管理员确认最终人数。没有拟导入人员也要返回处理回执。'],
+['写入前再次核验','正式写入前复查手机号、任教组合及确认记录；新增冲突重新提醒，不能自动略过人员。每人的档案、账号及权限一起保存，执行失败回滚该人的变更并单独反馈失败人员与原因。'],
+['逐行回执与失败处理','回执列明每条原始记录最终是成功、管理员明确不导入、待核查或写入失败。待核查与失败不标作成功；重传后仍显示原批次及确认去向，防止重复建号或计划人员遗漏。'],
+['运营统一维护','教师使用已核对的 15 列模板，学生使用对应学生模板。后续档案、岗位、账号状态和交付由运营维护；新增导入不自动覆盖已有资料，师生使用分配的账号登录。'],
+['格式与岗位校验','可自动规范空格和合法分隔符，但保留原值；不猜测学号、手机号或任教范围。岗位无明确授权时不扩大权限，无法识别的值提醒修正并重传。'],
+['账号交付','新账号由运营统一开通并交付首次登录方式；模板不含密码，初始化方式由运营配置，导入回执仅反馈账号状态及处理结果。'],
+['删除关联拦截','删除教师前检查任教、成绩、报告等业务关联；有关联时停止删除，由运营调整关系或改为停用，保留历史资料。'],
+['历史数据保留','教师停用、学生调班或毕业保留历史成绩、报告与档案；调整当前归属和可用范围，毕业按流程停用账号并归档。'],
+['操作留痕','新增、修改、删除、导入和账号状态调整均记录运营操作人、时间、变更内容或来源批次，便于核对与追溯。']]};
+SF_FLOWS['配置用户账号与角色权限']={
+actors:'运营管理员配置；教师及管理岗位、学生按范围查看',
+note:'账号与岗位范围由运营统一配置。任课教师按“班级＋学科”查看，班主任增加所带班级全科权限，科组长按“年级＋单科”查看，年级长查看负责年级全部成绩，教导主任和校长查看本校全部成绩，学生只看本人。兼任岗位按各自完整授权范围合并，年级平均分与学生成绩明细分别授权。',
+matrix:{
+ title:'成绩权限对照表 · 7 类角色',
+ note:'成绩明细与年级平均分分开列示；每项权限均限定本校。班主任另保留本人的普通任课权限，其他兼任岗位同样按完整范围合并。',
+ headers:['岗位 / 身份','运营配置的范围','可看成绩明细','可看年级平均分','对应模板字段'],
+ rows:[
+  ['普通任课教师','任教班级＋任教学科，逐条对应','所任教班级中，自己所教学科的学生成绩','任教班级所在年级、所教学科的平均分；不含其他班学生明细','任课年级班级'],
+  ['班主任','所带班级；另保留任教班级＋学科','所带班级全部学科成绩；另保留本人普通任课范围','所带班级所在年级的各科平均分；另保留任课对应的单科平均分','班主任年级班级\n＋任课年级班级'],
+  ['科组长','所教（负责）年级＋该单科','对应年级各班该学科的学生成绩','对应年级该学科平均分','教研组长负责年级科目'],
+  ['年级长','所教（负责）年级','对应年级各班全部学科成绩及总分','对应年级各科平均分及总分平均分','年级长负责年级'],
+  ['教导主任','本校','本校所有年级、班级、学科成绩及总分','本校各年级各科平均分及总分平均分','是否教务主任\n（运营确认对应教导主任）'],
+  ['校长','本校','本校所有年级、班级、学科成绩及总分','本校各年级各科平均分及总分平均分','是否校长'],
+  ['学生','账号绑定的本人学生档案','仅本人各科成绩及总分','不授予班级或年级平均分查看权限','学生档案与账号绑定关系']
+ ]},
+tabs:[
+{name:'1. 运营配置权限',lead:'运营从已录入的师生账号中选择对象，逐项配置岗位及范围，分别预览成绩明细和年级平均分权限后确认生效。',steps:[
+ {t:'start',x:'运营配置账号权限'},
+ {t:'p',x:'选择已录入的师生账号',sub:'核对学校、本人档案与账号状态'},
+ {t:'p',x:'确认岗位与模板对应',sub:'任课 · 班主任 · 科组长 · 年级长等'},
+ {t:'p',x:'填写各岗位的数据范围',sub:'逐项指定学校、年级、班级、学科'},
+ {t:'f',x:'校验岗位与数据范围',sub:'核对字段完整、本校归属并列出问题'},
+ {t:'f',x:'生成待确认的权限预览',sub:'分开展示学生明细范围和均分范围'},
+ {t:'p',x:'核对兼任后的可见范围',sub:'合并完整授权，核对新增与越界范围'},
+ {t:'dec',x:'校验通过且确认无误？',ex:{x:'运营修正岗位范围',sub:'修正岗位、班级、年级或学科',back:2}},
+ {t:'f',x:'保存权限配置与操作日志',sub:'按确认范围生效，后续查询重新校验'},
+ {t:'p',x:'交付账号并核对可见数据'},
+ {t:'end',x:'账号权限配置完成'}]},
+{name:'2. 普通任课教师',lead:'只能看所任教班级中自己所教学科的成绩，以及这些班级所在年级的同科平均分；年级平均分不开放其他班学生明细。',steps:[
+ {t:'start',x:'任课教师查看成绩'},
+ {t:'p',x:'登录运营分配的账号'},
+ {t:'dec',x:'账号与任教关系有效？',ex:{x:'结束本次查看',sub:'账号停用或任教关系无效',end:true}},
+ {t:'f',x:'读取有效任教范围',sub:'逐条匹配班级与学科，不交叉扩权'},
+ {t:'p',x:'选择考试、班级与学科'},
+ {t:'dec',x:'请求在授权范围内？',ex:{x:'拒绝越界查询',sub:'仅允许任教班级及对应学科',end:true}},
+ {t:'f',x:'读取本班该科学生成绩',sub:'仅所选任教班级的该学科明细'},
+ {t:'f',x:'读取对应年级单科均分',sub:'同校 · 同考试 · 同年级 · 同学科'},
+ {t:'p',x:'展示成绩与年级对比',sub:'年级均分不附带其他班学生明细'},
+ {t:'end',x:'任课教师成绩查看完成'}]},
+{name:'3. 班主任',lead:'在普通任课权限之外，增加所带班级全部学科成绩，以及该班所在年级的各科平均分；其他班的全科明细不因班主任岗位而开放。',steps:[
+ {t:'start',x:'班主任查看成绩'},
+ {t:'p',x:'登录运营分配的账号'},
+ {t:'dec',x:'账号与班主任岗位有效？',ex:{x:'结束本次岗位查看',sub:'账号停用或班主任岗位无效',end:true}},
+ {t:'f',x:'合并班主任与任教范围',sub:'所带班级全科＋任课班级对应单科'},
+ {t:'p',x:'选择考试、班级与学科'},
+ {t:'dec',x:'请求在合并范围内？',ex:{x:'拒绝越界查询',sub:'不开放其他班的未授权学科',end:true}},
+ {t:'f',x:'读取授权班级学科成绩',sub:'所带班级全部学科；另保留任课范围'},
+ {t:'f',x:'读取对应年级学科均分',sub:'带班年级各科；任课年级对应单科'},
+ {t:'p',x:'展示成绩与年级对比',sub:'年级均分不附带其他班学生明细'},
+ {t:'end',x:'班主任成绩查看完成'}]},
+{name:'4. 科组长',lead:'运营按模板“教研组长负责年级科目”配置所教（负责）年级与单科，可查看该年级各班该科成绩及年级平均分。',steps:[
+ {t:'start',x:'科组长查看成绩'},
+ {t:'p',x:'登录运营分配的账号'},
+ {t:'dec',x:'账号与科组长岗位有效？',ex:{x:'结束本次岗位查看',sub:'未配置或已撤销科组长岗位',end:true}},
+ {t:'f',x:'读取负责年级与单科',sub:'每条授权同时绑定一个年级与学科'},
+ {t:'p',x:'选择考试、年级与学科'},
+ {t:'dec',x:'年级与学科均匹配？',ex:{x:'拒绝越界查询',sub:'不得越过已配置年级或学科',end:true}},
+ {t:'f',x:'读取该年级各班单科成绩',sub:'覆盖对应年级各班的该学科明细'},
+ {t:'f',x:'读取该年级同科平均分'},
+ {t:'p',x:'展示年级单科成绩与均分'},
+ {t:'end',x:'科组长成绩查看完成'}]},
+{name:'5. 年级长',lead:'按运营配置的所教（负责）年级，查看该年级各班全部学科成绩、总分及对应平均分；不扩大到其他年级。',steps:[
+ {t:'start',x:'年级长查看成绩'},
+ {t:'p',x:'登录运营分配的账号'},
+ {t:'dec',x:'账号与年级长岗位有效？',ex:{x:'结束本次岗位查看',sub:'未配置或已撤销年级长岗位',end:true}},
+ {t:'f',x:'读取负责年级范围',sub:'该年级内覆盖全部班级与学科'},
+ {t:'p',x:'选择考试、班级与学科',sub:'可查看负责年级总览或班级明细'},
+ {t:'dec',x:'请求属于负责年级？',ex:{x:'拒绝越界查询',sub:'不得读取其他年级成绩',end:true}},
+ {t:'f',x:'读取该年级全部成绩',sub:'各班各科成绩与总分'},
+ {t:'f',x:'读取对应年级平均分',sub:'按学科、总分分别展示'},
+ {t:'end',x:'年级长成绩查看完成'}]},
+{name:'6. 教导主任与校长',lead:'教导主任和校长均可查看本校所有年级、班级、学科的成绩与平均分；全校范围仍限定当前账号所属学校。',steps:[
+ {t:'start',x:'教导主任或校长查看'},
+ {t:'p',x:'登录运营分配的账号'},
+ {t:'dec',x:'账号与管理岗位有效？',ex:{x:'结束本次岗位查看',sub:'未配置或已撤销对应管理岗位',end:true}},
+ {t:'f',x:'确定本校完整成绩范围',sub:'全部年级 · 全部班级 · 全部学科'},
+ {t:'p',x:'选择考试与查看范围',sub:'支持本校总览及年级、班级筛选'},
+ {t:'dec',x:'请求数据属于本校？',ex:{x:'拒绝跨校查询',sub:'管理岗位不提供跨校成绩权限',end:true}},
+ {t:'f',x:'读取本校所选范围成绩',sub:'各年级各班各科成绩与总分'},
+ {t:'f',x:'读取本校各年级平均分',sub:'按考试、年级、学科或总分展示'},
+ {t:'end',x:'本校成绩查看完成'}]},
+{name:'7. 学生本人',lead:'学生只能读取运营绑定的本人档案对应的成绩，不开放其他学生成绩及班级、年级平均分。',steps:[
+ {t:'start',x:'学生查看本人成绩'},
+ {t:'p',x:'登录运营分配的学生账号'},
+ {t:'dec',x:'账号与本人绑定有效？',ex:{x:'结束本次查看',sub:'由运营核查账号状态或本人绑定',end:true}},
+ {t:'f',x:'固定本人学生身份',sub:'从当前登录账号读取唯一学生档案'},
+ {t:'p',x:'选择本人考试与学科'},
+ {t:'dec',x:'请求仅涉及本人成绩？',ex:{x:'拒绝非本人成绩查询',sub:'不返回他人成绩或班级、年级均分',end:true}},
+ {t:'f',x:'查询本人各科成绩与总分'},
+ {t:'p',x:'展示本人成绩',sub:'无记录时明确提示，不把缺项当零分'},
+ {t:'end',x:'本人成绩查看完成'}]},
+{name:'8. 权限调整与停用',lead:'任课、带班或岗位变化由运营统一调整；撤销某岗位只收回该岗位授予的范围，账号停用则停止全部成绩读取。',steps:[
+ {t:'start',x:'运营调整或停用权限'},
+ {t:'p',x:'核对账号与现有岗位',sub:'确认本人、学校和当前可见范围'},
+ {t:'p',x:'录入岗位或账号变更',sub:'调整任课、带班、负责年级或状态'},
+ {t:'f',x:'校验变更资料与学校归属'},
+ {t:'f',x:'计算待确认的授权范围',sub:'移除失效授权，保留其他有效岗位'},
+ {t:'p',x:'预览新增与收回的范围',sub:'账号停用时收回全部成绩访问'},
+ {t:'dec',x:'校验通过且确认无误？',ex:{x:'返回调整变更内容',sub:'修正新增、保留与收回的范围',back:2}},
+ {t:'f',x:'保存权限变更与操作日志'},
+ {t:'f',x:'后续查询按新范围校验',sub:'同步更新可选范围与权限缓存'},
+ {t:'p',x:'核对成绩和明细入口',sub:'被收回的范围不得继续读取'},
+ {t:'end',x:'权限调整生效'}]}],
+rules:[
+['运营统一配置','账号、岗位及学校、年级、班级、学科范围均由运营录入或调整。师生使用运营分配的账号；岗位字段缺失、无法识别或范围不完整时，不自动扩大权限。'],
+['本校边界','所有岗位均限定账号所属学校。教导主任与校长的“全校”仅指本校，不包含其他学校。'],
+['普通任课教师','成绩明细按每条“班级＋学科”任教关系授权；年级平均分按该班所在年级与同一学科授权。只教单科时不开放该班其他学科或跨科总分。'],
+['班主任叠加权限','所带班级全部学科成绩＋对应年级各科平均分，另保留本人普通任课权限。兼任其他班某科教师时，只增加该班该科明细，不增加该班全科明细。'],
+['科组长与年级长','科组长按完整“年级＋学科”授权，覆盖该年级各班该科；年级长按负责年级授权，覆盖该年级各班全部学科与总分。负责范围须由运营明确配置。'],
+['平均分与明细分开','任课教师、班主任能看年级平均分，不等于能看该年级其他班学生的成绩明细。平均分返回汇总数值；打开学生、班级明细时重新检查明细权限。'],
+['均分查询口径','按所选考试、年级与学科查询对应平均分，不能混用不同考试或学科。缺少成绩时提示暂无数据，不用 0 分替代。'],
+['学生仅限本人','学生身份始终绑定运营确认的本人档案。只开放本人各科成绩及总分，不开放其他学生、班级或年级成绩明细，也不授予班级、年级平均分权限。'],
+['兼任按完整范围合并','同一账号兼任多个岗位时，取各项明确授权的并集，不把班级集合与学科集合交叉组合。例如任教高一1班数学、兼高一2班班主任，可看1班数学与2班全科，不能因此读取1班其他学科。'],
+['模板岗位对应','“教研组长负责年级科目”用于配置科组长；“是否教务主任”由运营确认后对应本图的教导主任；“是否校长”对应校长。模板列名保持不变。'],
+['总务主任单独处理','本次未给总务主任岗位配置成绩查看范围，不因该标记自动获得全校成绩权限；如兼任已明确的其他岗位，按对应岗位范围查看。'],
+['变更与停用','岗位撤销、任教调整后重新计算范围，仍有效的其他岗位继续保留。账号停用时停止所有成绩读取；重新启用后按当时有效岗位计算，不恢复过期授权。'],
+['服务端统一校验','成绩页面、明细下钻及问答中的成绩取数均使用同一授权范围，每次读取重新校验身份与权限。页面筛选项或隐藏按钮不代替服务端校验。'],
+['查看与维护分工','这些岗位权限定义成绩的查看范围，教师或管理岗位不因此获得账号配置、师生资料修改或成绩更正权限；资料维护仍由运营办理。'],
+['操作可追溯','记录运营配置及变更的对象、岗位、范围、操作人和时间；成绩读取与越界拒绝记录对应账号及请求范围，便于核对。']]};
+/* ----------------------------------------------------------------------------
+ * 四、流程图渲染器：把 steps[] 画成竖向 SVG
+ *   · 布局常量：W 画布宽；MX0/MX1 主干列左右边界；EX0/EX1 右侧异常框边界
+ *   · 形状与配色严格对应顶部图例，改动此处请同步更新图例（#legend-sf）
+ *   · 一般只需改数据（SF_FLOWS），不需要动这里
+ * --------------------------------------------------------------------------*/
+function flowSVG(steps){
+ const W=780,MX0=150,MX1=470,EX0=512,EX1=748;
+ let y=36;const items=[];
+ steps.forEach((s,i)=>{
+  let h=s.t==='start'||s.t==='end'?52:s.t==='dec'?84:(s.sub?60:44);
+  items.push({...s,i,y,h,cy:y+h/2});y+=h+34;});
+ const H=y;
+ let g=`<defs><marker id="fa-${Math.floor(Math.random()*1e5)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#68778a"/></marker></defs>`;
+ const mk=g.match(/id="fa-(\d+)"/)[1],AR=`url(#fa-${mk})`;
+ const box=(x0,x1,y0,h,fill,stroke,rx)=>`<rect x="${x0}" y="${y0}" width="${x1-x0}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>`;
+ items.forEach(n=>{
+  const cx=(MX0+MX1)/2;
+  if(n.t==='start'||n.t==='end'){g+=box(185,435,n.y,n.h,'#eaf5ee','#528867',26);
+   g+=`<text x="${(185+435)/2}" y="${n.cy+5}" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2e7d4f">${esc(n.x)}</text>`;}
+  else if(n.t==='dec'){
+   g+=`<polygon points="${cx},${n.y} ${MX1+ (0)},${n.cy} ${cx},${n.y+n.h} ${MX0},${n.cy}" fill="#fff8e8" stroke="#b5882c" stroke-width="1.6"/>`;
+   g+=`<text x="${cx}" y="${n.cy-5}" text-anchor="middle" font-size="14" font-weight="600" fill="#25354a">${esc(n.x)}</text>`;
+   if(n.sub)g+=`<text x="${cx}" y="${n.cy+14}" text-anchor="middle" font-size="11.5" fill="#8291a5">${esc(n.sub)}</text>`;
+  }else{
+   const fill=n.t==='f'?'#eef4ff':'#ffffff',stroke=n.t==='f'?'#6c8ebd':'#7d8a9a';
+   g+=box(MX0,MX1,n.y,n.h,fill,stroke,8);
+   const ty=n.sub?n.y+24:n.cy+5;
+   g+=`<text x="${cx}" y="${ty}" text-anchor="middle" font-size="14.5" font-weight="600" fill="#25354a">${esc(n.x)}</text>`;
+   if(n.sub)g+=`<text x="${cx}" y="${ty+18}" text-anchor="middle" font-size="11.5" fill="#8291a5">${esc(n.sub)}</text>`;
+  }});
+ for(let i=0;i<items.length-1;i++){
+  const a=items[i],b=items[i+1];
+  g+=`<line x1="${(MX0+MX1)/2}" y1="${a.y+a.h}" x2="${(MX0+MX1)/2}" y2="${b.y}" stroke="#68778a" stroke-width="1.7" marker-end="${AR}"/>`;
+  if(a.t==='dec')g+=`<text x="${(MX0+MX1)/2+10}" y="${a.y+a.h+16}" font-size="12" font-weight="600" fill="#2e7d4f">${esc(a.mainLabel||'是')}</text>`;
+  if(a.t==='dec'&&a.ex){
+   const exH=a.ex.sub?58:42,exY=a.cy-exH/2,exc=(EX0+EX1)/2,exEnd=a.ex.end===true;
+   g+=box(EX0,EX1,exY,exH,exEnd?'#eaf5ee':'#ffffff',exEnd?'#528867':'#7d8a9a',exEnd?exH/2:8);
+   g+=`<text x="${exc}" y="${exY+24}" text-anchor="middle" font-size="13" font-weight="600" fill="${exEnd?'#2e7d4f':'#25354a'}">${esc(a.ex.x)}</text>`;
+   if(a.ex.sub)g+=`<text x="${exc}" y="${exY+41}" text-anchor="middle" font-size="11" fill="#8291a5">${esc(a.ex.sub)}</text>`;
+   g+=`<line x1="${MX1}" y1="${a.cy}" x2="${EX0}" y2="${a.cy}" stroke="#68778a" stroke-width="1.5" marker-end="${AR}"/>`;
+   g+=`<text x="${(MX1+EX0)/2}" y="${a.cy-8}" text-anchor="middle" font-size="12" font-weight="600" fill="#a3542f">${esc(a.ex.label||'否')}</text>`;
+   if(!exEnd&&Number.isInteger(a.ex.back)&&items[a.ex.back]){
+    const tg=items[a.ex.back],tx=tg.t==='dec'?MX1:(tg.t==='start'||tg.t==='end'?435:MX1);
+    g+=`<polyline points="${exc},${exY} ${exc},${tg.cy} ${tx+6},${tg.cy}" fill="none" stroke="#8a93a0" stroke-width="1.5" stroke-dasharray="5 4" marker-end="${AR}"/>`;
+    g+=`<text x="${exc+8}" y="${(exY+tg.cy)/2+4}" font-size="11" fill="#8a93a0">处理后返回检查</text>`;
+   }
+  }}
+ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+}
+/* ----------------------------------------------------------------------------
+ * 五、子流程页面组装：有 SF_FLOWS 数据 → 渲染页签 + 流程图 + 关键规则；
+ *    无数据 → 渲染"子流程占位页"。页签切换与"返回总览"逻辑也在这里。
+ * --------------------------------------------------------------------------*/
+const fp=document.getElementById('sf-panels');
+Object.values(SUBFLOWS).forEach(sf=>{
+ const sec=document.createElement('section');sec.id='panel-'+sf.id;sec.className='panel';sec.hidden=true;sec.setAttribute('role','tabpanel');
+ const flowData=SF_FLOWS[sf.name];
+ if(flowData){
+  const stCls=sf.status,done=sf.status==='done';
+  // 每个页签下方的一句话说明：优先取 tab 自己的 lead 字段；新增页签推荐直接写
+  // lead:'一句话说明'，不必改 FLEAD_FALLBACK 兜底映射。
+  sec.innerHTML=`<p class="crumb">总览 ／ ${sf.scene.name} ／ ${esc(sf.name)}</p>
+  <div class="panel-head"><h2>${esc(sf.name)}</h2><span class="chip ${stCls}">${done?`已细化（L2 · ${flowData.tabs.length} 个分支流程）`:stLabel(sf.status)}</span></div>
+  <p class="lead">所属场景：${sf.scene.name} ｜ ${flowData.actors?'参与角色：'+esc(flowData.actors):'发起角色：运营管理员'} ｜ 按分支流程切换查看。</p>
+  ${flowData.note?`<p class="flow-note">${esc(flowData.note)}</p>`:''}
+  ${flowData.template?`<details class="template-details"><summary>教师模板 · 15 列字段与录入规则</summary><p class="template-source">依据：${esc(flowData.template.name)}<br>${esc(flowData.template.studentNote)}</p><div class="template-rows">${flowData.template.fields.map(([label,fields,note])=>`<div class="rule"><b>${esc(label)}</b><div>${esc(fields)}<small>${esc(note)}</small></div></div>`).join('')}</div></details>`:''}
+  ${flowData.matrix?`<details class="permission-matrix"><summary>${esc(flowData.matrix.title)}（点击展开）</summary><p class="permission-caption">${esc(flowData.matrix.note)}</p><div class="permission-table-wrap" role="region" aria-label="${esc(flowData.matrix.title)}，可横向滚动" tabindex="0"><table class="permission-table"><thead><tr>${flowData.matrix.headers.map(h=>`<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${flowData.matrix.rows.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`:''}
+  ${flowData.reviewNotice?`<details class="template-details"><summary>${esc(flowData.reviewNotice.title)}</summary><p class="template-source">${esc(flowData.reviewNotice.summary)}</p><div class="template-rows">${flowData.reviewNotice.examples.map(([title,text])=>`<div class="rule"><b>${esc(title)}</b><div>${esc(text)}</div></div>`).join('')}</div><p class="template-source">${esc(flowData.reviewNotice.actions)}</p></details>`:''}
+  <div class="subtabs">${flowData.tabs.map((t,i)=>`<button data-ftab="${i}" aria-selected="${i===0}">${t.name}</button>`).join('')}</div>
+  ${flowData.tabs.map((t,i)=>{const d=t.lead||FLEAD_FALLBACK[sf.name]&&FLEAD_FALLBACK[sf.name][i+1]||'';
+   return `<div class="fpanel" data-fp="${i}" ${i?'hidden':''}><p class="flead">${t.name.slice(3)}${d?'：'+d:''}</p><div class="sheet">${flowSVG(t.steps)}</div></div>`;}).join('')}
+  <div class="rules" style="margin-top:18px"><h3>关键规则</h3>${flowData.rules.map(r=>`<div class="rule"><b>${r[0]}</b>${r[1]}</div>`).join('')}</div>
+  <div class="backrow" style="margin-top:16px"><button data-jump="all">← 返回总览</button></div>`;
+  sec.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
+   const k=b.dataset.ftab;
+   sec.querySelectorAll('[data-ftab]').forEach(x=>x.setAttribute('aria-selected',x===b));
+   sec.querySelectorAll('.fpanel').forEach(p=>p.hidden=p.dataset.fp!==k);});
+ }else{
+  const note='子流程图细化后将挂载在此处：L2 粒度，含操作步骤与关键判断（预校验不通过、重复数据等），泳道横向以子流程自身环节区分。';
+  sec.innerHTML=`<p class="crumb">总览 ／ ${sf.scene.name} ／ ${esc(sf.name)}</p>
+  <div class="panel-head"><h2>${esc(sf.name)}</h2><span class="chip ${sf.status==='draft'?'draft':''}">${stLabel(sf.status)}</span></div>
+  <p class="lead">所属场景：${sf.scene.name} ｜ 发起角色：运营管理员</p>
+  <div class="placeholder"><b>子流程占位页</b><br>${note}</div>
+  <div class="backrow" style="margin-top:16px"><button data-jump="all">← 返回总览</button></div>`;
+ }
+ fp.appendChild(sec);});
+/* ----------------------------------------------------------------------------
+ * 六、顶部导航与视图切换
+ *   · 场景按钮（含 ▾）：点击只展开/收起该场景的子流程下拉，不跳页
+ *   · select(id)：切换视图，同时按视图类型切换顶部图例（总览用泳道图例，
+ *     子流程页用形状图例），并把锚点写入地址栏，支持 URL 直达
+ *   · 点击带 data-jump 的元素即可跳转到对应视图
+ * --------------------------------------------------------------------------*/
+const tabsBox=document.getElementById('tabs');
+SCENES.forEach(s=>{
+ const wrap=document.createElement('div');wrap.className='nav-group';wrap.dataset.for=s.id;
+ const list=s.cols[0].map(n=>`<button data-jump="${SUBFLOWS[n].id}"><span>${esc(n)}</span><span class="st ${SUBFLOWS[n].status}">${stLabel(SUBFLOWS[n].status)}</span></button>`).join('');
+ wrap.innerHTML=`<button class="scene-btn" aria-haspopup="true" data-caret="${s.id}">${s.name}</button><button class="caret" aria-label="展开${s.name}的子流程" data-caret="${s.id}">▾</button><div class="menu" id="menu-${s.id}"><div class="grp">子流程（${s.cols[0].length}）</div>${list}</div>`;
+ tabsBox.appendChild(wrap);});
+let current='all';const tabs=[...document.querySelectorAll('[role=tab]')];
+function closeMenus(){document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open'));document.querySelectorAll('.nav-group.sel').forEach(n=>n.classList.remove('sel'));}
+function select(id){current=id;closeMenus();
+ const ov=id==='all';
+ document.getElementById('legend-all').hidden=!ov;
+ document.getElementById('legend-sf').hidden=ov;
+ document.getElementById('hint-all').hidden=!ov;
+ tabs.forEach(t=>{const a=t.dataset.target===id;t.setAttribute('aria-selected',a);t.tabIndex=a?0:-1});
+ document.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!=='panel-'+id);
+ history.replaceState(null,'','#'+id);window.scrollTo({top:0,behavior:'instant'});}
+tabs.forEach((t,i)=>{t.onclick=()=>select(t.dataset.target);
+ t.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();
+  const n=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+  select(tabs[n].dataset.target);tabs[n].focus();}}});
+document.addEventListener('click',e=>{
+ const caret=e.target.closest('[data-caret]');
+ if(caret){const m=document.getElementById('menu-'+caret.dataset.caret);const was=m.classList.contains('open');closeMenus();
+  if(!was){m.classList.add('open');caret.closest('.nav-group').classList.add('sel');}e.stopPropagation();return;}
+ const jumper=e.target.closest('[data-jump]');
+ if(jumper){select(jumper.dataset.jump);return;}
+ // 总览泳道里的运营管理员卡片（data-sf=子流程锚点）点击直达子流程页
+ const sfCard=e.target.closest('[data-sf]');
+ if(sfCard){select(sfCard.dataset.sf);return;}
+ if(!e.target.closest('.menu'))closeMenus();});
+const h=location.hash.slice(1);
+if(h&&document.getElementById('panel-'+h))select(h);
+</script></body></html>

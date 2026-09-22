@@ -71,6 +71,7 @@ class QuestionScore(Base):
     exam_id = Column(UUID(as_uuid=True), ForeignKey("exams.id"), nullable=False, index=True)
     subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
     question_id = Column(UUID(as_uuid=True), comment="题目ID")
+    question_version_id = Column(UUID(as_uuid=True), nullable=True, comment="经核验的正式题目版本")
     question_no = Column(String(20), nullable=False, comment="题号")
     score = Column(DECIMAL(10, 2), nullable=False, comment="得分")
     full_score = Column(DECIMAL(10, 2), nullable=False, comment="满分")
@@ -83,6 +84,8 @@ class QuestionScore(Base):
 
     __table_args__ = (
         UniqueConstraint("student_id", "exam_id", "subject_id", "question_no", name="uq_student_exam_subject_question"),
+        UniqueConstraint("school_id", "id", name="uq_question_scores_tenant"),
+        ForeignKeyConstraint(["school_id", "question_version_id"], ["education_question_versions.school_id", "education_question_versions.id"], name="fk_score_question_version"),
         ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_question_scores_school_student"),
         ForeignKeyConstraint(["school_id", "exam_id"], ["exams.school_id", "exams.id"], name="fk_question_scores_school_exam"),
         ForeignKeyConstraint(["school_id", "subject_id"], ["subjects.school_id", "subjects.id"], name="fk_question_scores_school_subject"),

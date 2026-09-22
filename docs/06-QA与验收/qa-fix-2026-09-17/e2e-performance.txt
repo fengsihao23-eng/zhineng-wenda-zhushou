@@ -1,0 +1,16 @@
+
+Running 7 tests using 2 workers
+
+(node:26710) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:26709) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 [chromium] › tests/e2e/performance.spec.ts:6:7 › 性能与稳定性 › 生产首页实际成绩在 2000ms 内首次可见 (1.4s)
+  ✓  3 [chromium] › tests/e2e/performance.spec.ts:65:7 › 性能与稳定性 › 聊天页在 5 秒内显示可用输入框 (710ms)
+  ✓  1 [chromium] › tests/e2e/performance.spec.ts:28:7 › 性能与稳定性 › 生产 /profile 禁用缓存完整导航 5 次，成绩与图表首次可见均小于 2000ms (2.5s)
+  ✓  4 [chromium] › tests/e2e/performance.spec.ts:72:7 › 性能与稳定性 › 登录请求断网时显示中文提示并保留登录表单 (550ms)
+  ✓  6 [chromium] › tests/e2e/performance.spec.ts:103:7 › 性能与稳定性 › 侧栏快速切换后支持页完整可用且没有未捕获错误 (978ms)
+  ✓  5 [chromium] › tests/e2e/performance.spec.ts:84:7 › 性能与稳定性 › 流请求等待时阻止重复发送，并能主动停止 (1.3s)
+  ✓  7 [chromium] › tests/e2e/performance.spec.ts:115:7 › 性能与稳定性 › 连续三轮请求各获得对应回复 (1.1s)
+
+  7 passed (5.2s)

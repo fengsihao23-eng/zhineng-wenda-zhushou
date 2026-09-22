@@ -1,0 +1,8 @@
+..................................................................       [100%]
+=============================== warnings summary ===============================
+tests/integration/test_permissions.py::test_student_cannot_modify_jwt_claims_for_privilege_escalation
+  /Users/hao/智能问答助手/.venv/lib/python3.13/site-packages/jose/jwt.py:311: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = timegm(datetime.utcnow().utctimetuple())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+66 passed, 1 warning in 3.88s

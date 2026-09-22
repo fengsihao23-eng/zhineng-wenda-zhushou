@@ -372,6 +372,36 @@ class CsvImportService:
                 self._stage_rows(failed_batch.id, plan.rows, report.issues, status="failed")
             return report
 
+    async def apply_validated_plan(self, plan: ImportPlan, source_system: str, created_by: UUID) -> CsvBatchReport:
+        """Compose the existing importer inside an authenticated workspace transaction.
+
+        The caller owns commit/rollback and holds its school/import lock. No
+        partial domain or staging writes can survive a failure.
+        """
+        if not plan.ok:
+            raise CsvImportError("批次预检未通过")
+        existing = await _one(self.db, ImportBatch, ImportBatch.batch_id == plan.batch_id)
+        report = CsvBatchReport(batch_id=plan.batch_id, root="", files=plan.files, status="succeeded")
+        if existing is not None:
+            if existing.status != "succeeded" or existing.content_hash != plan.content_hash:
+                raise CsvImportError("批次内容冲突")
+            report.imported_rows = existing.success_rows
+            report.idempotent = True
+            return report
+        batch = ImportBatch(batch_id=plan.batch_id, source_system=source_system, root_path=None,
+                            content_hash=plan.content_hash, status="running", total_rows=len(plan.rows),
+                            created_by=created_by)
+        self.db.add(batch)
+        await self.db.flush()
+        self._stage_rows(batch.id, plan.rows, [], status="pending")
+        report.imported_rows = await self._upsert_domain(plan, source_system)
+        await self.db.execute(update(ImportRow).where(ImportRow.batch_id == batch.id).values(status="imported"))
+        batch.status = "succeeded"
+        batch.success_rows = report.imported_rows
+        batch.finished_at = datetime.now(timezone.utc)
+        batch.report_json = report.as_dict()
+        return report
+
     def _stage_rows(
         self,
         batch_id: UUID,

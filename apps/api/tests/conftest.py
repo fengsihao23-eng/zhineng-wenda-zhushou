@@ -80,7 +80,7 @@ async def test_db(test_engine, sample_student_id, sample_school_id) -> AsyncGene
 
 
 @pytest_asyncio.fixture
-async def client(test_db) -> AsyncGenerator[AsyncClient, None]:
+async def client(test_db, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
     """创建测试客户端"""
 
     # 覆盖数据库依赖
@@ -88,6 +88,10 @@ async def client(test_db) -> AsyncGenerator[AsyncClient, None]:
         yield test_db
 
     app.dependency_overrides[get_db] = override_get_db
+    # A test's requests must not consume another test's rate-limit quota.
+    from app.core.rate_limit import RateLimiter
+    from app.core.config import settings
+    monkeypatch.setattr("app.main.rate_limiter", RateLimiter(settings.RATE_LIMIT_PER_MINUTE, settings.RATE_LIMIT_PER_HOUR))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

@@ -1,0 +1,9 @@
+{
+  "deployedNav": "◈\n学习总览\n⌁\n成绩趋势\n◎\n诊断报告\n◇\n错题分析\n✦\n智能问答\n♡\n家长与支持",
+  "deployedProfile": {
+    "url": "http://localhost/profile",
+    "body": "",
+    "rootHtml": "<div class=\"min-h-screen bg-gray-50\"></div>"
+  },
+  "zeroFullScore": "最近考试成绩\n2026-08-12\n664/ 0\nInfinity%\n↗\n+17\n较上次\n班级排名\n第 3 名\n年级排名\n第 8 名\n2024学年第2次月考"
+}

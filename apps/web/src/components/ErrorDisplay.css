@@ -1,0 +1,91 @@
+.error-display {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.error-display--banner {
+  width: 100%;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.error-display--modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  width: calc(100% - 32px);
+  max-width: 600px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.error-display__icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.error-display__content {
+  flex: 1;
+  min-width: 100px;
+  overflow-wrap: anywhere;
+}
+
+.error-display__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: #991b1b;
+}
+
+.error-display__message {
+  font-size: 14px;
+  margin: 0;
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.error-display__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.error-display__button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.error-display__button--primary {
+  background: #991b1b;
+  color: white;
+}
+
+.error-display__button--primary:hover {
+  background: #7f1d1d;
+}
+
+.error-display__button--secondary {
+  background: transparent;
+  color: #991b1b;
+  border: 1px solid #991b1b;
+}
+
+.error-display__button--secondary:hover {
+  background: #fee2e2;
+}

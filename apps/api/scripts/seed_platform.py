@@ -44,14 +44,13 @@ async def ensure_user(db: AsyncSession, school: School, role: Role, username: st
 
 
 async def seed() -> None:
+    settings.require_demo_environment()
     engine = create_async_engine(settings.DATABASE_URL)
     factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as db:
         school = await db.scalar(select(School).where(School.code == "DEMO_SCHOOL"))
         if school is None:
-            school = await db.scalar(select(School).where(School.status == "active").order_by(School.created_at.asc()))
-        if school is None:
-            raise RuntimeError("没有可用学校，请先运行 scripts/setup_database.py")
+            raise RuntimeError("示例学校不存在，请先在隔离的 development/test 环境初始化示例数据")
         roles = {
             "TEACHER": await ensure_role(db, "TEACHER", "教师"),
             "SCHOOL_ADMIN": await ensure_role(db, "SCHOOL_ADMIN", "学校管理员"),
@@ -106,7 +105,7 @@ async def seed() -> None:
             ))
         await db.commit()
     await engine.dispose()
-    print("Platform fixtures ready. All demo passwords: password123")
+    print("Platform fixtures ready for development/test only; credentials are not logged.")
 
 
 if __name__ == "__main__":

@@ -1,116 +1,160 @@
+/* Chat container — a paper stage inside the student workspace. */
 .chat-container {
+  position: relative;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   max-width: 100%;
   margin: 0 auto;
-  background: #f5f7fa;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-cards);
+  box-shadow: var(--shadow-card);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+/* Empty state — the greeting and composer float together in the middle. */
+.chat-container.is-empty {
+  justify-content: center;
+  padding: 0 var(--spacing-24) var(--spacing-72);
+}
+
+.chat-container.is-empty .chat-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.chat-container.is-empty .chat-header__title,
+.chat-container.is-empty .chat-header__subtitle {
+  display: none;
+}
+
+.chat-container.is-empty .message-list {
+  flex: 0 0 auto;
+  overflow: visible;
+  background: transparent;
+}
+
+.chat-container.is-empty .input-box {
+  padding: 0;
+  background: transparent;
 }
 
 .chat-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 24px 20px;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: var(--spacing-20) var(--spacing-24);
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-surface);
+  color: var(--color-ink);
 }
 
 .chat-header__toolbar {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  max-width: 1200px;
+  justify-content: flex-end;
+  gap: var(--spacing-8);
   margin: 0 auto 12px;
 }
 
 .chat-header__sessions,
 .chat-header__action {
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  color: white;
-  padding: 7px 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-imagetiles);
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-size: 13px;
 }
 
-.chat-header__sessions option {
-  color: #333;
+.chat-header__sessions:focus {
+  outline: 0;
+  border-color: var(--color-accent);
 }
 
 .chat-header__action {
   cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 .chat-header__action:hover {
-  background: rgba(255, 255, 255, 0.28);
+  border-color: var(--color-accent);
+  background: var(--color-wash);
 }
 
 .chat-header__title {
-  font-size: 24px;
-  font-weight: 600;
   margin: 0 0 8px 0;
+  color: var(--color-ink);
+  font-size: var(--text-heading);
+  font-weight: var(--font-weight-w350);
+  line-height: var(--leading-heading);
+  letter-spacing: var(--tracking-heading);
 }
 
 .chat-header__subtitle {
-  font-size: 14px;
   margin: 0;
-  opacity: 0.9;
+  color: var(--color-faint);
+  font-size: var(--text-caption);
 }
 
 .error-banner {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 20px;
-  background: #fee;
-  border-bottom: 1px solid #fcc;
-  color: #c33;
-  animation: slideDown 0.3s ease-out;
+  margin: var(--spacing-16) var(--spacing-24) 0;
+  padding: 12px var(--spacing-16);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-imagetiles);
+  background: var(--color-wash);
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  animation: slideDown 0.25s ease-out;
 }
 
 .error-banner__icon {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .error-banner__text {
   flex: 1;
-  font-size: 14px;
 }
 
 .error-banner__close {
-  background: none;
-  border: none;
-  color: #c33;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 0;
-  width: 24px;
-  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  transition: background 0.2s;
+  background: none;
+  color: var(--color-ink);
+  font-size: 16px;
+  cursor: pointer;
 }
 
 .error-banner__close:hover {
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--color-accent-soft);
 }
 
 .error-banner__retry {
-  border: 1px solid #c33;
-  border-radius: 6px;
-  background: transparent;
-  color: #c33;
+  padding: 4px 12px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-imagetiles);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
-  padding: 4px 10px;
 }
 
 @keyframes slideDown {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
@@ -119,12 +163,8 @@
 }
 
 @media (max-width: 768px) {
-  .chat-container {
-    height: 100dvh; /* 动态视口高度 */
-  }
-
   .chat-header {
-    padding: 20px 16px;
+    padding: var(--spacing-16);
   }
 
   .chat-header__toolbar {
@@ -133,10 +173,15 @@
   }
 
   .chat-header__title {
-    font-size: 20px;
+    font-size: var(--text-heading-sm);
+    letter-spacing: var(--tracking-heading-sm);
   }
 
   .chat-header__subtitle {
     font-size: 13px;
+  }
+
+  .error-banner {
+    margin: 12px var(--spacing-16) 0;
   }
 }

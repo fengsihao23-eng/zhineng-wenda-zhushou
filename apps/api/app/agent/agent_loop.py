@@ -75,14 +75,23 @@ class AgentLoop:
         request_id: str,
         chat_history: List[dict] | None = None,
         session_id: UUID | None = None,
+        selected_exam_id: UUID | None = None,
+        selected_subject_name: str | None = None,
     ) -> AgentResponse:
         if len(user_query.strip()) == 0 or len(user_query) > 4000:
             raise ValueError("消息长度必须在1到4000个字符之间")
 
         run_id = uuid4()
-        context = await self.context_builder.build_context(student_id, school_id)
+        context = await self.context_builder.build_context(student_id, school_id, selected_exam_id)
         intent = self.intent_router.route(user_query)
         entities = self.intent_router.extract_entities(user_query)
+        if selected_exam_id:
+            entities['exam_id'] = str(selected_exam_id)
+        if selected_subject_name:
+            entities['subject_name'] = selected_subject_name
+            context.selected_subject_name = selected_subject_name
+            context.recent_exams = [{k:v for k,v in exam.items() if k in {'exam_id','exam_name','exam_date'}} for exam in context.recent_exams]
+            context.latest_exam = context.recent_exams[0] if context.recent_exams else None
         tool_context = ToolContext(
             request_id=request_id,
             agent_run_id=str(run_id),
@@ -112,6 +121,8 @@ class AgentLoop:
         tools_called = 0
         try:
             tool_names = list(intent.suggested_tools[:1])
+            if selected_subject_name and tool_names == ['get_exam_summary']:
+                tool_names = ['get_subject_scores']
             for tool_name in tool_names:
                 tool = self.tool_registry.get(tool_name)
                 if not tool:
@@ -237,9 +248,12 @@ class AgentLoop:
 
     @staticmethod
     def _tool_args(tool_name: str, entities: dict) -> dict:
-        if tool_name in {"get_score_trend", "get_subject_scores", "get_question_losses"}:
-            return {"subject_name": entities["subject_name"]} if entities.get("subject_name") else {}
-        return {}
+        args = {}
+        if tool_name in {"get_score_trend", "get_subject_scores", "get_question_losses", "get_diagnosis", "get_rank_change"} and entities.get("subject_name"):
+            args['subject_name'] = entities['subject_name']
+        if entities.get('exam_id'):
+            args['current_exam_id' if tool_name == 'get_rank_change' else 'exam_id'] = entities['exam_id']
+        return args
 
     def _build_messages(
         self,

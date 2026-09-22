@@ -1,0 +1,99 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # 每天凌晨3点运行
+    - cron: '0 3 * * *'
+
+jobs:
+  e2e-tests:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Playwright 配置只定义了 chromium；勿再跑未配置的 Firefox/WebKit。
+        browser: [chromium]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Create .env file
+        run: |
+          cp .env.example .env
+          sed -i 's/your_secure_password_here/test_password_123/g' .env
+          sed -i 's/your_jwt_secret_key_here_minimum_32_characters/test_jwt_secret_key_minimum_32_characters_here/g' .env
+          sed -i 's/your_secret_key_here/test_secret_key_for_ci_testing_environment/g' .env
+          # E2E 会快速发起大量请求；提高限流阈值，避免 429 造成随机失败。
+          echo "RATE_LIMIT_PER_MINUTE=100000" >> .env
+          echo "RATE_LIMIT_PER_HOUR=100000" >> .env
+
+      - name: Start services with Docker Compose
+        run: |
+          docker compose up -d --build --wait --wait-timeout 180
+
+      - name: Wait for services to be ready
+        run: |
+          chmod +x ./scripts/wait-for-health.sh
+          ./scripts/wait-for-health.sh
+
+      - name: Run database migrations
+        run: docker compose exec -T api alembic upgrade head
+
+      - name: Initialize test data
+        run: docker compose exec -T api python scripts/init_test_data.py
+
+      - name: Run Playwright tests
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost
+        run: npx playwright test --config=playwright.config.ts --project=${{ matrix.browser }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload machine-readable results and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-videos-${{ matrix.browser }}
+          path: test-results/
+          retention-days: 7
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== API Logs ==="
+          docker compose logs api
+          echo "=== DB Logs ==="
+          docker compose logs db
+          echo "=== Redis Logs ==="
+          docker compose logs redis
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v

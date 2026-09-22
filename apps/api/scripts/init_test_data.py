@@ -38,8 +38,10 @@ from app.db.models.diagnosis import DiagnosisReport, StudentEntitlement
 async def init_test_data():
     """初始化测试数据"""
 
+    settings.require_demo_environment()
+
     # 创建数据库引擎
-    engine = create_async_engine(settings.DATABASE_URL, echo=True)
+    engine = create_async_engine(settings.DATABASE_URL, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
@@ -349,10 +351,9 @@ async def init_test_data():
             print("="*60)
             print(f"\n学校: {school.name} (ID: {school.id})")
             print(f"\n测试账号:")
-            print(f"  1. 用户名: student_basic, 密码: password123 (BASIC用户)")
-            print(f"     学生: {students[0].name}, 学号: {students[0].student_no}")
-            print(f"  2. 用户名: student_diagnosis, 密码: password123 (DIAGNOSIS用户)")
-            print(f"     学生: {students[1].name}, 学号: {students[1].student_no}")
+            print("  1. BASIC 示例账号已创建")
+            print("  2. DIAGNOSIS 示例账号已创建")
+            print("  凭据不输出到日志；仅用于隔离的 development/test 环境。")
             print(f"\n考试: {len(exams)}次")
             print(f"科目: {len(subjects)}门")
             print(f"成绩数据: 已生成")

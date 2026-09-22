@@ -1,5 +1,7 @@
 """Idempotent built-in prompts used by every deployment."""
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.prompt import PromptTemplate
@@ -28,12 +30,14 @@ async def ensure_default_prompts(db: AsyncSession) -> int:
         )
         prompt = result.scalar_one_or_none()
         if prompt is None:
-            prompt = PromptTemplate(**item, version="v1", status="published")
-            db.add(prompt)
-            changed += 1
-        elif prompt.status != "published":
-            prompt.status = "published"
-            changed += 1
+            # Multiple workers can bootstrap an empty database concurrently.
+            # A deployed draft/deprecated version is an explicit decision;
+            # startup must never silently publish it again.
+            insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+            created = await db.scalar(insert(PromptTemplate).values(**item, version="v1", status="published")
+                                      .on_conflict_do_nothing(index_elements=["name", "version"])
+                                      .returning(PromptTemplate.id))
+            changed += int(created is not None)
     if changed:
         await db.commit()
     return changed

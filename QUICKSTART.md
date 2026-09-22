@@ -1,7 +1,7 @@
 # 快速开始
 
 当前可执行的 Docker、本地开发和测试命令集中在
-[docs/QUICKSTART.md](docs/QUICKSTART.md)。
+[docs/08-运维与交付/QUICKSTART.md](docs/08-运维与交付/QUICKSTART.md)。
 
 ```bash
 cp .env.example .env
@@ -21,4 +21,4 @@ docker compose ps
 ```
 
 后端测试默认使用内存 SQLite，CI 还运行 PostgreSQL 15。详见
-[docs/TESTING.md](docs/TESTING.md)。
+[docs/08-运维与交付/TESTING.md](docs/08-运维与交付/TESTING.md)。

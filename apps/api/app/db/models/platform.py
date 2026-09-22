@@ -2,7 +2,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -23,6 +23,7 @@ class KnowledgeDocument(Base):
     source_reference = Column(String(500), nullable=False)
     version = Column(String(30), nullable=False, default="v1")
     status = Column(String(30), nullable=False, default="draft", index=True)
+    state_version = Column(Integer, nullable=False, default=1, server_default="1")
     tags = Column(JSONB)
     rejection_reason = Column(String(500))
     created_by = Column(UUID(as_uuid=True), nullable=False)
@@ -32,6 +33,11 @@ class KnowledgeDocument(Base):
     offlined_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'pending_review', 'published', 'rejected', 'offline')", name="valid_status"),
+        CheckConstraint("state_version >= 1", name="positive_state_version"),
+    )
 
 
 class ParentAuthorization(Base):
@@ -64,10 +70,17 @@ class PlatformFeedback(Base):
     category = Column(String(50), nullable=False, default="回答质量")
     note = Column(String(1000))
     status = Column(String(20), nullable=False, default="open", index=True)
+    state_version = Column(Integer, nullable=False, default=1, server_default="1")
     assignee_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     resolution = Column(String(1000))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     resolved_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'acknowledged', 'resolved', 'closed')", name="valid_status"),
+        CheckConstraint("state_version >= 1", name="positive_state_version"),
+        ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_platform_feedback_school_student"),
+    )
 
 
 class RiskEvent(Base):
@@ -82,9 +95,17 @@ class RiskEvent(Base):
     detail = Column(Text, nullable=False)
     source = Column(String(80), nullable=False, default="system")
     status = Column(String(20), nullable=False, default="open", index=True)
+    state_version = Column(Integer, nullable=False, default=1, server_default="1")
     assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    resolution = Column(String(1000))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     resolved_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'acknowledged', 'resolved', 'closed')", name="valid_status"),
+        CheckConstraint("state_version >= 1", name="positive_state_version"),
+        ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_risk_events_school_student"),
+    )
 
 
 class HumanHandoff(Base):
@@ -98,8 +119,17 @@ class HumanHandoff(Base):
     priority = Column(String(20), nullable=False, default="normal", index=True)
     summary = Column(Text, nullable=False)
     status = Column(String(20), nullable=False, default="open", index=True)
+    state_version = Column(Integer, nullable=False, default=1, server_default="1")
     assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    resolution = Column(String(1000))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     accepted_at = Column(DateTime(timezone=True))
     resolved_at = Column(DateTime(timezone=True))
 
+    __table_args__ = (
+        UniqueConstraint("school_id", "id", name="uq_human_handoffs_tenant"),
+        CheckConstraint("status IN ('open', 'accepted', 'resolved', 'closed')", name="valid_status"),
+        CheckConstraint("state_version >= 1", name="positive_state_version"),
+        ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_human_handoffs_school_student"),
+        ForeignKeyConstraint(["school_id", "student_id", "session_id"], ["chat_sessions.school_id", "chat_sessions.student_id", "chat_sessions.id"], name="fk_handoffs_school_student_session"),
+    )

@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="师生班级与考试、成绩导入、班级分析、学生学情、正式报告原件与智能问答的业务流程图。">
+  <title>五模块业务流程 · 智能问答对接</title>
+  <style>
+    :root {
+      --ink: #203044;
+      --muted: #647085;
+      --faint: #8b94a3;
+      --line: #dfe4eb;
+      --line-strong: #cfd6df;
+      --bg: #f4f6f8;
+      --paper: #ffffff;
+      --indigo: #5158a8;
+      --indigo-soft: #eef0fb;
+      --teal: #237b70;
+      --teal-soft: #e8f4f1;
+      --amber: #9b6b23;
+      --amber-soft: #fbf2df;
+      --red: #ad4e5d;
+      --red-soft: #faebed;
+      --blue: #34759b;
+      --blue-soft: #eaf3f8;
+      --green: #397a58;
+      --green-soft: #eaf4ee;
+      --shadow: 0 8px 28px rgba(35, 49, 67, 0.07);
+      --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      color-scheme: light;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-width: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 14px/1.65 var(--font);
+      letter-spacing: 0;
+    }
+
+    button, a { font: inherit; }
+    button { letter-spacing: 0; }
+    button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
+      outline: 3px solid rgba(81, 88, 168, 0.28);
+      outline-offset: 3px;
+    }
+
+    h1, h2, h3, p, dl, dd, figure { margin: 0; }
+
+    .page-shell {
+      width: min(1640px, 100%);
+      margin: 0 auto;
+      padding: 28px 32px 42px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: #fff;
+      background: var(--indigo);
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .brand small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .action-button {
+      min-height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 7px 12px;
+      color: #44526a;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .action-button:hover { border-color: #aeb5ce; background: #f8f8fc; }
+
+    .version {
+      padding: 5px 8px;
+      color: var(--faint);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.7);
+      font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 430px);
+      gap: 38px;
+      align-items: end;
+      padding: 34px 0 28px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin-bottom: 10px;
+      color: var(--indigo);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.18;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    .hero-copy {
+      margin-top: 15px;
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.9;
+    }
+
+    .goal-box {
+      border-left: 3px solid var(--teal);
+      padding: 4px 0 4px 18px;
+    }
+
+    .goal-box span {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--teal);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .goal-box strong {
+      display: block;
+      font-size: 17px;
+      line-height: 1.65;
+      font-weight: 650;
+    }
+
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 24px 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      overflow: hidden;
+    }
+
+    .summary-item {
+      min-width: 0;
+      padding: 16px 18px;
+      border-right: 1px solid var(--line);
+    }
+
+    .summary-item:last-child { border-right: 0; }
+
+    .summary-item dt {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .summary-item dd {
+      margin-top: 5px;
+      font-size: 20px;
+      line-height: 1.3;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .summary-item p {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 32px 0 14px;
+    }
+
+    .section-heading h2 {
+      font-size: 21px;
+      line-height: 1.35;
+    }
+
+    .section-heading p {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow-controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .filter-button {
+      min-height: 33px;
+      padding: 6px 11px;
+      color: #637087;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .filter-button:hover { border-color: #b8bfd1; }
+    .filter-button.active {
+      color: #fff;
+      border-color: var(--indigo);
+      background: var(--indigo);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 13px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 9px; height: 9px; border-radius: 2px; }
+    .legend .available { background: var(--green); }
+    .legend .module { background: var(--indigo); }
+    .legend .fact { background: var(--teal); }
+    .legend .question { background: var(--blue); }
+    .legend .gap { background: var(--red); }
+
+    .flow-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .diagram-frame {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .diagram-scroll {
+      overflow: auto;
+      overscroll-behavior: contain;
+      scrollbar-color: #c7cdd8 transparent;
+    }
+
+    .diagram-scroll svg {
+      display: block;
+      width: 100%;
+      min-width: 1100px;
+      height: auto;
+      background: #fff;
+    }
+
+    .diagram-caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 10px 14px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      background: #fafbfd;
+      font-size: 10px;
+    }
+
+    .detail-panel {
+      position: sticky;
+      top: 16px;
+      min-height: 530px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .detail-head {
+      padding: 18px 19px 15px;
+      color: #fff;
+      background: #303850;
+    }
+
+    .detail-head span {
+      display: block;
+      color: #cbd1df;
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .detail-head h3 {
+      margin-top: 5px;
+      font-size: 19px;
+      line-height: 1.45;
+    }
+
+    .detail-state {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 3px 7px;
+      color: #303850;
+      border-radius: 3px;
+      background: #eef1f7;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .detail-body { padding: 17px 19px 19px; }
+
+    .detail-summary {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .detail-grid {
+      margin-top: 17px;
+      border-top: 1px solid var(--line);
+    }
+
+    .detail-row {
+      display: grid;
+      grid-template-columns: 62px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #edf0f4;
+    }
+
+    .detail-row dt {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .detail-row dd {
+      color: #4c5a70;
+      font-size: 11px;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+    }
+
+    .detail-alert {
+      margin-top: 15px;
+      padding: 10px 11px;
+      color: #815e27;
+      border-left: 3px solid #c69a4a;
+      background: var(--amber-soft);
+      font-size: 11px;
+      line-height: 1.7;
+    }
+
+    .status-band {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 1fr;
+      margin-top: 26px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .status-block {
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .status-block:last-child { border-right: 0; }
+    .status-block h3 { font-size: 13px; }
+    .status-block p { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+    .status-block strong { color: var(--ink); }
+    .status-block.warn { background: #fffbf3; }
+    .status-block.blocked { background: #fff8f9; }
+
+    .phase-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      overflow: hidden;
+      counter-reset: phase;
+    }
+
+    .phase {
+      position: relative;
+      min-width: 0;
+      padding: 19px 20px 21px;
+      border-right: 1px solid var(--line);
+      counter-increment: phase;
+    }
+
+    .phase:last-child { border-right: 0; }
+
+    .phase::before {
+      content: "0" counter(phase);
+      display: block;
+      margin-bottom: 11px;
+      color: var(--indigo);
+      font: 700 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .phase::after {
+      content: "";
+      position: absolute;
+      right: -7px;
+      top: 44px;
+      z-index: 2;
+      width: 12px;
+      height: 12px;
+      border-top: 1px solid var(--line-strong);
+      border-right: 1px solid var(--line-strong);
+      background: #fff;
+      transform: rotate(45deg);
+    }
+
+    .phase:last-child::after { display: none; }
+    .phase h3 { font-size: 14px; }
+    .phase p { margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.75; }
+    .phase small { display: block; margin-top: 10px; color: var(--teal); font-size: 10px; font-weight: 700; }
+
+    .rule-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      overflow: hidden;
+      font-size: 11px;
+    }
+
+    .rule-table th,
+    .rule-table td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      line-height: 1.75;
+    }
+
+    .rule-table tr:last-child td { border-bottom: 0; }
+    .rule-table th { color: #5b6679; background: #f7f8fa; font-size: 10px; }
+    .rule-table td:first-child { width: 150px; color: var(--ink); font-weight: 700; }
+    .rule-table td:nth-child(2) { color: #4b596e; }
+    .rule-table td:last-child { color: var(--muted); }
+
+    .page-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 34px;
+      padding-top: 18px;
+      color: var(--faint);
+      border-top: 1px solid var(--line);
+      font-size: 10px;
+    }
+
+    /* SVG */
+    .lane-bg { fill: #fbfcfd; stroke: #e7ebf0; stroke-width: 1; }
+    .lane-bg.alt { fill: #f8f9fb; }
+    .lane-title { fill: #2d3b51; font: 700 15px var(--font); }
+    .lane-subtitle { fill: #8a94a4; font: 10px var(--font); }
+    .lane-rule { stroke: #e7ebf0; stroke-width: 1; }
+    .edge { fill: none; stroke: #9ba7b7; stroke-width: 1.7; marker-end: url(#arrow); transition: opacity .18s; }
+    .edge.strong { stroke: #64738a; stroke-width: 2; }
+    .edge.dashed { stroke-dasharray: 6 5; }
+    .edge-label { fill: #7a8698; font: 9px var(--font); }
+    .node { cursor: pointer; transition: opacity .18s; }
+    .node .node-box { fill: #fff; stroke: #cfd6df; stroke-width: 1.2; rx: 6; }
+    .node:hover .node-box,
+    .node:focus .node-box,
+    .node.selected .node-box { stroke: #5158a8; stroke-width: 2.2; }
+    .node-title { fill: #26364d; font: 700 14px var(--font); pointer-events: none; }
+    .node-body { fill: #667389; font: 10.5px var(--font); pointer-events: none; }
+    .node-no { fill: #5158a8; font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace; pointer-events: none; }
+    .node-status { fill: #667389; font: 700 9px var(--font); pointer-events: none; }
+    .status-dot.ok { fill: #397a58; }
+    .status-dot.pending { fill: #ad4e5d; }
+    .status-dot.work { fill: #9b6b23; }
+    .source-node .node-box { fill: #fbfcfd; }
+    .module-node .node-box { fill: #f4f5fc; stroke: #bfc4e2; }
+    .fact-node .node-box { fill: #eaf5f2; stroke: #91bdb5; }
+    .app-node .node-box { fill: #f8fbfd; stroke: #b8d0dd; }
+    .qa-node .node-box { fill: #edf5fa; stroke: #a9c9da; }
+    .control-node .node-box { fill: #faf8f2; stroke: #d9c9a7; }
+    .node.dim, .edge.dim, .edge-label.dim { opacity: .13; }
+    .node.selected { opacity: 1 !important; }
+    .control-label { fill: #5f6c80; font: 700 10px var(--font); pointer-events: none; }
+    .control-copy { fill: #7c8798; font: 9px var(--font); pointer-events: none; }
+    .flow-label { fill: #ffffff; font: 700 9px var(--font); }
+    .flow-label-bg { fill: #5158a8; rx: 3; }
+
+    @media (max-width: 1500px) {
+      .flow-layout { grid-template-columns: 1fr; }
+      .detail-panel { position: static; min-height: 0; }
+      .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .detail-row { grid-template-columns: 58px minmax(0, 1fr); padding-right: 14px; }
+      .detail-alert { margin-bottom: 1px; }
+    }
+
+    @media (max-width: 1120px) {
+      .page-shell { padding: 22px 20px 36px; }
+      .detail-panel { position: static; min-height: 0; }
+      .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .detail-row { grid-template-columns: 58px minmax(0, 1fr); padding-right: 14px; }
+      .detail-alert { margin-bottom: 1px; }
+      .status-band { grid-template-columns: 1fr; }
+      .status-block { border-right: 0; border-bottom: 1px solid var(--line); }
+      .status-block:last-child { border-bottom: 0; }
+    }
+
+    @media (max-width: 760px) {
+      .page-shell { padding: 16px 14px 30px; }
+      .topbar { align-items: flex-start; }
+      .brand small { display: none; }
+      .version { display: none; }
+      .action-button { width: 36px; padding: 6px; font-size: 0; }
+      .action-button::before { content: "PDF"; font-size: 9px; font-weight: 750; }
+      .hero { grid-template-columns: 1fr; gap: 20px; padding: 27px 0 22px; }
+      h1 { font-size: 29px; }
+      .hero-copy { font-size: 13px; }
+      .goal-box strong { font-size: 15px; }
+      .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary-item:nth-child(2) { border-right: 0; }
+      .summary-item:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .summary-item dd { font-size: 18px; }
+      .section-heading { display: block; }
+      .flow-controls { justify-content: flex-start; margin-top: 12px; }
+      .legend { gap: 9px; }
+      .diagram-scroll svg { min-width: 980px; }
+      .diagram-caption { display: block; }
+      .diagram-caption span { display: block; }
+      .diagram-caption span + span { margin-top: 4px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .phase-flow { display: block; }
+      .phase { border-right: 0; border-bottom: 1px solid var(--line); }
+      .phase:last-child { border-bottom: 0; }
+      .phase::after { display: none; }
+      .rule-table { display: block; overflow-x: auto; white-space: normal; }
+      .rule-table table { min-width: 720px; }
+      .page-footer { display: block; }
+      .page-footer span { display: block; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      * { transition: none !important; }
+    }
+
+    @page { size: A3 landscape; margin: 10mm; }
+
+    @media print {
+      body { background: #fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .page-shell { width: 100%; max-width: none; padding: 0; }
+      .top-actions, .flow-controls { display: none; }
+      .hero { padding-top: 18px; }
+      .flow-layout { grid-template-columns: minmax(0, 1fr) 290px; }
+      .detail-panel { position: static; box-shadow: none; }
+      .diagram-frame { box-shadow: none; }
+      .diagram-scroll { overflow: visible; }
+      .diagram-scroll svg { min-width: 0; }
+      .status-band, .phase-flow, .rule-table { break-inside: avoid; }
+      .section-heading { margin-top: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">知</span>
+        <span>
+          <strong>知行 · 教务与教学分析</strong>
+          <small>五模块业务流程与智能问答对接</small>
+        </span>
+      </div>
+      <div class="top-actions">
+        <span class="version">2026.09.20 · 方案版</span>
+        <button id="printButton" class="action-button" type="button" title="打印或导出 PDF">打印 / PDF</button>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">业务流程图 · 单文件离线版</p>
+        <h1 id="page-title">从学校真实数据，到可追溯的智能问答</h1>
+        <p class="hero-copy">
+          师生班级与考试、成绩导入、班级分析、学生学情、正式报告原件五个模块，
+          共用同一套身份、统计口径、数据版本和权限规则，再由智能问答解释已有事实。
+        </p>
+      </div>
+      <aside class="goal-box" aria-label="一期验收目标">
+        <span>一期验收目标</span>
+        <strong>同一学生、同一考试、同一学科、同一数据版本，在页面和问答中结果一致，并能回到对应成绩记录或报告原件。</strong>
+      </aside>
+    </section>
+
+    <dl class="summary-strip" aria-label="方案摘要">
+      <div class="summary-item">
+        <dt>业务模块</dt>
+        <dd>5</dd>
+        <p>教务生产、教学分析与正式报告</p>
+      </div>
+      <div class="summary-item">
+        <dt>现有问答工具</dt>
+        <dd>6</dd>
+        <p>总分、学科、排名、趋势、小题、报告</p>
+      </div>
+      <div class="summary-item">
+        <dt>旧备份可用档案</dt>
+        <dd>1,743</dd>
+        <p>学生记录；另有教师与任教关系</p>
+      </div>
+      <div class="summary-item">
+        <dt>当前关键缺口</dt>
+        <dd>成绩 / 报告</dd>
+        <p>已核对备份中的对应业务表为空</p>
+      </div>
+    </dl>
+
+    <section aria-labelledby="flow-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="flow-title">全链路业务流程</h2>
+          <p>实线表示当前一期数据流；虚线表示约束或后续扩展。</p>
+        </div>
+        <div class="flow-controls" role="group" aria-label="流程范围">
+          <button class="filter-button active" type="button" data-filter="all">全链路</button>
+          <button class="filter-button" type="button" data-filter="ingestion">数据接入</button>
+          <button class="filter-button" type="button" data-filter="analysis">分析应用</button>
+          <button class="filter-button" type="button" data-filter="qa">问答对接</button>
+        </div>
+      </div>
+
+      <div class="legend" aria-label="图例">
+        <span><i class="available"></i>旧备份可盘点</span>
+        <span><i class="module"></i>五个主责模块</span>
+        <span><i class="fact"></i>统一事实与统计服务</span>
+        <span><i class="question"></i>智能问答链路</span>
+        <span><i class="gap"></i>待补真实数据</span>
+      </div>
+
+      <div class="flow-layout">
+        <figure class="diagram-frame">
+          <div class="diagram-scroll" tabindex="0" aria-label="五模块业务流程图，可横向滚动">
+            <svg viewBox="0 0 1480 820" role="img" aria-labelledby="svg-title svg-desc">
+              <title id="svg-title">五模块与智能问答的全链路业务流程</title>
+              <desc id="svg-desc">旧产物、成绩文件和报告原件经过师生考务、成绩导入、报告版本处理，进入统一事实服务，再服务班级分析、学生学情和智能问答。</desc>
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#7f8ca0"></path>
+                </marker>
+              </defs>
+
+              <!-- column lanes -->
+              <rect class="lane-bg" x="18" y="18" width="242" height="640" rx="6"></rect>
+              <rect class="lane-bg alt" x="278" y="18" width="252" height="640" rx="6"></rect>
+              <rect class="lane-bg" x="548" y="18" width="242" height="640" rx="6"></rect>
+              <rect class="lane-bg alt" x="808" y="18" width="252" height="640" rx="6"></rect>
+              <rect class="lane-bg" x="1078" y="18" width="384" height="640" rx="6"></rect>
+
+              <text class="lane-title" x="42" y="47">01 数据来源</text>
+              <text class="lane-subtitle" x="42" y="65">旧资料与待提供材料</text>
+              <line class="lane-rule" x1="42" y1="80" x2="236" y2="80"></line>
+
+              <text class="lane-title" x="302" y="47">02 业务生产</text>
+              <text class="lane-subtitle" x="302" y="65">清洗、校验、审核与发布</text>
+              <line class="lane-rule" x1="302" y1="80" x2="506" y2="80"></line>
+
+              <text class="lane-title" x="572" y="47">03 统一事实</text>
+              <text class="lane-subtitle" x="572" y="65">同源、同口径、可追溯</text>
+              <line class="lane-rule" x1="572" y1="80" x2="766" y2="80"></line>
+
+              <text class="lane-title" x="832" y="47">04 业务应用</text>
+              <text class="lane-subtitle" x="832" y="65">教师分析与学生查询</text>
+              <line class="lane-rule" x1="832" y1="80" x2="1036" y2="80"></line>
+
+              <text class="lane-title" x="1102" y="47">05 智能问答</text>
+              <text class="lane-subtitle" x="1102" y="65">本人范围内解释事实并展示依据</text>
+              <line class="lane-rule" x1="1102" y1="80" x2="1438" y2="80"></line>
+
+              <!-- edges: source -> production -->
+              <path class="edge strong" data-groups="ingestion" d="M230 155 H312"></path>
+              <text class="edge-label" data-groups="ingestion" x="253" y="143">清洗映射</text>
+              <path class="edge strong" data-groups="ingestion" d="M230 315 H312"></path>
+              <text class="edge-label" data-groups="ingestion" x="255" y="303">上传预检</text>
+              <path class="edge strong" data-groups="ingestion" d="M230 475 H312"></path>
+              <text class="edge-label" data-groups="ingestion" x="253" y="463">绑定审核</text>
+
+              <!-- production -> facts -->
+              <path class="edge strong" data-groups="ingestion analysis qa" d="M498 155 H534 Q558 155 558 179 V274 Q558 292 578 292"></path>
+              <path class="edge strong" data-groups="ingestion analysis qa" d="M498 315 H578"></path>
+              <path class="edge strong" data-groups="ingestion analysis qa" d="M498 475 H534 Q558 475 558 451 V356 Q558 338 578 338"></path>
+
+              <!-- facts -> apps -->
+              <path class="edge strong" data-groups="analysis" d="M760 292 H782 Q808 292 808 155 Q808 155 838 155"></path>
+              <path class="edge strong" data-groups="analysis qa" d="M760 315 H838"></path>
+              <path class="edge strong" data-groups="analysis qa" d="M760 338 H782 Q808 338 808 475 Q808 475 838 475"></path>
+
+              <!-- facts/apps -> QA -->
+              <path class="edge" data-groups="qa" d="M1028 315 H1058 Q1088 315 1088 225 Q1088 207 1112 207"></path>
+              <path class="edge" data-groups="qa" d="M1028 475 H1058 Q1088 475 1088 235 Q1088 207 1112 207"></path>
+              <path class="edge" data-groups="qa" d="M760 362 H780 Q1060 362 1060 338 Q1060 325 1112 325"></path>
+              <path class="edge strong" data-groups="qa" d="M1264 247 V285"></path>
+              <path class="edge strong" data-groups="qa" d="M1264 365 V403"></path>
+              <path class="edge strong" data-groups="qa" d="M1264 483 V521"></path>
+              <path class="edge dashed" data-groups="qa" d="M1150 596 H1087 Q1059 596 1059 633 H760 Q732 633 732 606"></path>
+              <text class="edge-label" data-groups="qa" x="861" y="625">打开依据时重新校验权限与版本</text>
+
+              <!-- future teacher QA boundary -->
+              <path class="edge dashed" data-groups="analysis" d="M1028 155 H1048 Q1060 155 1060 135 H1110"></path>
+              <text class="edge-label" data-groups="analysis" x="1080" y="125">教师自然语言问答后续单列</text>
+
+              <!-- source nodes -->
+              <g class="node source-node" data-id="sourceRoster" data-groups="ingestion" transform="translate(48 105)" tabindex="0" role="button" aria-label="旧产物师生与考务">
+                <rect class="node-box" width="182" height="100"></rect>
+                <circle class="status-dot ok" cx="14" cy="16" r="4"></circle>
+                <text class="node-status" x="24" y="19">已找到 · 需清洗</text>
+                <text class="node-title" x="14" y="46">旧产物师生与考务</text>
+                <text class="node-body" x="14" y="67">学生 · 教师 · 任教关系</text>
+                <text class="node-body" x="14" y="84">考试 · 学科 · 旧账号线索</text>
+              </g>
+
+              <g class="node source-node" data-id="sourceScores" data-groups="ingestion" transform="translate(48 265)" tabindex="0" role="button" aria-label="真实成绩与小题文件">
+                <rect class="node-box" width="182" height="100"></rect>
+                <circle class="status-dot pending" cx="14" cy="16" r="4"></circle>
+                <text class="node-status" x="24" y="19">待提供 · 当前备份为 0</text>
+                <text class="node-title" x="14" y="46">真实成绩与小题文件</text>
+                <text class="node-body" x="14" y="67">学生标识 · 考试 · 学科</text>
+                <text class="node-body" x="14" y="84">分数 · 满分 · 排名 · 题号</text>
+              </g>
+
+              <g class="node source-node" data-id="sourceReports" data-groups="ingestion" transform="translate(48 425)" tabindex="0" role="button" aria-label="正式报告及原件">
+                <rect class="node-box" width="182" height="100"></rect>
+                <circle class="status-dot pending" cx="14" cy="16" r="4"></circle>
+                <text class="node-status" x="24" y="19">待提供 · 当前目录为空</text>
+                <text class="node-title" x="14" y="46">正式报告及原件</text>
+                <text class="node-body" x="14" y="67">PDF / 图片 · 摘要 / 正文</text>
+                <text class="node-body" x="14" y="84">学生 · 考试 · 学科 · 版本</text>
+              </g>
+
+              <!-- five module production nodes -->
+              <g class="node module-node" data-id="schoolModule" data-groups="ingestion analysis qa" transform="translate(312 105)" tabindex="0" role="button" aria-label="模块一 师生班级与考试">
+                <rect class="node-box" width="186" height="100"></rect>
+                <text class="node-no" x="14" y="20">01</text>
+                <text class="node-title" x="14" y="46">师生班级与考试</text>
+                <text class="node-body" x="14" y="67">稳定身份映射 · 账号绑定</text>
+                <text class="node-body" x="14" y="84">班级历史 · 任教范围 · 考务</text>
+              </g>
+
+              <g class="node module-node" data-id="importModule" data-groups="ingestion analysis qa" transform="translate(312 265)" tabindex="0" role="button" aria-label="模块二 成绩导入">
+                <rect class="node-box" width="186" height="100"></rect>
+                <text class="node-no" x="14" y="20">02</text>
+                <text class="node-title" x="14" y="46">成绩导入</text>
+                <text class="node-body" x="14" y="67">映射 → 预检 → 确认 → 对账</text>
+                <text class="node-body" x="14" y="84">发布版本 · 更正记录 · 回执</text>
+              </g>
+
+              <g class="node module-node" data-id="reportModule" data-groups="ingestion analysis qa" transform="translate(312 425)" tabindex="0" role="button" aria-label="模块五 正式报告原件">
+                <rect class="node-box" width="186" height="100"></rect>
+                <text class="node-no" x="14" y="20">05</text>
+                <text class="node-title" x="14" y="46">正式报告原件</text>
+                <text class="node-body" x="14" y="67">上传 · 绑定 · 人工确认</text>
+                <text class="node-body" x="14" y="84">发布 / 撤回 · 版本与权益</text>
+              </g>
+
+              <!-- facts -->
+              <g class="node fact-node selected" data-id="factService" data-groups="ingestion analysis qa" transform="translate(578 205)" tabindex="0" role="button" aria-label="统一事实与统计服务">
+                <rect class="node-box" width="182" height="210"></rect>
+                <text class="node-no" x="16" y="24">CORE</text>
+                <text class="node-title" x="16" y="56">统一事实与统计服务</text>
+                <line x1="16" y1="72" x2="166" y2="72" stroke="#bdd8d1"></line>
+                <text class="node-body" x="16" y="96">同一身份与权限范围</text>
+                <text class="node-body" x="16" y="120">同一已发布数据版本</text>
+                <text class="node-body" x="16" y="144">同一均分 / 排名 / 丢分口径</text>
+                <text class="node-body" x="16" y="168">同一报告授权与版本</text>
+                <rect x="16" y="182" width="113" height="18" class="flow-label-bg"></rect>
+                <text x="24" y="195" class="flow-label">页面 API 与 Tool 共用</text>
+              </g>
+
+              <!-- business apps -->
+              <g class="node module-node" data-id="classAnalysis" data-groups="analysis" transform="translate(838 105)" tabindex="0" role="button" aria-label="模块三 班级分析">
+                <rect class="node-box" width="190" height="100"></rect>
+                <text class="node-no" x="14" y="20">03</text>
+                <text class="node-title" x="14" y="46">班级分析</text>
+                <text class="node-body" x="14" y="67">应考 / 实考 · 均分 · 分布</text>
+                <text class="node-body" x="14" y="84">前次比较 · 小题 / 知识点</text>
+              </g>
+
+              <g class="node module-node" data-id="studentLearning" data-groups="analysis qa" transform="translate(838 265)" tabindex="0" role="button" aria-label="模块四 学生学情">
+                <rect class="node-box" width="190" height="100"></rect>
+                <text class="node-no" x="14" y="20">04</text>
+                <text class="node-title" x="14" y="46">学生学情</text>
+                <text class="node-body" x="14" y="67">考试 / 学科筛选 · 成绩趋势</text>
+                <text class="node-body" x="14" y="84">小题失分 · 缺项 · 数据来源</text>
+              </g>
+
+              <g class="node app-node" data-id="reportRead" data-groups="analysis qa" transform="translate(838 425)" tabindex="0" role="button" aria-label="报告受权查询">
+                <rect class="node-box" width="190" height="100"></rect>
+                <text class="node-no" x="14" y="20">READ</text>
+                <text class="node-title" x="14" y="46">报告受权查询</text>
+                <text class="node-body" x="14" y="67">本人 · 正式 · 有效权益</text>
+                <text class="node-body" x="14" y="84">指定报告 / 学科 / 类型 / 版本</text>
+              </g>
+
+              <!-- QA vertical flow -->
+              <g class="node qa-node" data-id="scopeSelect" data-groups="qa" transform="translate(1112 167)" tabindex="0" role="button" aria-label="选择问答范围">
+                <rect class="node-box" width="304" height="80"></rect>
+                <text class="node-no" x="16" y="21">Q1</text>
+                <text class="node-title" x="16" y="45">选择问答范围</text>
+                <text class="node-body" x="16" y="64">本人身份 · 考试 · 学科 · 可选报告版本</text>
+              </g>
+
+              <g class="node qa-node" data-id="toolQuery" data-groups="qa" transform="translate(1112 285)" tabindex="0" role="button" aria-label="确定性工具查询">
+                <rect class="node-box" width="304" height="80"></rect>
+                <text class="node-no" x="16" y="21">Q2</text>
+                <text class="node-title" x="16" y="45">确定性 Tool 查询</text>
+                <text class="node-body" x="16" y="64">总分 · 学科 · 排名 · 趋势 · 小题 · 报告</text>
+              </g>
+
+              <g class="node qa-node" data-id="modelExplain" data-groups="qa" transform="translate(1112 403)" tabindex="0" role="button" aria-label="模型受约束解释">
+                <rect class="node-box" width="304" height="80"></rect>
+                <text class="node-no" x="16" y="21">Q3</text>
+                <text class="node-title" x="16" y="45">模型受约束解释</text>
+                <text class="node-body" x="16" y="64">只解释 Tool 事实；缺数据就明确说明</text>
+              </g>
+
+              <g class="node qa-node" data-id="answerEvidence" data-groups="qa" transform="translate(1112 521)" tabindex="0" role="button" aria-label="回答与依据">
+                <rect class="node-box" width="304" height="80"></rect>
+                <text class="node-no" x="16" y="21">Q4</text>
+                <text class="node-title" x="16" y="45">回答 + 依据</text>
+                <text class="node-body" x="16" y="64">固化当时事实；可回到记录或报告原件</text>
+              </g>
+
+              <!-- controls -->
+              <text class="lane-title" x="42" y="698">贯穿全链路的四道控制</text>
+              <text class="lane-subtitle" x="42" y="716">任何页面或问答都不能绕过</text>
+
+              <g class="node control-node" data-id="identityControl" data-groups="ingestion analysis qa" transform="translate(310 684)" tabindex="0" role="button" aria-label="身份权限控制">
+                <rect class="node-box" width="235" height="82"></rect>
+                <text class="control-label" x="14" y="26">身份与权限</text>
+                <text class="control-copy" x="14" y="48">学校 / 本人 / 任教范围 / 报告权益</text>
+                <text class="control-copy" x="14" y="66">权限在后端和每次查询中重新校验</text>
+              </g>
+
+              <g class="node control-node" data-id="versionControl" data-groups="ingestion analysis qa" transform="translate(565 684)" tabindex="0" role="button" aria-label="版本发布控制">
+                <rect class="node-box" width="235" height="82"></rect>
+                <text class="control-label" x="14" y="26">版本与发布</text>
+                <text class="control-copy" x="14" y="48">导入批次 / 成绩修订 / 报告版本</text>
+                <text class="control-copy" x="14" y="66">未发布、待核对、已撤回不可冒充正式</text>
+              </g>
+
+              <g class="node control-node" data-id="qualityControl" data-groups="ingestion analysis qa" transform="translate(820 684)" tabindex="0" role="button" aria-label="数据质量控制">
+                <rect class="node-box" width="235" height="82"></rect>
+                <text class="control-label" x="14" y="26">质量与统计口径</text>
+                <text class="control-copy" x="14" y="48">零分 ≠ 缺考 ≠ 未录入；样本量明确</text>
+                <text class="control-copy" x="14" y="66">计算交给代码，缺项不由模型补造</text>
+              </g>
+
+              <g class="node control-node" data-id="auditControl" data-groups="ingestion analysis qa" transform="translate(1075 684)" tabindex="0" role="button" aria-label="审计来源控制">
+                <rect class="node-box" width="235" height="82"></rect>
+                <text class="control-label" x="14" y="26">审计与来源</text>
+                <text class="control-copy" x="14" y="48">记录 ID / 来源系统 / 批次 / 时间 / 版本</text>
+                <text class="control-copy" x="14" y="66">历史回答保留当时事实与证据</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption class="diagram-caption">
+            <span>当前一期：学生本人智能问答；班级分析由教师/学校工作台消费。</span>
+            <span>教师自然语言班级问答后续另建教师上下文与聚合 Tool。</span>
+          </figcaption>
+        </figure>
+
+        <aside id="detailPanel" class="detail-panel" aria-live="polite">
+          <header class="detail-head">
+            <span id="detailEyebrow">核心底座</span>
+            <h3 id="detailTitle">统一事实与统计服务</h3>
+            <b id="detailState" class="detail-state">一期关键约束</b>
+          </header>
+          <div class="detail-body">
+            <p id="detailSummary" class="detail-summary"></p>
+            <dl id="detailGrid" class="detail-grid"></dl>
+            <p id="detailAlert" class="detail-alert"></p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section aria-labelledby="data-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="data-title">旧产物数据现状</h2>
+          <p>统计来自当前本地 SQL 备份，只用于接入评估，不等于生产数据签认。</p>
+        </div>
+      </div>
+      <div class="status-band">
+        <article class="status-block">
+          <h3>可以先接入的档案</h3>
+          <p><strong>学生 1,743 条、教师 157 条、任教关系 495 条。</strong>未删除学生形成 32 个学校/年级/班名组合，可先做身份、班级和任教映射。</p>
+        </article>
+        <article class="status-block warn">
+          <h3>身份接入门槛</h3>
+          <p><strong>1,740 条未删除学生的学号为空。</strong>先用“学校 + 来源系统 + 旧学生 ID”建立稳定身份，不按姓名合并，不伪造学号。</p>
+        </article>
+        <article class="status-block blocked">
+          <h3>真实闭环阻断项</h3>
+          <p><strong>三份备份中的成绩、小题得分、分析报告均为 0 条。</strong>需由数据负责人提供正式成绩导出和报告原件后，才能做真实业务验收。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="phase-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="phase-title">首批闭环实施路径</h2>
+          <p>先用一个完整班级跑通，再扩大到全校；每一步都有明确进入条件。</p>
+        </div>
+      </div>
+      <div class="phase-flow">
+        <article class="phase">
+          <h3>数据盘点与契约</h3>
+          <p>确认来源版本、字段含义、业务考试、统计规则和问答范围。</p>
+          <small>产出：映射表与字段字典</small>
+        </article>
+        <article class="phase">
+          <h3>身份与考务接入</h3>
+          <p>清洗师生、班级、任教、学科和考试，完成账号绑定。</p>
+          <small>门槛：身份不串、权限正确</small>
+        </article>
+        <article class="phase">
+          <h3>成绩导入与发布</h3>
+          <p>导入一个班一科一场考试，预检、对账后发布正式版本。</p>
+          <small>门槛：与原表逐项一致</small>
+        </article>
+        <article class="phase">
+          <h3>分析与报告接入</h3>
+          <p>核算班级指标、学生趋势，并绑定个人正式报告及原件。</p>
+          <small>门槛：缺项和样本量清楚</small>
+        </article>
+        <article class="phase">
+          <h3>问答联合验收</h3>
+          <p>页面、Tool、最终回答和依据逐条核对，覆盖更正与撤权。</p>
+          <small>结果：首批真实闭环签认</small>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="rules-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="rules-title">必须统一的业务规则</h2>
+          <p>这些规则需要五模块和智能问答共同遵守。</p>
+        </div>
+      </div>
+      <div class="rule-table" role="region" aria-label="业务规则表" tabindex="0">
+        <table>
+          <thead>
+            <tr>
+              <th>规则</th>
+              <th>统一处理</th>
+              <th>问答表现</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>零分与缺项</td>
+              <td>有效零分、缺考、未录入、未评分分别存储；缺考不参加均分。</td>
+              <td>明确说明状态，不把空值回答成 0 分。</td>
+            </tr>
+            <tr>
+              <td>考试与学科范围</td>
+              <td>页面和 Tool 使用同一考试 ID、学科 ID；趋势以选定考试为截止。</td>
+              <td>不串到最新考试，不用总分替代单科。</td>
+            </tr>
+            <tr>
+              <td>班级统计</td>
+              <td>优先使用考试时班级快照；显示应考、实考、有效成绩和覆盖率。</td>
+              <td>当前学生问答不读取班级明细；教师问答另设授权。</td>
+            </tr>
+            <tr>
+              <td>报告选择</td>
+              <td>报告绑定学生、考试、学科、类型和版本；只有正式且受权的版本可读。</td>
+              <td>多份候选先选择，不能跨学科取“最新一份”代答。</td>
+            </tr>
+            <tr>
+              <td>更正与追溯</td>
+              <td>成绩更正和报告替换产生新修订，保留来源批次、时间和操作记录。</td>
+              <td>新问题读取新版本；历史回答保留当时事实和依据。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="page-footer">
+      <span>依据：五模块智能问答对接方案及当前工作区源码静态核对</span>
+      <span>单文件 HTML · 不包含学生姓名、账号或证件信息</span>
+    </footer>
+  </main>
+
+  <script>
+    const detailData = {
+      sourceRoster: {
+        eyebrow: "真实数据来源",
+        title: "旧产物师生与考务",
+        state: "可盘点，需清洗",
+        summary: "当前备份包含师生档案和任教关系，可作为身份与考务接入的起点，但不能直接视为已经验证的生产主数据。",
+        rows: [
+          ["输入", "学生 1,743、教师 157、任教关系 495，以及考试和考试学科记录。"],
+          ["处理", "识别备份编码、过滤测试记录、规范学科别名、建立来源版本与稳定外部 ID。"],
+          ["输出", "待核对的师生、班级、任教、学科和正式考试清单。"],
+          ["验收", "同名学生不误合并；停用与历史关系不丢；来源可追溯。"]
+        ],
+        alert: "当前 1,740 条未删除学生学号为空，不能沿用“学号必填”直接导入。"
+      },
+      sourceScores: {
+        eyebrow: "真实数据来源",
+        title: "真实成绩与小题文件",
+        state: "待数据负责人提供",
+        summary: "班级分析、学生学情和成绩问答的真实验收都依赖这组数据。现有本地三份 SQL 备份中对应表为空。",
+        rows: [
+          ["最低字段", "稳定学生标识、考试、学科、得分、满分；小题需题号、得分、满分。"],
+          ["补充字段", "缺考/补考状态、排名与范围、应考名单、试卷或题目版本。"],
+          ["格式", "先取得实际 CSV/Excel 样本，再冻结列名、工作表、表头和公式值规则。"],
+          ["验收", "一个完整班级逐项对账，导入结果与原始表一致。"]
+        ],
+        alert: "不能用题目图片、试卷 PDF 或已有学生档案替代学生真实作答成绩。"
+      },
+      sourceReports: {
+        eyebrow: "真实数据来源",
+        title: "正式报告及原件",
+        state: "待报告样本",
+        summary: "正式报告需要原件、对象范围、内容类型、正文或核对摘要、版本和开放权限共同构成，单独的图片或文件名不够。",
+        rows: [
+          ["输入", "PDF/图片原件、学生、考试、学科、报告类型、生成时间和版本。"],
+          ["文本", "可解释内容来自人工核对的摘要、结构化结论或正文。"],
+          ["输出", "不可变原件版本、正式内容版本和受权查询关系。"],
+          ["验收", "问答引用能打开同一版本原件，撤回或撤权后按规则拒绝。"]
+        ],
+        alert: "当前旧产物报告目录为空，分析报告表和报告分块表也是 0 条。"
+      },
+      schoolModule: {
+        eyebrow: "模块 01 · 业务生产",
+        title: "师生班级与考试",
+        state: "先行模块",
+        summary: "先把“谁、在哪个班、教什么、参加哪场考试”建准，后续成绩、分析和问答才有可靠范围。",
+        rows: [
+          ["输入", "旧学生/教师 ID、学校、年级班级、任教关系、学科和考试。"],
+          ["处理", "稳定身份映射、账号绑定、班级历史、任教有效期、考试学科和满分。"],
+          ["输出", "学生本人身份、教师授权范围、可查询考试和统一学科 ID。"],
+          ["验收", "同名、转班、毕业、停用和任教到期均不串数据或权限。"]
+        ],
+        alert: "外部档案和登录账号分开管理；不自动创建默认密码或扩大角色。"
+      },
+      importModule: {
+        eyebrow: "模块 02 · 业务生产",
+        title: "成绩导入",
+        state: "形成正式事实",
+        summary: "从学校文件到正式成绩必须经过映射、预检、确认、对账和发布，不能把上传成功等同于学生可查询。",
+        rows: [
+          ["流程", "选择考试学科 → 上传 → 映射 → 逐行预检 → 确认 → 对账 → 发布。"],
+          ["校验", "身份、引用、重复、数值、满分、缺考和总分/分项关系。"],
+          ["输出", "导入批次、成绩修订、成功/失败回执、账号未绑定与缺项统计。"],
+          ["验收", "失败不污染正式表；重复不增记录；更正留版本并更新新查询。"]
+        ],
+        alert: "零分、缺考、未录入、未评分必须区分，否则班级均分和学生问答都会失真。"
+      },
+      reportModule: {
+        eyebrow: "模块 05 · 业务生产",
+        title: "正式报告原件",
+        state: "人工确认后开放",
+        summary: "报告模块管理原件、内容、对象、状态和版本。只有正式且受权的版本，才能进入学生页面和问答工具。",
+        rows: [
+          ["流程", "上传原件 → 绑定学生/考试/学科/类型 → 核对文本 → 发布或撤回。"],
+          ["版本", "替换文件生成新版本；原件、摘要、正文和结构化结论一一对应。"],
+          ["权限", "本人范围、正式状态和有效诊断权益每次查询重新校验。"],
+          ["验收", "报告页面、下载、问答和依据卡对同一版本执行同一权限规则。"]
+        ],
+        alert: "现有实现保存即成为 generated，建议补充显式发布确认与撤回口径。"
+      },
+      factService: {
+        eyebrow: "核心底座",
+        title: "统一事实与统计服务",
+        state: "一期关键约束",
+        summary: "页面 API 和智能问答 Tool 共享同一套查询与确定性计算，不分别维护均分、排名、趋势或报告选择逻辑。",
+        rows: [
+          ["身份", "学校、用户、学生以及教师任教范围均由服务端确定。"],
+          ["版本", "只查询当前可见的已发布成绩或正式报告，同时保留来源修订。"],
+          ["计算", "得分率、均值、差值和丢分交给代码计算，不交给模型猜测。"],
+          ["证据", "输出业务记录 ID、来源系统、批次/版本和更新时间。"]
+        ],
+        alert: "核心验收不是“页面有数字”，而是页面、Tool、回答和依据四处的事实完全一致。"
+      },
+      classAnalysis: {
+        eyebrow: "模块 03 · 教学分析",
+        title: "班级分析",
+        state: "教师 / 学校范围",
+        summary: "使用明确的考试、班级和学科范围，展示样本量、均分、分布、前次比较，以及有依据的小题或知识点统计。",
+        rows: [
+          ["输入", "考试时班级归属、应考名单、有效成绩、小题得分和可靠标签。"],
+          ["口径", "缺考不参与均分；零分参与；排名必须有完整比较群体；多标签失分不可相加。"],
+          ["输出", "班级聚合、匿名学生列表、受权下钻和数据覆盖说明。"],
+          ["验收", "抽取完整班级人工核算，均分、人数、分布和丢分逐项一致。"]
+        ],
+        alert: "当前学生问答不消费班级明细；教师自然语言问答需另建教师授权上下文。"
+      },
+      studentLearning: {
+        eyebrow: "模块 04 · 教学分析",
+        title: "学生学情",
+        state: "同源个人事实",
+        summary: "围绕具体学生、考试和学科，串起成绩、趋势、小题失分、报告和数据来源；缺什么就显示什么。",
+        rows: [
+          ["输入", "学生身份、考试/学科范围、成绩版本、小题关联和报告可用状态。"],
+          ["展示", "得分/满分、排名范围、更新时间、趋势、丢分和缺项说明。"],
+          ["问答", "学生可携带考试与学科范围进入本人问答；教师不得借此模拟学生身份。"],
+          ["验收", "管理详情、学生页面和问答数字一致，切换范围不串数据。"]
+        ],
+        alert: "“小题失分事实”和“正式诊断结论”分开；低分不能自动推断为粗心或基础薄弱。"
+      },
+      reportRead: {
+        eyebrow: "报告消费",
+        title: "报告受权查询",
+        state: "精确版本匹配",
+        summary: "学生页面和问答都应读取明确的报告对象，而不是只按考试取最近一份报告。",
+        rows: [
+          ["筛选", "学生、考试、学科、报告类型、报告 ID 与版本。"],
+          ["授权", "本人、正式状态、有效权益；下载原件与读取内容采用同一规则。"],
+          ["歧义", "存在多份候选时先让用户选择，不能跨学科或类型代答。"],
+          ["验收", "所选报告、回答内容、依据卡和打开的原件属于同一版本。"]
+        ],
+        alert: "当前 get_diagnosis 主要按考试取最近报告，需补学科、类型和指定版本匹配。"
+      },
+      scopeSelect: {
+        eyebrow: "问答 Q1",
+        title: "选择问答范围",
+        state: "上下文固定",
+        summary: "会话先固定本人身份和业务范围，再执行工具。发送期间不能静默切换考试或学科。",
+        rows: [
+          ["身份", "学生本人身份来自登录态和服务端绑定，不接受模型或浏览器自报。"],
+          ["范围", "考试 ID、学科 ID，可选报告 ID/版本；趋势还需要截止考试。"],
+          ["异常", "范围不存在、未发布或不属于本人时返回明确状态。"],
+          ["验收", "追问沿用正确范围，主动切换后新请求使用新范围。"]
+        ],
+        alert: "教师问题不能复用学生 ToolContext；需要独立的教师身份和聚合查询工具。"
+      },
+      toolQuery: {
+        eyebrow: "问答 Q2",
+        title: "确定性 Tool 查询",
+        state: "六个现有工具",
+        summary: "工具从统一事实服务读取数据并返回结构化结果和证据，模型只负责表达，不参与数据计算。",
+        rows: [
+          ["工具", "总分概览、学科成绩、排名变化、成绩趋势、小题失分、正式诊断报告。"],
+          ["输出", "成功状态、事实数据、证据列表、稳定错误码和用户可读说明。"],
+          ["权限", "每个调用重新校验学校、学生本人和报告权益。"],
+          ["验收", "工具结果与对应业务页面接口完全一致。"]
+        ],
+        alert: "没有成绩或报告时返回缺失状态，不能改用模型常识生成看似合理的数据。"
+      },
+      modelExplain: {
+        eyebrow: "问答 Q3",
+        title: "模型受约束解释",
+        state: "解释，不计算",
+        summary: "模型基于学生问题、受控上下文和工具结果生成自然语言回答，不能越权查询或添加工具中没有的数字和诊断。",
+        rows: [
+          ["可做", "解释成绩事实、整理变化、复述正式报告已有结论。"],
+          ["不可做", "编造数字、猜测缺考原因、把失分升级为诊断、绕过报告权益。"],
+          ["缺项", "明确哪些资料尚未导入、未发布或不具可比性。"],
+          ["验收", "用无数据、部分缺失、无权和多候选场景做反向测试。"]
+        ],
+        alert: "诊断结论只能来自正式报告，不能因分数低自动生成“能力薄弱”等判断。"
+      },
+      answerEvidence: {
+        eyebrow: "问答 Q4",
+        title: "回答与依据",
+        state: "可追溯输出",
+        summary: "回答保存生成时使用的事实和来源版本；用户可查看依据，打开原件时再次验证当前权限。",
+        rows: [
+          ["回答", "面向学生的自然语言说明，以及必要的缺项或不可比提示。"],
+          ["依据", "成绩记录、考试/学科、报告 ID/版本、来源系统、批次和时间。"],
+          ["历史", "数据更正后旧回答保留当时事实；新问题读取新版本。"],
+          ["验收", "刷新、重试和历史会话不丢来源；撤权后受保护原件不能打开。"]
+        ],
+        alert: "依据不是内部 Tool JSON，而是学生能理解、且能重新受权核验的业务来源。"
+      },
+      identityControl: {
+        eyebrow: "全链路控制",
+        title: "身份与权限",
+        state: "服务端强制",
+        summary: "学校隔离、本人范围、教师任教和报告权益属于业务授权，不依赖前端隐藏入口或模型提示词。",
+        rows: [
+          ["学生", "只能读取本校本人已发布数据和有权报告。"],
+          ["教师", "只能读取当前有效任教班级与学科；个体下钻留审计。"],
+          ["学校", "管理本校业务资料，不自动获得跨校权限。"],
+          ["验收", "跨校、非任教、过期和撤销授权均被后端拒绝。"]
+        ],
+        alert: "旧教师关系必须核对有效期后生效，空学科不能解释为全学科授权。"
+      },
+      versionControl: {
+        eyebrow: "全链路控制",
+        title: "版本与发布",
+        state: "可恢复、可追溯",
+        summary: "上传、导入完成不等于正式发布。成绩、报告和来源快照需要明确的修订与可见状态。",
+        rows: [
+          ["成绩", "导入批次、预检修订、发布版本和更正原因。"],
+          ["报告", "原件版本、内容版本、正式状态和撤回状态。"],
+          ["问答", "只消费当前可见版本；历史回答保留生成时快照。"],
+          ["验收", "重复提交幂等，同版本不同内容冲突，更正不覆盖历史证据。"]
+        ],
+        alert: "考试存在、导入成功、成绩已发布是三个不同状态，页面和问答必须区分。"
+      },
+      qualityControl: {
+        eyebrow: "全链路控制",
+        title: "质量与统计口径",
+        state: "确定性计算",
+        summary: "数据完整性和统计规则必须显式表达，不能用模型推断去填补业务事实缺口。",
+        rows: [
+          ["状态", "有效零分、缺考、未录入、未评分分别处理。"],
+          ["样本", "应考、实考、有效成绩、缺项数量及覆盖率分别展示。"],
+          ["比较", "明确考试、满分、科目范围和比较群体；不可比时说明原因。"],
+          ["验收", "人工计算样本与服务端结果一致，页面和 Tool 共用结果。"]
+        ],
+        alert: "仅有已导入成绩行时，不能把行数称作完整班级应考人数。"
+      },
+      auditControl: {
+        eyebrow: "全链路控制",
+        title: "审计与来源",
+        state: "回答可回查",
+        summary: "每条业务事实都应能追到来源系统、导入批次或报告版本；敏感读取和授权失败也要留痕。",
+        rows: [
+          ["来源", "来源系统、旧 ID、新实体 ID、内容哈希、版本和水位。"],
+          ["操作", "导入、发布、更正、报告读取、学生下钻和依据打开。"],
+          ["回答", "保存所用事实与证据；重复请求恢复相同来源。"],
+          ["验收", "能由一条回答定位到对应业务记录及当时版本。"]
+        ],
+        alert: "审计记录不能包含无必要的学生敏感明文或旧系统登录凭据。"
+      }
+    };
+
+    const nodes = Array.from(document.querySelectorAll(".node[data-id]"));
+    const detailEyebrow = document.getElementById("detailEyebrow");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailState = document.getElementById("detailState");
+    const detailSummary = document.getElementById("detailSummary");
+    const detailGrid = document.getElementById("detailGrid");
+    const detailAlert = document.getElementById("detailAlert");
+
+    function selectNode(id) {
+      const data = detailData[id];
+      if (!data) return;
+      nodes.forEach((node) => node.classList.toggle("selected", node.dataset.id === id));
+      detailEyebrow.textContent = data.eyebrow;
+      detailTitle.textContent = data.title;
+      detailState.textContent = data.state;
+      detailSummary.textContent = data.summary;
+      detailGrid.replaceChildren();
+      data.rows.forEach(([label, value]) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "detail-row";
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = value;
+        wrapper.append(term, description);
+        detailGrid.append(wrapper);
+      });
+      detailAlert.textContent = data.alert;
+    }
+
+    nodes.forEach((node) => {
+      node.addEventListener("click", () => selectNode(node.dataset.id));
+      node.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectNode(node.dataset.id);
+        }
+      });
+    });
+
+    const filters = Array.from(document.querySelectorAll("[data-filter]"));
+    const filterables = Array.from(document.querySelectorAll("[data-groups]"));
+
+    filters.forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.dataset.filter;
+        filters.forEach((item) => item.classList.toggle("active", item === button));
+        filterables.forEach((item) => {
+          const groups = (item.dataset.groups || "").split(/\s+/);
+          item.classList.toggle("dim", filter !== "all" && !groups.includes(filter));
+        });
+      });
+    });
+
+    document.getElementById("printButton").addEventListener("click", () => window.print());
+    selectNode("factService");
+  </script>
+</body>
+</html>

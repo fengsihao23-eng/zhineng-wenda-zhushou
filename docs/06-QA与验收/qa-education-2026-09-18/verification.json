@@ -1,0 +1,102 @@
+{
+  "date": "2026-09-18",
+  "base_branch": "main",
+  "base_head": "16a5a92",
+  "preexisting_workspace_changes_preserved": true,
+  "postgresql": {
+    "passed": 146,
+    "failed": 0,
+    "database": "qa_education_unit",
+    "isolation": "new disposable container"
+  },
+  "sqlite": {
+    "passed": 142,
+    "skipped": 4,
+    "failed": 0,
+    "skip_reason": "PostgreSQL constraint/concurrency-specific tests"
+  },
+  "frontend_unit": {
+    "passed": 14,
+    "failed": 0
+  },
+  "chromium": {
+    "passed": 23,
+    "failed": 0,
+    "api_workers": 2,
+    "web_mode": "production",
+    "widths": [
+      320,
+      390,
+      768,
+      1440
+    ]
+  },
+  "migration": {
+    "upgrade": "001 -> 014_education_workbench",
+    "database": "qa_education",
+    "result": "passed",
+    "business_database_changed": false
+  },
+  "real_ocr": {
+    "engine": "Tesseract 5.5.3",
+    "languages": [
+      "chi_sim",
+      "eng"
+    ],
+    "input": "synthetic two-page PDF",
+    "result": "browser journey passed",
+    "quality_claim": "No real exam/handwriting accuracy claim"
+  },
+  "model_testing": "Fake Provider; no live model calls",
+  "runtime_artifacts": "/var/folders/d4/8gnkfntd3hz0qp8mkx3qrm2w0000gn/T/education-browser-NlqJD2",
+  "screenshots": [
+    {
+      "path": "docs/qa-education-2026-09-18/knowledge-published.png",
+      "width": 1280,
+      "height": 720,
+      "synthetic_data_only": true
+    },
+    {
+      "path": "docs/qa-education-2026-09-18/risk-desktop.png",
+      "width": 1280,
+      "height": 720,
+      "synthetic_data_only": true
+    },
+    {
+      "path": "docs/qa-education-2026-09-18/risk-mobile.png",
+      "width": 320,
+      "height": 800,
+      "synthetic_data_only": true
+    },
+    {
+      "path": "docs/qa-education-2026-09-18/split-workbench-desktop.png",
+      "width": 1280,
+      "height": 720,
+      "synthetic_data_only": true
+    },
+    {
+      "path": "docs/qa-education-2026-09-18/split-workbench-mobile.png",
+      "width": 390,
+      "height": 844,
+      "synthetic_data_only": true
+    },
+    {
+      "path": "docs/qa-education-2026-09-18/school-workbench-1280.png",
+      "width": 1280,
+      "height": 720,
+      "synthetic_data_only": true
+    }
+  ],
+  "not_verified": [
+    "real legacy exports and reconciliation",
+    "production migration/deployment",
+    "real model quality",
+    "capacity and disaster recovery",
+    "school/business acceptance"
+  ],
+  "schema_audit": {
+    "new_education_domain_structural_differences": 0,
+    "whole_schema_differences": 51,
+    "note": "Includes preexisting comments/indexes/FK metadata drift and a new column comment. No automatic destructive schema reconciliation."
+  }
+}

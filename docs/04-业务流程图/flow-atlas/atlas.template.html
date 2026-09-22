@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="基于当前项目源码的智能问答全链路图谱：五个业务模块、内部流程、CRUD、数据血缘、字段字典、权限与问答工具。">
+<title>智能问答 · 全链路流程图谱</title>
+<style>__ATLAS_CSS__</style>
+</head>
+<body>
+<a class="skip" href="#main">跳转到内容</a>
+<aside id="sidebar" class="sidebar" aria-label="图谱章节">
+  <a href="#overview" class="brand"><span class="brand-mark">知</span><span><b>知行 · 流程图谱</b><small>SYSTEM FLOW ATLAS</small></span></a>
+  <div class="sidebar-caption">智能问答助手<span class="edition">详细版</span></div>
+  <nav id="navigation"></nav>
+  <div class="sidebar-footer"><span class="live-dot"></span>基于当前工作区源码<div>2026.09.18 · 独立 HTML · 离线可读</div></div>
+</aside>
+<button id="navBackdrop" class="nav-backdrop" aria-label="关闭章节导航" hidden></button>
+<div class="workspace">
+<header class="topbar"><div class="topbar-start"><button id="mobileNav" class="icon-button mobile-nav" aria-label="打开章节导航" aria-expanded="false">☰</button><span class="crumb">流程图谱 <i>/</i> <b id="breadcrumb">全局视图</b></span></div><div class="topbar-actions"><button id="searchOpen" class="search-trigger"><span>⌕</span> 搜索模块、字段、接口 <kbd>⌘ K</kbd></button><button id="printAll" class="button compact" title="生成全量可打印视图，使用浏览器打印为 PDF">打印全部 / PDF</button></div></header>
+<main id="main" tabindex="-1"><div id="content"></div><footer class="page-footer"><span>知行 · 智能问答全链路图谱</span><span>静态源码核对 · 不含真实学生数据</span></footer></main>
+</div>
+<dialog id="detailDialog" class="detail-dialog" aria-labelledby="detailTitle"><div class="detail-top"><span class="eyebrow">节点与实现依据</span><button class="icon-button" id="closeDetail" aria-label="关闭详情">×</button></div><div id="detailContent"></div></dialog>
+<dialog id="searchDialog" class="search-dialog" aria-label="全局搜索"><div class="search-input-row"><span>⌕</span><input id="globalSearch" type="search" placeholder="试试：满分、报告版本、question_scores、班级停用…" autocomplete="off" aria-label="搜索图谱"><button id="closeSearch" class="icon-button" aria-label="关闭搜索">×</button></div><div id="searchResults" class="search-results"></div><div class="search-footer">覆盖流程节点、字段字典、操作矩阵与接口 <kbd>Esc 关闭</kbd></div></dialog>
+<div id="toast" role="status" class="toast"></div>
+<div id="printRoot"></div>
+<noscript><p class="noscript">请使用支持 JavaScript 的浏览器打开本文件；页面全部内容已内置，不需要联网。</p></noscript>
+<script id="atlas-data" type="application/json">__ATLAS_DATA__</script>
+<script>__ATLAS_SCRIPT__</script>
+</body></html>

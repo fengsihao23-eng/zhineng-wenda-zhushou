@@ -30,6 +30,7 @@ class DiagnosisReport(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
+        UniqueConstraint("school_id", "id", name="uq_diagnosis_reports_tenant"),
         ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_diagnosis_reports_school_student"),
         ForeignKeyConstraint(["school_id", "exam_id"], ["exams.school_id", "exams.id"], name="fk_diagnosis_reports_school_exam"),
         ForeignKeyConstraint(["school_id", "subject_id"], ["subjects.school_id", "subjects.id"], name="fk_diagnosis_reports_school_subject"),

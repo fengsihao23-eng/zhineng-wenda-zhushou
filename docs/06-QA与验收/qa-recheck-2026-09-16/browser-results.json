@@ -1,0 +1,341 @@
+{
+  "dashboard": "学生空间 / 学习总览\n你好，李四\n\n这是你最近的学习状态\n\n成绩数据已同步 · 可追溯\n问问学习助手\n↗\n最近一次总分\n664 分\n较上次 +17 分\n班级排名\n第 3 名\n2024学年第2次月考\n诊断报告\n1\n份正式报告\n需要关注\n0\n风险与老师跟进\n最近一次考试\n\n2024学年第2次月考\n\n2026-08-12\n664 / 750\n班级排名\n第 3 名\n年级排名\n第 8 名\n学习状态\n\n系统工作流\n\n成绩同步\n正常\n家长授权\n待授权\n老师跟进\n暂无\n科目表现\n\n按最近一次考试的得分率排序\n\n查看趋势 ↗\n英语\n148 / 150\n得分率 98.7%\n年级 第 5 名\n数学\n145 / 150\n得分率 96.7%\n年级 第 5 名\n语文\n128 / 150\n得分率 85.3%\n年级 第 5 名\n化学\n125 / 150\n得分率 83.3%\n年级 第 5 名\n物理\n118 / 150\n得分率 78.7%\n年级 第 5 名",
+  "profile": "李四\n\n已记录 2 次考试\n\n查看详细趋势 →\n问问学习助手\n最近考试成绩\n2026-08-12\n664/ 750\n88.5%\n↗\n+17\n较上次\n班级排名\n第 3 名\n年级排名\n第 8 名\n2024学年第2次月考\n成绩趋势\n2 次考试\n得分率 (%)总分\n2024学年第1...\n2024学年第2...\n0\n200\n400\n600\n800\n学科雷达图\n5 个科目\n英语\n数学\n语文\n化学\n物理\n0\n25\n50\n75\n100\n英语\n148 / 150\n98.7%\n班级第 2 名\n数学\n145 / 150\n96.7%\n班级第 2 名\n语文\n128 / 150\n85.3%\n班级第 2 名\n化学\n125 / 150\n83.3%\n班级第 2 名\n物理\n118 / 150\n78.7%\n班级第 2 名\n数据已同步\n最后更新：2026-08-12",
+  "charts": [
+    {
+      "width": 260,
+      "height": 300,
+      "paths": 4,
+      "lines": 2,
+      "dots": 4,
+      "text": "得分率 (%)总分2024学年第1...2024学年第2...0200400600800"
+    },
+    {
+      "width": 352,
+      "height": 350,
+      "paths": 7,
+      "lines": 0,
+      "dots": 0,
+      "text": "英语数学语文化学物理0255075100"
+    }
+  ],
+  "mobile": [
+    {
+      "width": 390,
+      "documentWidth": 390,
+      "overflow": [
+        {
+          "selector": "app-topbar",
+          "client": 123,
+          "scroll": 123,
+          "x": 255,
+          "right": 380
+        },
+        {
+          "selector": "workspace-main",
+          "client": 125,
+          "scroll": 240,
+          "x": 255,
+          "right": 380
+        },
+        {
+          "selector": "profile-container",
+          "client": 240,
+          "scroll": 240,
+          "x": 255,
+          "right": 495
+        },
+        {
+          "selector": "profile-actions",
+          "client": 208,
+          "scroll": 208,
+          "x": 271,
+          "right": 479
+        },
+        {
+          "selector": "profile-grid",
+          "client": 208,
+          "scroll": 208,
+          "x": 271,
+          "right": 479
+        },
+        {
+          "selector": "score-card",
+          "client": 208,
+          "scroll": 208,
+          "x": 271,
+          "right": 479
+        },
+        {
+          "selector": "score-display",
+          "client": 160,
+          "scroll": 160,
+          "x": 295,
+          "right": 455
+        },
+        {
+          "selector": "trend-chart",
+          "client": 208,
+          "scroll": 208,
+          "x": 271,
+          "right": 479
+        },
+        {
+          "selector": "subject-radar",
+          "client": 208,
+          "scroll": 208,
+          "x": 271,
+          "right": 479
+        }
+      ]
+    },
+    {
+      "width": 375,
+      "documentWidth": 375,
+      "overflow": [
+        {
+          "selector": "app-topbar",
+          "client": 150,
+          "scroll": 150,
+          "x": 213,
+          "right": 365
+        },
+        {
+          "selector": "workspace-main",
+          "client": 152,
+          "scroll": 240,
+          "x": 213,
+          "right": 365
+        },
+        {
+          "selector": "profile-container",
+          "client": 240,
+          "scroll": 240,
+          "x": 213,
+          "right": 453
+        },
+        {
+          "selector": "profile-actions",
+          "client": 208,
+          "scroll": 208,
+          "x": 229,
+          "right": 437
+        },
+        {
+          "selector": "profile-grid",
+          "client": 208,
+          "scroll": 208,
+          "x": 229,
+          "right": 437
+        },
+        {
+          "selector": "score-card",
+          "client": 208,
+          "scroll": 208,
+          "x": 229,
+          "right": 437
+        },
+        {
+          "selector": "score-display",
+          "client": 160,
+          "scroll": 160,
+          "x": 253,
+          "right": 413
+        },
+        {
+          "selector": "trend-chart",
+          "client": 208,
+          "scroll": 208,
+          "x": 229,
+          "right": 437
+        },
+        {
+          "selector": "subject-radar",
+          "client": 208,
+          "scroll": 208,
+          "x": 229,
+          "right": 437
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "documentWidth": 320,
+      "overflow": [
+        {
+          "selector": "app-topbar",
+          "client": 146,
+          "scroll": 146,
+          "x": 162,
+          "right": 310
+        },
+        {
+          "selector": "workspace-main",
+          "client": 148,
+          "scroll": 240,
+          "x": 162,
+          "right": 310
+        },
+        {
+          "selector": "profile-container",
+          "client": 240,
+          "scroll": 240,
+          "x": 162,
+          "right": 402
+        },
+        {
+          "selector": "profile-actions",
+          "client": 208,
+          "scroll": 208,
+          "x": 178,
+          "right": 386
+        },
+        {
+          "selector": "profile-grid",
+          "client": 208,
+          "scroll": 208,
+          "x": 178,
+          "right": 386
+        },
+        {
+          "selector": "score-card",
+          "client": 208,
+          "scroll": 208,
+          "x": 178,
+          "right": 386
+        },
+        {
+          "selector": "score-display",
+          "client": 160,
+          "scroll": 160,
+          "x": 202,
+          "right": 362
+        },
+        {
+          "selector": "trend-chart",
+          "client": 208,
+          "scroll": 208,
+          "x": 178,
+          "right": 386
+        },
+        {
+          "selector": "subject-radar",
+          "client": 208,
+          "scroll": 208,
+          "x": 178,
+          "right": 386
+        }
+      ]
+    },
+    {
+      "width": 768,
+      "documentWidth": 768,
+      "overflow": [
+        {
+          "selector": "app-topbar",
+          "client": 586,
+          "scroll": 586,
+          "x": 164,
+          "right": 752
+        },
+        {
+          "selector": "workspace-main",
+          "client": 588,
+          "scroll": 588,
+          "x": 164,
+          "right": 752
+        },
+        {
+          "selector": "profile-container",
+          "client": 356,
+          "scroll": 356,
+          "x": 280,
+          "right": 636
+        },
+        {
+          "selector": "profile-actions",
+          "client": 308,
+          "scroll": 308,
+          "x": 304,
+          "right": 612
+        },
+        {
+          "selector": "profile-grid",
+          "client": 308,
+          "scroll": 308,
+          "x": 304,
+          "right": 612
+        },
+        {
+          "selector": "score-card",
+          "client": 308,
+          "scroll": 308,
+          "x": 304,
+          "right": 612
+        },
+        {
+          "selector": "score-display",
+          "client": 260,
+          "scroll": 260,
+          "x": 328,
+          "right": 588
+        },
+        {
+          "selector": "trend-chart",
+          "client": 308,
+          "scroll": 308,
+          "x": 304,
+          "right": 612
+        },
+        {
+          "selector": "subject-radar",
+          "client": 308,
+          "scroll": 308,
+          "x": 304,
+          "right": 612
+        }
+      ]
+    }
+  ],
+  "secondDashboard": "学生空间 / 学习总览\n你好，张三\n\n这是你最近的学习状态\n\n成绩数据已同步 · 可追溯\n问问学习助手\n↗\n最近一次总分\n603 分\n较上次 +24 分\n班级排名\n第 15 名\n2024学年第2次月考\n诊断报告\n0\n份正式报告\n需要关注\n2\n风险与老师跟进\n最近一次考试\n\n2024学年第2次月考\n\n2026-08-12\n603 / 750\n班级排名\n第 15 名\n年级排名\n第 31 名\n学习状态\n\n系统工作流\n\n成绩同步\n正常\n家长授权\n已授权\n老师跟进\n1 条待处理\n科目表现\n\n按最近一次考试的得分率排序\n\n查看趋势 ↗\n英语\n138 / 150\n得分率 92%\n年级 第 28 名\n数学\n135 / 150\n得分率 90%\n年级 第 28 名\n语文\n118 / 150\n得分率 78.7%\n年级 第 28 名\n化学\n110 / 150\n得分率 73.3%\n年级 第 28 名\n物理\n102 / 150\n得分率 68%\n年级 第 28 名",
+  "secondProfile": "李四\n\n已记录 2 次考试\n\n查看详细趋势 →\n问问学习助手\n最近考试成绩\n2026-08-12\n664/ 750\n88.5%\n↗\n+17\n较上次\n班级排名\n第 3 名\n年级排名\n第 8 名\n2024学年第2次月考\n成绩趋势\n2 次考试\n学科雷达图\n5 个科目\n英语\n148 / 150\n98.7%\n班级第 2 名\n数学\n145 / 150\n96.7%\n班级第 2 名\n语文\n128 / 150\n85.3%\n班级第 2 名\n化学\n125 / 150\n83.3%\n班级第 2 名\n物理\n118 / 150\n78.7%\n班级第 2 名\n数据已同步\n最后更新：2026-08-12",
+  "afterRequests": [],
+  "errors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api": [
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/trends",
+      "status": 401
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 401
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/trends",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 200
+    },
+    {
+      "url": "http://localhost:5173/api/v1/platform/student/dashboard",
+      "status": 200
+    }
+  ]
+}

@@ -1,93 +1,110 @@
+/* Composer — a single wide rounded bar, send action nested inside. */
 .input-box {
-  background: white;
-  border-top: 1px solid #e0e0e0;
-  padding: 16px 20px;
+  padding: var(--spacing-16) var(--spacing-24) var(--spacing-20);
+  background: var(--color-surface);
 }
 
 .input-box__container {
   display: flex;
-  gap: 12px;
-  max-width: 1200px;
+  align-items: flex-end;
+  gap: var(--spacing-8);
+  max-width: 780px;
   margin: 0 auto;
+  padding: 7px 7px 7px 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.input-box__container:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft), var(--shadow-card);
 }
 
 .input-box__textarea {
   flex: 1;
-  padding: 12px 16px;
-  border: 2px solid #e0e0e0;
-  border-radius: 12px;
+  min-height: 44px;
+  max-height: 180px;
+  padding: 11px 0;
+  border: 0;
+  outline: 0;
   resize: none;
-  font-size: 15px;
-  font-family: inherit;
-  line-height: 1.5;
-  transition: border-color 0.2s;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+  overflow-y: auto;
 }
 
-.input-box__textarea:focus {
-  outline: none;
-  border-color: #1976d2;
+.input-box__textarea::placeholder {
+  color: var(--color-faint);
 }
 
 .input-box__textarea:disabled {
-  background: #f5f5f5;
+  background: transparent;
   cursor: not-allowed;
 }
 
 .input-box__send {
-  padding: 12px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 500;
-  transition: all 0.2s;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 var(--spacing-20);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 .input-box__send:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.input-box__send:active:not(:disabled) {
-  transform: translateY(0);
+  background: var(--color-accent-strong);
 }
 
 .input-box__send:disabled {
-  background: #ccc;
+  border-color: var(--color-faint);
+  background: var(--color-faint);
+  color: var(--color-surface);
   cursor: not-allowed;
-  transform: none;
 }
 
 .input-box__cancel {
-  padding: 12px 18px;
-  border: 1px solid #c33;
-  border-radius: 12px;
-  background: white;
-  color: #c33;
-  cursor: pointer;
-  font-size: 15px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.18s ease;
 }
 
 .input-box__cancel:hover {
-  background: #fee;
+  border-color: var(--color-accent);
 }
 
 .send-icon {
-  font-size: 18px;
+  font-size: 13px;
 }
 
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: var(--color-surface);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -100,16 +117,19 @@
 
 @media (max-width: 768px) {
   .input-box {
-    padding: 12px;
+    padding: 12px var(--spacing-16);
+  }
+
+  .input-box__container {
+    padding-left: 16px;
   }
 
   .input-box__textarea {
-    font-size: 16px; /* 防止iOS缩放 */
-    padding: 10px 14px;
+    padding: 10px 0;
+    font-size: 16px;
   }
 
   .input-box__send {
-    padding: 10px 20px;
-    font-size: 14px;
+    padding: 0 16px;
   }
 }

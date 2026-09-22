@@ -8,7 +8,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import validate_token, ensure_account_environment
 from app.db.models.user import Role, User, UserRole
 from app.db.models.student import Student
 
@@ -84,7 +84,7 @@ async def get_current_user(
         raise credentials_exception
 
     token = credentials.credentials
-    payload = decode_token(token, expected_type="access")
+    payload = await validate_token(token, db, expected_type="access")
 
     if not payload:
         raise credentials_exception
@@ -112,6 +112,8 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is not active"
         )
+
+    await ensure_account_environment(user, db)
 
     # 角色必须从数据库读取，不能信任 JWT 中的可变 claims。
     role_result = await db.execute(
@@ -199,3 +201,13 @@ def require_management(*allowed_roles: str):
         return current_user
 
     return dependency
+
+
+async def require_global_prompt_publisher(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """The registry is global; a school/QA/city role alone is not a grant."""
+    if not current_user.has_role("SUPER_ADMIN"):
+        raise HTTPException(status_code=403, detail="全局 Prompt 变更仅限平台超级管理员",
+                            headers={"X-Error-Code": "GLOBAL_PROMPT_PERMISSION_REQUIRED"})
+    return current_user

@@ -1,4 +1,4 @@
-# Python
+# ==================== Python ====================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -23,57 +23,48 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
 
-# FastAPI / Uvicorn
+# ==================== 环境变量（严禁入库） ====================
+.env
+.env.local
+.env.*.local
+
+# ==================== 日志 ====================
+logs/
 *.log
 
-# Database
+# ==================== 数据库 ====================
 *.db
 *.sqlite3
 
-# Environment variables
-.env
-.env.local
+# ==================== 测试与覆盖率 ====================
+.coverage
+coverage.xml
+htmlcov/
+test-results/
+playwright-report/
+playwright/.cache/
+debug-*.png
 
-# IDE
+# ==================== Node / 前端 ====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vite/
+
+# ==================== IDE / 操作系统 ====================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# React build
-build/
-dist/
-
-# Testing
-.pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-
-# Docker
-*.log
-
-# Alembic
+# ==================== Alembic ====================
 alembic/versions/__pycache__/
 
-# Logs
-logs/
-*.log
-
-# 历史归档产物（旧系统备份、DB dump、图片等，体积大，不入库）
+# ==================== 历史归档产物（旧系统备份、DB dump、图片等，体积大，不入库） ====================
 旧产物/
-
-# Vite
-.vite/

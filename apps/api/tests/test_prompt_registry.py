@@ -153,3 +153,17 @@ async def test_missing_variables(test_db):
             name="missing_var_test",
             person="张三"
         )
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_never_republishes_retired_prompt(test_db):
+    from app.core.default_prompts import ensure_default_prompts
+    from app.db.models.prompt import PromptTemplate
+    from sqlalchemy import select
+    assert await ensure_default_prompts(test_db) == 1
+    item = await test_db.scalar(select(PromptTemplate).where(PromptTemplate.name == "student_qa_system"))
+    item.status = "deprecated"
+    await test_db.commit()
+    assert await ensure_default_prompts(test_db) == 0
+    await test_db.refresh(item)
+    assert item.status == "deprecated"

@@ -1,0 +1,11 @@
+ Container intelligent-qa-api-run-c5b8ccfa73c7 Creating 
+ Container intelligent-qa-api-run-c5b8ccfa73c7 Created 
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+..................................................................       [100%]
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+66 passed, 1 warning in 9.25s

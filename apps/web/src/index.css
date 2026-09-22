@@ -2,17 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background: #f5f7fb;
+/*
+ * Design tokens — soft indigo / lavender tone.
+ * Periwinkle canvas, paper-white cards, indigo accents, soft shadows.
+ */
+:root {
+  /* Colors */
+  --color-canvas: #f4f6fa;
+  --color-ink: #232746;
+  --color-surface: #ffffff;
+  --color-muted: #6a6f96;
+  --color-faint: #9aa0c2;
+  --color-hairline: rgba(99, 102, 241, 0.16);
+  --color-hairline-soft: rgba(99, 102, 241, 0.09);
+  --color-wash: rgba(99, 102, 241, 0.08);
+
+  /* Accent — indigo / violet */
+  --color-accent: #5f5bdb;
+  --color-accent-strong: #4b48c9;
+  --color-accent-soft: #e7e8fb;
+  --color-accent-contrast: #ffffff;
+  --color-rail-from: #414781;
+  --color-rail-to: #414781;
+
+  /* Elevation */
+  --shadow-card: 0 6px 20px rgba(63, 66, 140, 0.08);
+  --shadow-soft: 0 10px 30px rgba(63, 66, 140, 0.1);
+  --shadow-float: 0 14px 38px rgba(63, 66, 140, 0.16);
+
+  /* Typography */
+  --font-cosmosoracle: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+
+  --text-caption: 14px;
+  --leading-caption: 1.5;
+  --text-body: 16px;
+  --leading-body: 1.5;
+  --tracking-body: -0.18px;
+  --text-subheading: 18px;
+  --leading-subheading: 1.29;
+  --tracking-subheading: -0.2px;
+  --text-heading-sm: 24px;
+  --leading-heading-sm: 1.2;
+  --tracking-heading-sm: -0.48px;
+  --text-heading: 33px;
+  --leading-heading: 1.1;
+  --tracking-heading: -1.32px;
+  --text-heading-lg: 38px;
+  --leading-heading-lg: 1.08;
+  --tracking-heading-lg: -1.52px;
+  --text-display: 58px;
+  --leading-display: 1.06;
+  --tracking-display: -2.32px;
+  --text-display-xl: 74px;
+  --leading-display-xl: 0.8;
+  --tracking-display-xl: -3.7px;
+
+  --font-weight-w350: 350;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+
+  /* Spacing */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-72: 72px;
+  --spacing-200: 200px;
+
+  /* Layout */
+  --page-max-width: 1280px;
+  --section-gap: 80px;
+  --card-padding: 16px;
+  --element-gap: 24px;
+
+  /* Radii */
+  --radius-cards: 18px;
+  --radius-inputs: 14px;
+  --radius-buttons: 14px;
+  --radius-imagetiles: 12px;
+  --radius-pill: 9999px;
 }
 
-* { box-sizing: border-box; }
-button, input, select, textarea { font-family: inherit; }
-.chat-page-frame { min-height: 0; }
-.chat-page-frame .chat-container { height: calc(100vh - 150px); min-height: 560px; border-radius: 16px; overflow: hidden; box-shadow: 0 7px 24px rgba(26,44,79,.06); }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-cosmosoracle);
+  font-weight: var(--font-weight-regular);
+  font-optical-sizing: auto;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.app-root {
+  min-height: 100vh;
+  background: var(--color-canvas);
+}
+
+.loading-screen {
+  display: grid;
+  place-items: center;
+  min-height: 60vh;
+  color: var(--color-muted);
+  font-size: var(--text-subheading);
+  font-weight: var(--font-weight-w350);
+  letter-spacing: var(--tracking-subheading);
+}
+
+.chat-page-frame {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-page-frame .chat-container {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  border-radius: var(--radius-cards);
+  overflow: hidden;
+}

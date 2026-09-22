@@ -1,11 +1,12 @@
 """Student product APIs and role based operations workbenches."""
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from secrets import token_urlsafe
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,15 @@ from app.api.deps import (
     require_management,
 )
 from app.core.database import get_db
+from app.core.logging import get_logger
+from app.core.access_scope import scoped as scope_query, scoped_scores, is_teacher_only
+from app.core.diagnosis_access import authorized_reports, require_diagnosis, require_report, audit_report_access
+from app.core.errors import ApiError
+from app.core.idempotency import create_once
+from app.core.platform_workflows import (
+    edit_knowledge, knowledge_actions, transition_knowledge,
+    transition_workflow, workflow_next_states,
+)
 from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.diagnosis import DiagnosisReport
 from app.db.models.exam import Exam, Subject
@@ -31,6 +41,7 @@ from app.db.models.school import School
 from app.db.models.score import QuestionScore, StudentExamScore, StudentSubjectScore
 from app.db.models.student import Student
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/platform", tags=["platform"])
 management_roles = require_management("TEACHER", "SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA")
 school_admin_roles = require_management("SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA")
@@ -41,10 +52,29 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if value else None
 
 
+def _full_score(value: Any) -> float | None:
+    """Unknown or invalid full scores must not become zero denominators."""
+    try:
+        full = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return full if isfinite(full) and full > 0 else None
+
+
+def _percentage(score: Any, full_score: Any) -> float | None:
+    """Return a finite percentage, or None when it cannot be calculated."""
+    full = _full_score(full_score)
+    if full is None:
+        return None
+    try:
+        percentage = float(score) / full * 100
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return round(percentage, 1) if isfinite(percentage) else None
+
+
 def _scoped(query, user: AuthenticatedUser, column):
-    if not (user.has_role("CITY_OPERATOR") or user.has_role("SUPER_ADMIN")):
-        return query.where(column == user.school_id)
-    return query
+    return scope_query(query, user, column)
 
 
 def _student_scope(query, current: AuthenticatedStudent, school_column, student_column):
@@ -61,7 +91,11 @@ class ParentApprove(BaseModel):
     share_code: str = Field(..., min_length=6, max_length=20)
 
 
-class PlatformFeedbackCreate(BaseModel):
+class CreatePayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+
+class PlatformFeedbackCreate(CreatePayload):
     rating: str = Field(..., pattern="^(helpful|not_helpful|data_wrong|inappropriate)$")
     category: str = Field(default="回答质量", max_length=50)
     note: str | None = Field(default=None, max_length=1000)
@@ -71,9 +105,10 @@ class PlatformFeedbackCreate(BaseModel):
 class WorkflowStatusUpdate(BaseModel):
     status: str = Field(..., min_length=2, max_length=30)
     resolution: str | None = Field(default=None, max_length=1000)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
-class RiskCreate(BaseModel):
+class RiskCreate(CreatePayload):
     student_id: UUID | None = None
     event_type: str = Field(default="learning", max_length=50)
     severity: str = Field(default="medium", pattern="^(low|medium|high|critical)$")
@@ -82,7 +117,7 @@ class RiskCreate(BaseModel):
     source: str = Field(default="manual", max_length=80)
 
 
-class KnowledgeCreate(BaseModel):
+class KnowledgeCreate(CreatePayload):
     title: str = Field(..., min_length=1, max_length=240)
     subject: str = Field(default="通用", max_length=80)
     doc_type: str = Field(default="教学资料", max_length=40)
@@ -92,13 +127,23 @@ class KnowledgeCreate(BaseModel):
     source_reference: str = Field(..., min_length=1, max_length=500)
     tags: list[str] = Field(default_factory=list)
 
+    @field_validator("source_url", mode="before")
+    @classmethod
+    def normalize_optional_source(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
 
 class KnowledgeReview(BaseModel):
     action: str = Field(..., pattern="^(submit|approve|reject|publish|offline|republish)$")
     reason: str | None = Field(default=None, max_length=500)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
-class HandoffCreate(BaseModel):
+class KnowledgeEdit(KnowledgeCreate):
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class HandoffCreate(CreatePayload):
     reason: str = Field(..., min_length=1, max_length=500)
     priority: str = Field(default="normal", pattern="^(low|normal|high|urgent)$")
     summary: str = Field(..., min_length=1, max_length=3000)
@@ -110,16 +155,29 @@ async def student_dashboard(
     current: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    logger.info(
+        "student_dashboard_request",
+        student_id=str(current.student_id),
+        school_id=str(current.school_id),
+    )
     scores_result = await db.execute(
         select(StudentExamScore, Exam)
         .join(Exam, Exam.id == StudentExamScore.exam_id)
         .where(StudentExamScore.school_id == current.school_id, StudentExamScore.student_id == current.student_id)
-        .order_by(Exam.start_date.desc(), Exam.created_at.desc())
-        .limit(6)
+        .order_by(Exam.start_date.desc().nullslast(), Exam.created_at.desc(), Exam.id.desc())
+        .limit(2)
     )
     scores = scores_result.all()
     latest = scores[0] if scores else None
     previous = scores[1] if len(scores) > 1 else None
+    # The query above only fetches the latest two scores for the delta, not the total
+    # number of exams. Count the full history separately.
+    exam_total = await db.scalar(
+        select(func.count(StudentExamScore.id)).where(
+            StudentExamScore.school_id == current.school_id,
+            StudentExamScore.student_id == current.student_id,
+        )
+    )
     subjects: list[dict[str, Any]] = []
     if latest:
         subjects_result = await db.execute(
@@ -130,26 +188,21 @@ async def student_dashboard(
                 StudentSubjectScore.student_id == current.student_id,
                 StudentSubjectScore.exam_id == latest[0].exam_id,
             )
-            .order_by(StudentSubjectScore.score.desc())
         )
         subjects = [
             {
                 "name": subject.name,
                 "score": float(item.score),
-                "full_score": float(item.full_score),
-                "percentage": round(float(item.score) / float(item.full_score) * 100, 1),
+                "full_score": _full_score(item.full_score),
+                "percentage": _percentage(item.score, item.full_score),
                 "class_rank": item.class_rank,
                 "grade_rank": item.grade_rank,
             }
             for item, subject in subjects_result.all()
         ]
-    diagnosis_count = await db.scalar(
-        select(func.count(DiagnosisReport.id)).where(
-            DiagnosisReport.school_id == current.school_id,
-            DiagnosisReport.student_id == current.student_id,
-            DiagnosisReport.status == "generated",
-        )
-    )
+        # 首页文案承诺按得分率排序；未知得分率排在最后。
+        subjects.sort(key=lambda subject: (subject["percentage"] is None, -(subject["percentage"] or 0)))
+    diagnosis_count = await db.scalar(select(func.count()).select_from(authorized_reports(current.school_id, current.student_id).subquery()))
     open_risks = await db.scalar(
         select(func.count(RiskEvent.id)).where(
             RiskEvent.school_id == current.school_id,
@@ -182,13 +235,13 @@ async def student_dashboard(
             "name": latest[1].name,
             "date": _iso(latest[1].start_date),
             "total_score": float(latest_score.total_score),
-            "full_score": float(latest_score.full_score or 0),
+            "full_score": _full_score(latest_score.full_score),
             "class_rank": latest_score.class_rank,
             "grade_rank": latest_score.grade_rank,
             "score_delta": round(float(latest_score.total_score) - float(previous[0].total_score), 1) if previous else None,
         } if latest else None,
         "subjects": subjects,
-        "exam_count": len(scores),
+        "exam_count": int(exam_total or 0),
         "diagnosis_count": int(diagnosis_count or 0),
         "open_risks": int(open_risks or 0),
         "open_handoffs": int(open_handoffs or 0),
@@ -205,27 +258,31 @@ async def student_trends(
         select(StudentExamScore, Exam)
         .join(Exam, Exam.id == StudentExamScore.exam_id)
         .where(StudentExamScore.school_id == current.school_id, StudentExamScore.student_id == current.student_id)
-        .order_by(Exam.start_date.asc(), Exam.created_at.asc())
+        .order_by(Exam.start_date.desc().nullslast(), Exam.created_at.desc(), Exam.id.desc())
         .limit(20)
     )
-    exam_rows = result.all()
+    # 先取最近 20 次，再恢复为时间升序，避免第 21 次之后的最新考试被排除。
+    exam_rows = list(reversed(result.all()))
     subject_result = await db.execute(
         select(StudentSubjectScore, Subject, Exam)
         .join(Subject, Subject.id == StudentSubjectScore.subject_id)
         .join(Exam, Exam.id == StudentSubjectScore.exam_id)
-        .where(StudentSubjectScore.school_id == current.school_id, StudentSubjectScore.student_id == current.student_id)
-        .order_by(Exam.start_date.asc(), Subject.name.asc())
-        .limit(200)
+        .where(
+            StudentSubjectScore.school_id == current.school_id,
+            StudentSubjectScore.student_id == current.student_id,
+            StudentSubjectScore.exam_id.in_([exam.id for _, exam in exam_rows]),
+        )
+        .order_by(Exam.start_date.asc().nullsfirst(), Exam.created_at.asc(), Exam.id.asc(), Subject.name.asc())
     )
     subject_rows = subject_result.all()
     subject_names = list(dict.fromkeys(subject.name for _, subject, _ in subject_rows))
     return {
         "exams": [
-            {"id": str(exam.id), "name": exam.name, "date": _iso(exam.start_date), "score": float(score.total_score), "full_score": float(score.full_score or 0), "class_rank": score.class_rank, "grade_rank": score.grade_rank}
+            {"id": str(exam.id), "name": exam.name, "date": _iso(exam.start_date), "score": float(score.total_score), "full_score": _full_score(score.full_score), "class_rank": score.class_rank, "grade_rank": score.grade_rank}
             for score, exam in exam_rows
         ],
         "subjects": [
-            {"subject": subject.name, "exam": exam.name, "date": _iso(exam.start_date), "score": float(score.score), "full_score": float(score.full_score)}
+            {"subject": subject.name, "exam": exam.name, "date": _iso(exam.start_date), "score": float(score.score), "full_score": _full_score(score.full_score)}
             for score, subject, exam in subject_rows
         ],
         "subject_names": subject_names,
@@ -237,13 +294,15 @@ async def student_diagnosis(
     current: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_diagnosis(db, current)
     result = await db.execute(
-        select(DiagnosisReport, Exam)
-        .outerjoin(Exam, Exam.id == DiagnosisReport.exam_id)
-        .where(DiagnosisReport.school_id == current.school_id, DiagnosisReport.student_id == current.student_id)
+        authorized_reports(current.school_id, current.student_id).add_columns(Exam)
+        .outerjoin(Exam, (Exam.id == DiagnosisReport.exam_id) & (Exam.school_id == current.school_id))
         .order_by(DiagnosisReport.generated_at.desc())
         .limit(20)
     )
+    rows = result.all()
+    await audit_report_access(db, current, True)
     return [
         {
             "id": str(report.id),
@@ -254,9 +313,26 @@ async def student_diagnosis(
             "exam_name": exam.name if exam else None,
             "content": report.structured_json or {},
             "source": report.source_system or "校内成绩系统",
+            "has_source": bool(report.raw_content and report.raw_content.strip()),
         }
-        for report, exam in result.all()
+        for report, exam in rows
     ]
+
+
+@router.get("/student/diagnosis/{report_id}/source")
+async def student_diagnosis_source(
+    report_id: UUID,
+    current: AuthenticatedStudent = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    report = await require_report(db, current, report_id)
+    if not report.raw_content or not report.raw_content.strip():
+        raise ApiError(404, "REPORT_SOURCE_MISSING", "该版本尚未接入报告原始内容，不能以摘要代替原件。")
+    exam = await db.scalar(select(Exam).where(Exam.id == report.exam_id, Exam.school_id == current.school_id)) if report.exam_id else None
+    await audit_report_access(db, current, True, report.id)
+    return {"id": str(report.id), "version": report.version, "raw_content": report.raw_content,
+            "source": report.source_system, "generated_at": _iso(report.generated_at),
+            "exam_name": exam.name if exam else None, "source_kind": "stored_text"}
 
 
 @router.get("/student/mistakes")
@@ -269,7 +345,7 @@ async def student_mistakes(
         select(QuestionScore, Exam, Subject)
         .join(Exam, Exam.id == QuestionScore.exam_id)
         .join(Subject, Subject.id == QuestionScore.subject_id)
-        .where(QuestionScore.school_id == current.school_id, QuestionScore.student_id == current.student_id)
+        .where(QuestionScore.school_id == current.school_id, QuestionScore.student_id == current.student_id, QuestionScore.lost_score > 0)
         .order_by(QuestionScore.lost_score.desc(), Exam.start_date.desc())
         .limit(100)
     )
@@ -376,6 +452,7 @@ async def approve_parent_authorization(
 @router.post("/student/feedback", status_code=status.HTTP_201_CREATED)
 async def create_student_feedback(
     data: PlatformFeedbackCreate,
+    idempotency_key: UUID | None = Header(default=None),
     current: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
@@ -387,29 +464,27 @@ async def create_student_feedback(
         )
         if not message:
             raise HTTPException(status_code=404, detail="消息不存在")
-    item = PlatformFeedback(
-        school_id=current.school_id, user_id=current.user_id, student_id=current.student_id,
-        message_id=data.message_id, rating=data.rating, category=data.category, note=data.note,
-    )
-    db.add(item)
-    await db.commit()
-    await db.refresh(item)
+    item = await create_once(db, current, "feedback", data.model_dump(), idempotency_key, PlatformFeedback,
+                            dict(school_id=current.school_id, user_id=current.user_id, student_id=current.student_id, **data.model_dump()))
     return {"id": str(item.id), "status": item.status}
 
 
 @router.post("/student/handoffs", status_code=status.HTTP_201_CREATED)
 async def create_student_handoff(
     data: HandoffCreate,
+    idempotency_key: UUID | None = Header(default=None),
     current: AuthenticatedStudent = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
-    item = HumanHandoff(
-        school_id=current.school_id, student_id=current.student_id, session_id=data.session_id,
-        reason=data.reason, priority=data.priority, summary=data.summary,
-    )
-    db.add(item)
-    await db.commit()
-    await db.refresh(item)
+    if data.session_id:
+        session = await db.scalar(select(ChatSession).where(
+            ChatSession.id == data.session_id, ChatSession.school_id == current.school_id,
+            ChatSession.student_id == current.student_id, ChatSession.status == "active",
+        ))
+        if session is None:
+            raise ApiError(404, "SESSION_NOT_FOUND", "会话不存在或无权关联")
+    item = await create_once(db, current, "handoff", data.model_dump(), idempotency_key, HumanHandoff,
+                            dict(school_id=current.school_id, student_id=current.student_id, **data.model_dump()))
     return _handoff_out(item)
 
 
@@ -429,7 +504,7 @@ async def management_overview(
     feedback_count = await db.scalar(feedback_query)
     handoff_count = await db.scalar(handoff_query)
     return {
-        "scope": "city" if current.has_role("CITY_OPERATOR") or current.has_role("SUPER_ADMIN") else "school",
+        "scope": "city" if current.has_role("CITY_OPERATOR") or current.has_role("SUPER_ADMIN") else "teaching" if is_teacher_only(current) else "school",
         "schools": int(school_count or 0), "students": int(student_count or 0),
         "open_risks": int(risk_count or 0), "open_feedback": int(feedback_count or 0),
         "open_handoffs": int(handoff_count or 0),
@@ -441,20 +516,95 @@ async def management_students(
     current: AuthenticatedUser = Depends(management_roles),
     db: AsyncSession = Depends(get_db),
 ):
-    students_query = _scoped(select(Student, School).join(School, School.id == Student.school_id).where(Student.status == "active"), current, Student.school_id).order_by(Student.name.asc())
+    # 优化：使用单次查询 + 聚合避免 N+1
+    # 1. JOIN 一次获取学生及学校信息。
+    students_query = _scoped(
+        select(Student, School)
+        .join(School, School.id == Student.school_id)
+        .where(Student.status == "active"),
+        current,
+        Student.school_id,
+    ).order_by(Student.name.asc())
     students = (await db.execute(students_query)).all()
-    scores_query = _scoped(select(StudentExamScore, Exam), current, StudentExamScore.school_id).join(Exam, Exam.id == StudentExamScore.exam_id).order_by(Exam.start_date.desc())
-    score_by_student: dict[UUID, tuple[StudentExamScore, Exam]] = {}
-    for score, exam in (await db.execute(scores_query)).all():
-        score_by_student.setdefault(score.student_id, (score, exam))
-    risks_query = _scoped(select(RiskEvent.student_id, func.count(RiskEvent.id)).where(RiskEvent.status.in_(["open", "acknowledged"])), current, RiskEvent.school_id).group_by(RiskEvent.student_id)
-    risk_by_student = {student_id: count for student_id, count in (await db.execute(risks_query)).all() if student_id}
+
+    if not students:
+        return []
+
+    student_ids = [student.id for student, _ in students]
+
+    # 2. 批量获取最新成绩（使用窗口函数或子查询，避免 N+1）
+    latest_scores_subquery = (
+        select(
+            StudentExamScore.student_id,
+            StudentExamScore.exam_id,
+            StudentExamScore.total_score,
+            func.row_number()
+            .over(
+                partition_by=StudentExamScore.student_id,
+                order_by=(Exam.start_date.desc().nullslast(), Exam.created_at.desc(), Exam.id.desc()),
+            )
+            .label("rn"),
+        )
+        .join(Exam, Exam.id == StudentExamScore.exam_id)
+        .where(StudentExamScore.student_id.in_(student_ids), not is_teacher_only(current))
+        .subquery()
+    )
+
+    scores_query = (
+        select(latest_scores_subquery.c.student_id, latest_scores_subquery.c.total_score, Exam.name)
+        .join(Exam, Exam.id == latest_scores_subquery.c.exam_id)
+        .where(latest_scores_subquery.c.rn == 1)
+    )
+    score_by_student = {
+        student_id: (float(total_score), exam_name)
+        for student_id, total_score, exam_name in (await db.execute(scores_query)).all()
+    }
+    # Total scores include non-taught subjects. A subject teacher gets only
+    # explicitly granted subject rows, never a recomputed pseudo-total.
+    subject_by_student: dict[UUID, list[dict]] = {}
+    if is_teacher_only(current):
+        score_by_student = {}
+        subject_rows = await db.execute(scoped_scores(
+            select(StudentSubjectScore, Subject, Exam)
+            .join(Subject, Subject.id == StudentSubjectScore.subject_id)
+            .join(Exam, Exam.id == StudentSubjectScore.exam_id)
+            .where(StudentSubjectScore.student_id.in_(student_ids))
+            .order_by(Exam.start_date.desc().nullslast(), Exam.created_at.desc()),
+            current, StudentSubjectScore,
+        ))
+        seen = set()
+        for score, subject, exam in subject_rows:
+            key = (score.student_id, score.subject_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            subject_by_student.setdefault(score.student_id, []).append({"subject": subject.name, "score": float(score.score), "exam": exam.name})
+
+    # 3. 批量获取风险计数（单次聚合查询）
+    risks_query = (
+        select(RiskEvent.student_id, func.count(RiskEvent.id))
+        .where(
+            RiskEvent.student_id.in_(student_ids),
+            RiskEvent.status.in_(["open", "acknowledged"]),
+        )
+        .group_by(RiskEvent.student_id)
+    )
+    risk_by_student = {
+        student_id: count for student_id, count in (await db.execute(risks_query)).all() if student_id
+    }
+
+    # 4. 组装结果（无额外查询）
     return [
         {
-            "id": str(student.id), "name": student.name, "student_no": student.student_no,
-            "school": school.name, "school_id": str(student.school_id),
-            "latest_score": float(score_by_student[student.id][0].total_score) if student.id in score_by_student else None,
-            "latest_exam": score_by_student[student.id][1].name if student.id in score_by_student else None,
+            "id": str(student.id),
+            "name": student.name,
+            "student_no": student.student_no,
+            "school": school.name,
+            "school_id": str(student.school_id),
+            "latest_score": score_by_student[student.id][0] if student.id in score_by_student else None,
+            "latest_exam": score_by_student[student.id][1] if student.id in score_by_student else None,
+            "subject_scores": subject_by_student.get(student.id, []),
+            "score_scope": "teaching_subjects" if is_teacher_only(current) else "all_subjects",
             "open_risks": int(risk_by_student.get(student.id, 0)),
         }
         for student, school in students
@@ -466,17 +616,69 @@ async def management_schools(
     current: AuthenticatedUser = Depends(city_roles),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(School).order_by(School.name.asc()))
-    rows = []
-    for school in result.scalars().all():
-        count = await db.scalar(select(func.count(Student.id)).where(Student.school_id == school.id, Student.status == "active"))
-        risk_count = await db.scalar(select(func.count(RiskEvent.id)).where(RiskEvent.school_id == school.id, RiskEvent.status.in_(["open", "acknowledged"])))
-        rows.append({"id": str(school.id), "name": school.name, "code": school.code, "status": school.status, "students": int(count or 0), "open_risks": int(risk_count or 0)})
-    return rows
+    # 优化：使用批量聚合避免 N+1 查询
+    schools_result = await db.execute(select(School).order_by(School.name.asc()))
+    schools = schools_result.scalars().all()
+
+    if not schools:
+        return []
+
+    school_ids = [school.id for school in schools]
+
+    # 批量获取学生数
+    student_counts_query = (
+        select(Student.school_id, func.count(Student.id))
+        .where(Student.school_id.in_(school_ids), Student.status == "active")
+        .group_by(Student.school_id)
+    )
+    student_counts = {
+        school_id: count for school_id, count in (await db.execute(student_counts_query)).all()
+    }
+
+    # 批量获取风险数
+    risk_counts_query = (
+        select(RiskEvent.school_id, func.count(RiskEvent.id))
+        .where(RiskEvent.school_id.in_(school_ids), RiskEvent.status.in_(["open", "acknowledged"]))
+        .group_by(RiskEvent.school_id)
+    )
+    risk_counts = {
+        school_id: count for school_id, count in (await db.execute(risk_counts_query)).all()
+    }
+
+    return [
+        {
+            "id": str(school.id),
+            "name": school.name,
+            "code": school.code,
+            "status": school.status,
+            "students": int(student_counts.get(school.id, 0)),
+            "open_risks": int(risk_counts.get(school.id, 0)),
+        }
+        for school in schools
+    ]
 
 
 def _feedback_out(item: PlatformFeedback) -> dict[str, Any]:
-    return {"id": str(item.id), "rating": item.rating, "category": item.category, "note": item.note, "status": item.status, "school_id": str(item.school_id), "student_id": str(item.student_id) if item.student_id else None, "created_at": _iso(item.created_at), "resolution": item.resolution}
+    return {"id": str(item.id), "rating": item.rating, "category": item.category, "note": item.note, "status": item.status, "school_id": str(item.school_id), "student_id": str(item.student_id) if item.student_id else None, "created_at": _iso(item.created_at), "resolution": item.resolution, "resolved_at": _iso(item.resolved_at), "state_version": item.state_version, "allowed_transitions": workflow_next_states("feedback", item.status)}
+
+
+@router.get("/student/feedback")
+async def student_feedback(current: AuthenticatedStudent = Depends(get_current_student), db: AsyncSession = Depends(get_db)):
+    items = (await db.execute(select(PlatformFeedback).where(
+        PlatformFeedback.school_id == current.school_id, PlatformFeedback.student_id == current.student_id,
+        PlatformFeedback.user_id == current.user_id,
+    ).order_by(PlatformFeedback.created_at.desc()).limit(100))).scalars().all()
+    return [{"id": str(item.id), "status": item.status, "category": item.category, "note": item.note,
+             "resolution": item.resolution, "created_at": _iso(item.created_at)} for item in items]
+
+
+@router.get("/student/handoffs")
+async def student_handoffs(current: AuthenticatedStudent = Depends(get_current_student), db: AsyncSession = Depends(get_db)):
+    items = (await db.execute(select(HumanHandoff).where(
+        HumanHandoff.school_id == current.school_id, HumanHandoff.student_id == current.student_id,
+    ).order_by(HumanHandoff.created_at.desc()).limit(100))).scalars().all()
+    return [{"id": str(item.id), "status": item.status, "reason": item.reason, "resolution": item.resolution,
+             "assigned": item.assigned_to is not None, "created_at": _iso(item.created_at)} for item in items]
 
 
 @router.get("/management/feedback")
@@ -501,17 +703,12 @@ async def update_management_feedback(
     item = await db.scalar(_scoped(select(PlatformFeedback).where(PlatformFeedback.id == feedback_id), current, PlatformFeedback.school_id))
     if not item:
         raise HTTPException(status_code=404, detail="反馈不存在")
-    item.status = data.status
-    item.resolution = data.resolution
-    item.assignee_id = current.user_id
-    if data.status in {"resolved", "closed"}:
-        item.resolved_at = datetime.now(timezone.utc)
-    await db.commit()
+    await transition_workflow(db, item, current, "feedback", data.status, data.resolution, data.expected_version)
     return _feedback_out(item)
 
 
 def _risk_out(item: RiskEvent) -> dict[str, Any]:
-    return {"id": str(item.id), "student_id": str(item.student_id) if item.student_id else None, "event_type": item.event_type, "severity": item.severity, "title": item.title, "detail": item.detail, "source": item.source, "status": item.status, "created_at": _iso(item.created_at), "resolved_at": _iso(item.resolved_at)}
+    return {"id": str(item.id), "student_id": str(item.student_id) if item.student_id else None, "event_type": item.event_type, "severity": item.severity, "title": item.title, "detail": item.detail, "source": item.source, "status": item.status, "created_at": _iso(item.created_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("risk", item.status)}
 
 
 @router.get("/management/risks")
@@ -529,13 +726,20 @@ async def management_risks(
 @router.post("/management/risks", status_code=status.HTTP_201_CREATED)
 async def create_management_risk(
     data: RiskCreate,
+    idempotency_key: UUID | None = Header(default=None),
     current: AuthenticatedUser = Depends(management_roles),
     db: AsyncSession = Depends(get_db),
 ):
-    item = RiskEvent(school_id=current.school_id, student_id=data.student_id, event_type=data.event_type, severity=data.severity, title=data.title, detail=data.detail, source=data.source)
-    db.add(item)
-    await db.commit()
-    await db.refresh(item)
+    if data.student_id:
+        student = await db.scalar(_scoped(select(Student).where(
+            Student.id == data.student_id, Student.school_id == current.school_id, Student.status == "active",
+        ), current, Student.school_id))
+        if student is None:
+            raise ApiError(404, "STUDENT_NOT_FOUND", "学生不存在或无权关联")
+    elif is_teacher_only(current):
+        raise ApiError(403, "STUDENT_SCOPE_REQUIRED", "教师须选择任教班级内的学生，不能创建全校事件")
+    item = await create_once(db, current, "risk", data.model_dump(), idempotency_key, RiskEvent,
+                            dict(school_id=current.school_id, **data.model_dump()))
     return _risk_out(item)
 
 
@@ -549,16 +753,12 @@ async def update_management_risk(
     item = await db.scalar(_scoped(select(RiskEvent).where(RiskEvent.id == risk_id), current, RiskEvent.school_id))
     if not item:
         raise HTTPException(status_code=404, detail="风险事件不存在")
-    item.status = data.status
-    item.assigned_to = current.user_id
-    if data.status in {"resolved", "closed"}:
-        item.resolved_at = datetime.now(timezone.utc)
-    await db.commit()
+    await transition_workflow(db, item, current, "risk", data.status, data.resolution, data.expected_version)
     return _risk_out(item)
 
 
 def _handoff_out(item: HumanHandoff) -> dict[str, Any]:
-    return {"id": str(item.id), "student_id": str(item.student_id), "reason": item.reason, "priority": item.priority, "summary": item.summary, "status": item.status, "assigned_to": str(item.assigned_to) if item.assigned_to else None, "created_at": _iso(item.created_at), "accepted_at": _iso(item.accepted_at), "resolved_at": _iso(item.resolved_at)}
+    return {"id": str(item.id), "student_id": str(item.student_id), "reason": item.reason, "priority": item.priority, "summary": item.summary, "status": item.status, "assigned_to": str(item.assigned_to) if item.assigned_to else None, "created_at": _iso(item.created_at), "accepted_at": _iso(item.accepted_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("handoff", item.status)}
 
 
 @router.get("/management/handoffs")
@@ -583,19 +783,12 @@ async def update_management_handoff(
     item = await db.scalar(_scoped(select(HumanHandoff).where(HumanHandoff.id == handoff_id), current, HumanHandoff.school_id))
     if not item:
         raise HTTPException(status_code=404, detail="转接工单不存在")
-    item.status = data.status
-    item.assigned_to = current.user_id
-    now = datetime.now(timezone.utc)
-    if data.status == "accepted" and item.accepted_at is None:
-        item.accepted_at = now
-    if data.status in {"resolved", "closed"}:
-        item.resolved_at = now
-    await db.commit()
+    await transition_workflow(db, item, current, "handoff", data.status, data.resolution, data.expected_version)
     return _handoff_out(item)
 
 
 def _knowledge_out(item: KnowledgeDocument) -> dict[str, Any]:
-    return {"id": str(item.id), "title": item.title, "subject": item.subject, "doc_type": item.doc_type, "status": item.status, "version": item.version, "content": item.content, "source_name": item.source_name, "source_url": item.source_url, "source_reference": item.source_reference, "tags": item.tags or [], "rejection_reason": item.rejection_reason, "created_at": _iso(item.created_at), "reviewed_at": _iso(item.reviewed_at), "published_at": _iso(item.published_at), "offlined_at": _iso(item.offlined_at)}
+    return {"id": str(item.id), "title": item.title, "subject": item.subject, "doc_type": item.doc_type, "status": item.status, "version": item.version, "content": item.content, "source_name": item.source_name, "source_url": item.source_url, "source_reference": item.source_reference, "tags": item.tags or [], "rejection_reason": item.rejection_reason, "created_at": _iso(item.created_at), "reviewed_at": _iso(item.reviewed_at), "published_at": _iso(item.published_at), "offlined_at": _iso(item.offlined_at), "state_version": item.state_version, "allowed_actions": knowledge_actions(item.status)}
 
 
 @router.get("/management/knowledge")
@@ -613,17 +806,12 @@ async def management_knowledge(
 @router.post("/management/knowledge", status_code=status.HTTP_201_CREATED)
 async def create_knowledge(
     data: KnowledgeCreate,
+    idempotency_key: UUID | None = Header(default=None),
     current: AuthenticatedUser = Depends(school_admin_roles),
     db: AsyncSession = Depends(get_db),
 ):
-    item = KnowledgeDocument(
-        school_id=current.school_id, title=data.title, subject=data.subject, doc_type=data.doc_type,
-        content=data.content, source_name=data.source_name, source_url=data.source_url,
-        source_reference=data.source_reference, tags=data.tags, created_by=current.user_id,
-    )
-    db.add(item)
-    await db.commit()
-    await db.refresh(item)
+    item = await create_once(db, current, "knowledge", data.model_dump(), idempotency_key, KnowledgeDocument,
+                            dict(school_id=current.school_id, created_by=current.user_id, **data.model_dump()))
     return _knowledge_out(item)
 
 
@@ -637,16 +825,19 @@ async def review_knowledge(
     item = await db.scalar(_scoped(select(KnowledgeDocument).where(KnowledgeDocument.id == document_id), current, KnowledgeDocument.school_id))
     if not item:
         raise HTTPException(status_code=404, detail="知识文档不存在")
-    now = datetime.now(timezone.utc)
-    transitions = {"submit": "pending_review", "approve": "published", "publish": "published", "reject": "rejected", "offline": "offline", "republish": "published"}
-    item.status = transitions[data.action]
-    item.rejection_reason = data.reason if data.action == "reject" else None
-    item.reviewed_by = current.user_id
-    item.reviewed_at = now
-    if item.status == "published":
-        item.published_at = now
-        item.offlined_at = None
-    if item.status == "offline":
-        item.offlined_at = now
-    await db.commit()
+    await transition_knowledge(db, item, current, data.action, data.reason, data.expected_version)
+    return _knowledge_out(item)
+
+
+@router.patch("/management/knowledge/{document_id}")
+async def update_knowledge(
+    document_id: UUID,
+    data: KnowledgeEdit,
+    current: AuthenticatedUser = Depends(school_admin_roles),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await db.scalar(_scoped(select(KnowledgeDocument).where(KnowledgeDocument.id == document_id), current, KnowledgeDocument.school_id))
+    if not item:
+        raise HTTPException(status_code=404, detail="知识文档不存在")
+    await edit_knowledge(db, item, current, data.model_dump(exclude={"expected_version"}), data.expected_version)
     return _knowledge_out(item)

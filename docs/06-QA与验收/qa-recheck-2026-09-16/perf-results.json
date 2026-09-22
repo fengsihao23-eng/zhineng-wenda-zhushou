@@ -1,0 +1,166 @@
+{
+  "conditions": "current production build, original gateway API, local network, Chromium desktop, cache disabled, 5 full document navigations, charts stable includes 250ms settling",
+  "measurements": [
+    {
+      "run": {
+        "content": 186.0999999642372,
+        "chart": 186.0999999642372,
+        "stable": 2041.699999988079
+      },
+      "navigation": [
+        {
+          "domContentLoaded": 120.79999995231628,
+          "load": 121.29999995231628,
+          "ttfb": 4
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 8.100000023841858
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 9.900000035762787
+        },
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 10.199999988079071
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 10
+        }
+      ]
+    },
+    {
+      "run": {
+        "content": 167.89999997615814,
+        "chart": 167.89999997615814,
+        "stable": 2023.699999988079
+      },
+      "navigation": [
+        {
+          "domContentLoaded": 124.09999996423721,
+          "load": 124.59999996423721,
+          "ttfb": 2.800000011920929
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 5.900000035762787
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 6
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 10
+        },
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 10
+        }
+      ]
+    },
+    {
+      "run": {
+        "content": 161.79999995231628,
+        "chart": 161.79999995231628,
+        "stable": 2038.699999988079
+      },
+      "navigation": [
+        {
+          "domContentLoaded": 119,
+          "load": 119.5,
+          "ttfb": 1.0999999642372131
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 6.5
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 6.699999988079071
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 7.799999952316284
+        },
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 7.899999976158142
+        }
+      ]
+    },
+    {
+      "run": {
+        "content": 185.0999999642372,
+        "chart": 185.0999999642372,
+        "stable": 2059
+      },
+      "navigation": [
+        {
+          "domContentLoaded": 144.0999999642372,
+          "load": 144.0999999642372,
+          "ttfb": 3.899999976158142
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 5.799999952316284
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 5.599999964237213
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 8.199999988079071
+        },
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 8.400000035762787
+        }
+      ]
+    },
+    {
+      "run": {
+        "content": 158.80000001192093,
+        "chart": 158.80000001192093,
+        "stable": 2020.699999988079
+      },
+      "navigation": [
+        {
+          "domContentLoaded": 115.69999998807907,
+          "load": 116.09999996423721,
+          "ttfb": 0.8999999761581421
+        }
+      ],
+      "api": [
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 6.300000011920929
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 6
+        },
+        {
+          "path": "/api/v1/platform/student/trends",
+          "duration": 10.100000023841858
+        },
+        {
+          "path": "/api/v1/platform/student/dashboard",
+          "duration": 10.800000011920929
+        }
+      ]
+    }
+  ],
+  "networkError": "⚠️\n数据加载失败\n\nFailed to fetch\n\n重试"
+}

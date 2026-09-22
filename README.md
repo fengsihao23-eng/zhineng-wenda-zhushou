@@ -68,68 +68,73 @@ docker compose exec api python scripts/init_test_data.py
 ```
 .
 ├── apps/
-│   ├── api/                 # FastAPI 后端
+│   ├── api/                     # FastAPI 后端
 │   │   ├── app/
-│   │   │   ├── api/        # API 路由
-│   │   │   ├── core/       # 核心配置
-│   │   │   ├── agent/      # Agent 核心和 Context Builder
-│   │   │   ├── ai/         # Model Gateway 和 Providers
-│   │   │   ├── db/models/  # SQLAlchemy 数据模型
-│   │   │   ├── schemas/    # Pydantic Schema
-│   │   │   ├── core/       # 配置、安全、Trace、Guard、Prompt
-│   │   │   ├── data/       # CSV 导入和同步
-│   │   │   └── tools/      # Tool 实现
+│   │   │   ├── api/             # API 路由
+│   │   │   ├── agent/           # Agent 核心和 Context Builder
+│   │   │   ├── ai/              # Model Gateway 和 Providers
+│   │   │   ├── core/            # 配置、安全、Trace、Guard、Prompt
+│   │   │   ├── data/            # CSV 导入和同步
+│   │   │   ├── db/models/       # SQLAlchemy 数据模型
+│   │   │   ├── schemas/         # Pydantic Schema
+│   │   │   ├── services/        # 业务服务（教务、教学、导入）
+│   │   │   ├── tools/           # Tool 实现
 │   │   │   └── main.py
-│   │   ├── alembic/        # 数据库迁移
-│   │   ├── tests/          # 测试
+│   │   ├── alembic/             # 数据库迁移
+│   │   ├── scripts/             # 数据初始化脚本
+│   │   ├── tests/               # 后端测试
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
-│   │
-│   └── web/                # React 前端
+│   └── web/                     # React 前端
 │       ├── src/
-│       │   ├── components/
-│       │   ├── pages/
-│       │   └── services/
 │       ├── Dockerfile
 │       └── package.json
 │
-├── infra/                  # 基础设施配置
-│   ├── nginx/
-│   │   └── nginx.conf
-│   ├── postgres/
-│   │   └── init.sql
-│   └── scripts/
-│       ├── backup-db.sh
-│       └── health-check.sh
+├── infra/                       # 基础设施配置
+│   ├── nginx/                   # 公共网关
+│   ├── postgres/                # 数据库初始化
+│   └── scripts/                 # 备份、恢复、健康检查
 │
-├── docs/                   # 文档
-│   └── api/               # API 文档
+├── scripts/                     # 仓库级脚本（测试、质量门禁、启动）
+├── tests/                       # Playwright 浏览器测试
 │
-├── 开发/                   # 开发文档（PRD）
-├── 旧产物/                 # 旧系统参考
-├── 需求文档/               # 需求文档
+├── docs/                        # 全部项目文档，入口见 docs/README.md
+│   ├── 01-需求文档/              # 原始需求与架构规范
+│   ├── 02-PRD设计与实施/         # PRD 与分阶段实施计划
+│   ├── 03-产品与方案/            # 产品介绍、对接方案、设计基线
+│   ├── 04-业务流程图/            # 业务流程图 HTML 及生成工具链
+│   ├── 05-新旧系统对齐/          # 对齐分析、实施与验收
+│   ├── 06-QA与验收/              # QA 报告与实测证据
+│   ├── 07-进度与汇报/            # 进度报告与项目总览
+│   ├── 08-运维与交付/            # 部署、运维、测试、交付清单
+│   └── 09-参考资料/              # 参考数据与模板
+│
+├── archive/                     # 历史归档文档与旧脚本
+├── 旧产物/                       # 旧系统参考数据（体积大，不入库）
 │
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```
 
+文档导航见 [docs/README.md](docs/README.md)。
+
 ## 开发文档
 
-完整的 PRD 文档请参考 [开发/PRD/00_PRD索引.md](开发/PRD/00_PRD索引.md)
+完整的 PRD 文档请参考 [docs/02-PRD设计与实施/00_PRD索引.md](docs/02-PRD设计与实施/00_PRD索引.md)
 
 ### 核心文档
 
-- [项目概述与目标](开发/PRD/01_项目概述与目标.md)
-- [技术栈选型](开发/PRD/02_技术栈选型.md)
-- [数据模型设计](开发/PRD/03_数据模型设计.md)
-- [权限与权益体系](开发/PRD/04_权限与权益体系.md)
+- [项目概述与目标](docs/02-PRD设计与实施/01_项目概述与目标.md)
+- [技术栈选型](docs/02-PRD设计与实施/02_技术栈选型.md)
+- [数据模型设计](docs/02-PRD设计与实施/03_数据模型设计.md)
+- [权限与权益体系](docs/02-PRD设计与实施/04_权限与权益体系.md)
 
 ### 实施计划
 
-- [阶段一实施计划](开发/PRD/21_阶段一实施计划.md) - 底座搭建
-- [阶段二实施计划](开发/PRD/22_阶段二实施计划.md) - BASIC问答闭环
-- [阶段三实施计划](开发/PRD/23_阶段三实施计划.md) - DIAGNOSIS + QA
+- [阶段一实施计划](docs/02-PRD设计与实施/21_阶段一实施计划.md) - 底座搭建
+- [阶段二实施计划](docs/02-PRD设计与实施/22_阶段二实施计划.md) - BASIC问答闭环
+- [阶段三实施计划](docs/02-PRD设计与实施/23_阶段三实施计划.md) - DIAGNOSIS + QA
 
 ## 数据模型
 
@@ -140,7 +145,7 @@ docker compose exec api python scripts/init_test_data.py
 - Chat: chat_sessions, chat_messages
 - Trace: agent_runs, tool_call_logs
 
-详细设计见 [数据模型设计文档](开发/PRD/03_数据模型设计.md)
+详细设计见 [数据模型设计文档](docs/02-PRD设计与实施/03_数据模型设计.md)
 
 ## 旧系统迁移
 
@@ -150,7 +155,7 @@ docker compose exec api python scripts/init_test_data.py
 2. **阶段二**：数据双写（旧 MySQL + 新 PostgreSQL）
 3. **阶段三**：验证稳定后，新系统成为 Source of Truth
 
-详细策略见 [旧系统迁移策略](开发/PRD/14_旧系统迁移策略.md)
+详细策略见 [旧系统迁移策略](docs/02-PRD设计与实施/14_旧系统迁移策略.md)
 
 ## API 文档
 
@@ -161,7 +166,7 @@ docker compose exec api python scripts/init_test_data.py
 ## 测试
 
 详细的测试环境、SQLite/PostgreSQL 选择和 CI 门禁见
-[docs/TESTING.md](docs/TESTING.md)。
+[docs/08-运维与交付/TESTING.md](docs/08-运维与交付/TESTING.md)。
 
 ```bash
 # 安装测试依赖并运行后端测试（默认 SQLite；CI 也会跑同一套命令）
@@ -182,8 +187,9 @@ cd ../..
 `TEST_DATABASE_URL` 可覆盖后端测试数据库，例如
 `TEST_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/testdb ./scripts/run_tests.sh`。
 
-当前仓库门禁覆盖 API/数据库契约、前端单测和生产构建；浏览器级 E2E、压测
-及多 worker 的 Redis 限流验证仍需在试点环境执行。
+当前仓库门禁覆盖 API/数据库契约、前端单测、生产构建和 Chromium 浏览器回归。
+浏览器测试在根目录运行 `npm ci && npm run test:e2e`，详见 [E2E 说明](tests/e2e/README.md)。
+真实手机、外部网络、压测及多 worker 的 Redis 限流验证需在试点环境执行。
 
 ## 健康检查
 

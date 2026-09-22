@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "StudentAgent"
     APP_ENV: str = "development"
     DEBUG: bool = False
+    # Demo/test identities are available only for local development by default.
+    ENABLE_TEST_ACCOUNTS: bool = True
     SECRET_KEY: str = Field(default_factory=lambda: token_urlsafe(48))
 
     # 数据库配置
@@ -69,6 +71,16 @@ class Settings(BaseSettings):
     SSE_HEARTBEAT_INTERVAL: int = 15
     SSE_TIMEOUT: int = 300
 
+    @property
+    def demo_accounts_allowed(self) -> bool:
+        """Only explicitly local/test environments may use fixture identities."""
+        return self.APP_ENV.lower() in {"development", "test"} and self.ENABLE_TEST_ACCOUNTS
+
+    def require_demo_environment(self) -> None:
+        """Stop seed scripts before opening a connection to deployed data."""
+        if not self.demo_accounts_allowed:
+            raise RuntimeError("示例账号和数据仅允许在 development/test 环境初始化")
+
     @model_validator(mode="after")
     def validate_security_settings(self):
         """Reject placeholder credentials before a production process starts.
@@ -77,7 +89,8 @@ class Settings(BaseSettings):
         so local setup remains simple.  Production-like environments must
         provide two independent, sufficiently long secrets.
         """
-        if self.APP_ENV.lower() in {"production", "staging"}:
+        if self.APP_ENV.lower() not in {"development", "test"}:
+            self.ENABLE_TEST_ACCOUNTS = False
             weak_values = {
                 "default_secret_key_for_dev",
                 "default_jwt_secret_key_minimum_32_chars",
