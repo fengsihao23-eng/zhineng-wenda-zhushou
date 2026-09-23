@@ -41,15 +41,22 @@ async def main():
     )
     image.save(scratch / "paper-two-pages.pdf", save_all=True, append_images=[second])
     suffix = uuid4().hex[:10]
-    fixture["roster_accounts"] = {key: f"roster-{key}-{suffix}" for key in ("old", "keep", "skip", "student", "change", "changed")}
+    fixture["roster_accounts"] = {key: f"roster-{key}-{suffix}" for key in ("old", "keep", "skip", "student", "change", "changed", "invalid_good", "suspend", "withdraw", "confirm_race")}
     files = {
         "teacher-invalid": (TEACHER_COLUMNS, [{"教师账号": "", "教师姓名": "", "状态": "离职"}]),
         "teacher-old": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["old"], "教师姓名": "QA 流程教师", "状态": "正常", "任课年级班级": "数学:99.1;", "手机号码": "131****7000"}]),
         "teacher-suspects": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"][key], "教师姓名": "QA 流程教师", "状态": "正常", "任课年级班级": "数学:99.2;"} for key in ("keep", "skip")]),
-        "student-roster": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["student"], "姓名": "QA 流程学生", "年级（1-12）": "高中一年级", "班级号": "1班"}]),
+        "student-roster": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["student"], "姓名": "QA 流程学生", "年级（1-12）": "高中一年级", "班级号": "1班", "状态": "正常"}]),
         "teacher-change-before": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["change"], "教师姓名": "QA 变更教师", "状态": "正常", "任课年级班级": "数学:10.1;"}]),
         "teacher-change-after": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["changed"], "教师姓名": "QA 变更教师", "状态": "正常", "任课年级班级": ""}]),
-        "student-login-shared": (STUDENT_COLUMNS, [{"账号": fixture["users"]["teacher"], "姓名": "QA 同名学生", "年级（1-12）": "高中一年级", "班级号": "1班"}]),
+        "student-login-shared": (STUDENT_COLUMNS, [{"账号": fixture["users"]["teacher"], "姓名": "QA 同名学生", "年级（1-12）": "高中一年级", "班级号": "1班", "状态": "正常"}]),
+        "student-invalid-status": (STUDENT_COLUMNS, [
+            {"账号": fixture["roster_accounts"]["invalid_good"], "姓名": "QA 合法同行学生", "状态": "正常"},
+            *[{"账号": f"roster-invalid-{index}-{suffix}", "姓名": "QA 状态测试学生", "状态": state} for index, state in enumerate(("休学", "退学", "毕业", ""))],
+        ]),
+        "student-suspend": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["suspend"], "姓名": "QA 休学学生", "年级（1-12）": "高中一年级", "班级号": "99班", "状态": "正常"}]),
+        "student-withdraw": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["withdraw"], "姓名": "QA 退学学生", "年级（1-12）": "高中一年级", "班级号": "99班", "状态": "正常"}]),
+        "student-confirm-race": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["confirm_race"], "姓名": "QA 复校验学生", "状态": "正常"}]),
     }
     fixture["roster_files"] = {}
     for key, (columns, rows) in files.items():

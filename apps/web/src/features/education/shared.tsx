@@ -16,6 +16,8 @@ export const labels: Record<string, string> = {
   active: "有效",
   inactive: "已停用",
   departed: "已离职",
+  suspended: "已休学",
+  withdrawn: "已退学",
   graduated: "已毕业归档",
   draft: "草稿",
   published: "正式",

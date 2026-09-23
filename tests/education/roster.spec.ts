@@ -173,3 +173,95 @@ test('student fixed template import creates account and graduation retains the a
   expect(overflow).toBe(false);
   await page.screenshot({ path: test.info().outputPath('student-roster-mobile.png'), fullPage: true });
 });
+
+test('student import rejects every non-normal status without writing the valid row', async ({ page }) => {
+  await admin(page);
+  await page.getByRole('button', { name: '学生档案', exact: true }).click();
+  await expect(page.getByText(/状态仅接受「正常」/)).toBeVisible();
+  await upload(page, '学生', 'student-invalid-status');
+  await expect(page.getByText(/共 5 行 · 错误 4 行/)).toBeVisible();
+  await expect(page.getByRole('cell', { name: '状态非法', exact: true })).toHaveCount(4);
+  await expect(page.getByRole('alert')).toContainText('整批未写入');
+  await expect(page.getByRole('button', { name: '下载本批次错误清单', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '确认导入并创建账号', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '关闭批次', exact: true }).click();
+  await page.getByLabel('学生姓名或账号').fill(fixture.roster_accounts.invalid_good);
+  await expect(page.getByText('当前范围暂无记录。请调整筛选或完成数据接入。', { exact: true }).last()).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: fixture.roster_accounts.invalid_good })).toHaveCount(0);
+});
+
+test('confirmation revalidation refreshes the batch and exposes its error download', async ({ page, request }) => {
+  await admin(page);
+  await page.getByRole('button', { name: '学生档案', exact: true }).click();
+  await upload(page, '学生', 'student-confirm-race');
+  const confirm = page.getByRole('button', { name: '确认导入并创建账号', exact: true });
+  await expect(confirm).toBeEnabled();
+  const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } });
+  expect(login.ok()).toBe(true);
+  const headers = { Authorization: `Bearer ${(await login.json()).access_token}` };
+  const base = '/api/v1/platform/education/roster';
+  const uploadResponse = await request.post(`${base}/students/imports`, { headers, data: {
+    filename: 'student-confirm-race.xlsx', content_base64: readFileSync(fixture.roster_files['student-confirm-race']).toString('base64'),
+  } });
+  expect(uploadResponse.ok()).toBe(true);
+  const batch = await uploadResponse.json();
+  const imported = await request.post(`${base}/imports/${batch.id}/confirm`, { headers, data: { expected_revision: batch.revision } });
+  expect(imported.ok()).toBe(true);
+  await confirm.click();
+  await expect(page.getByText(/共 1 行 · 错误 1 行/)).toBeVisible();
+  await expect(page.getByRole('cell', { name: '账号重复', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('整批未写入');
+  await expect(confirm).toHaveCount(0);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载本批次错误清单', exact: true }).click();
+  expect((await downloaded).suggestedFilename()).toBe('导入错误清单.xlsx');
+});
+
+for (const scenario of [
+  { file: 'student-suspend', account: 'suspend', name: 'QA 休学学生', action: '休学', status: '已休学' },
+  { file: 'student-withdraw', account: 'withdraw', name: 'QA 退学学生', action: '退学', status: '已退学' },
+]) {
+  test(`student ${scenario.action} stops account access and retains the archive`, async ({ page, request }) => {
+    await admin(page);
+    await page.getByRole('button', { name: '学生档案', exact: true }).click();
+    await upload(page, '学生', scenario.file);
+    await expect(page.getByText(/共 1 行 · 错误 0 行/)).toBeVisible();
+    await page.getByRole('button', { name: '确认导入并创建账号', exact: true }).click();
+    await expect(page.getByText(/成功 1 条 · 主动放弃 0 条/)).toBeVisible();
+    await page.getByRole('button', { name: '关闭批次', exact: true }).click();
+    const username = fixture.roster_accounts[scenario.account];
+    await page.getByLabel('学生姓名或账号').fill(username);
+    const row = page.getByRole('row').filter({ hasText: username });
+    await expect(row).toContainText('已绑定账号');
+    await expect(row).toContainText('有效');
+    await expect(row).toContainText('高中一年级99班');
+    await page.getByLabel('学生班级筛选').fill('98班');
+    await expect(row).toHaveCount(0);
+    await page.getByLabel('学生班级筛选').fill('99班');
+    await expect(row).toContainText('高中一年级99班');
+    const login = await request.post('/api/v1/auth/login', { data: { username, password: username } });
+    expect(login.ok()).toBe(true);
+    const token = (await login.json()).access_token;
+    await row.getByRole('button', { name: scenario.action, exact: true }).click();
+    const confirmation = page.getByRole('region', { name: '确认档案操作' });
+    await expect(confirmation).toContainText('账号将立即停止访问，档案和历史成绩保留。');
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(confirmation).toHaveCount(0);
+    await expect(row).toContainText('有效');
+    await row.getByRole('button', { name: scenario.action, exact: true }).click();
+    await confirmation.getByRole('button', { name: `确认${scenario.action}`, exact: true }).click();
+    await expect(row).toContainText(scenario.status);
+    for (const action of ['休学', '退学', '毕业归档']) {
+      await expect(row.getByRole('button', { name: action, exact: true })).toHaveCount(0);
+    }
+    await row.getByRole('button', { name: '查看档案', exact: true }).click();
+    const archive = page.getByRole('heading', { name: `${scenario.name} · 档案详情`, exact: true }).locator('..').locator('..');
+    await expect(archive.locator('tbody').getByRole('row')).toHaveCount(30);
+    await expect(archive.getByRole('row').filter({ has: page.getByRole('cell', { name: '状态', exact: true }) })).toContainText('正常');
+    const deniedLogin = await request.post('/api/v1/auth/login', { data: { username, password: username } });
+    expect([401, 403]).toContain(deniedLogin.status());
+    const deniedSession = await request.get('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+    expect([401, 403]).toContain(deniedSession.status());
+    await page.screenshot({ path: test.info().outputPath(`student-${scenario.account}-archive.png`), fullPage: true });
+  });
+}

@@ -162,6 +162,8 @@ async def preflight(db, school_id, kind, rows):
                     matches = sorted(grouped.values(), key=lambda match: match["id"])
                     suspicious.append({"row_number": number, "name": name, "account": account, "keep": True, "matches": matches})
         else:
+            if values["状态"] != "正常":
+                issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；休学 / 退学 / 毕业停用请在学生列表操作")
             # Grade and class are retained as student profile data only. The
             # new-student flow deliberately does not require a class dictionary
             # match; an optional match is resolved during the write step.
@@ -266,7 +268,11 @@ async def confirm(db, actor, identifier, body):
         raise ApiError(409, "ROSTER_NOT_READY", "请修正全部错误后重新上传并预校验。")
     checked = await preflight(db, actor.school_id, item.kind, item.rows)
     if not checked["ok"]:
-        raise ApiError(409, "ROSTER_CHANGED", "已有账号或班级在预校验后发生变化，请重新上传；本批次未写入任何档案。")
+        item.report, item.status = checked, "invalid"
+        item.revision += 1
+        audit(db, actor, "roster.preflight", item, {"kind": item.kind, "error_rows": len(checked["issues"])})
+        await db.commit()
+        raise ApiError(409, "ROSTER_CHANGED", "确认前复校验未通过，本批次未写入任何档案；请下载错误清单，全部修正后整表重新上传。")
     if checked["suspicious"] != item.report["suspicious"]:
         raise ApiError(409, "DUPLICATES_CHANGED", "疑似重复名单已变化，请重新上传并逐条确认。")
     suspects = {r["row_number"] for r in checked["suspicious"]}
@@ -376,7 +382,9 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
         rows = (await db.execute(select(Student, User).outerjoin(User, User.id == Student.user_id).where(Student.school_id == actor.school_id).order_by(Student.created_at.desc(), Student.id))).all()
         for student, user in rows:
             classroom = classes.get(student.class_id) or next((c for c in classes.values() if c.external_class_id == student.external_class_id), None)
-            items.append({**data(student, "id", "name", "status", "user_id", "student_no", "source_system"), "username": user.username if user else "", "phone": student.profile_fields.get("手机号", ""), "class_name": classroom.name if classroom else "", "fields": student.profile_fields})
+            fields = student.profile_fields or {}
+            saved_class_name = f"{_student_text(fields.get('年级（1-12）'))}{_student_text(fields.get('班级号'))}"
+            items.append({**data(student, "id", "name", "status", "user_id", "student_no", "source_system"), "username": user.username if user else "", "phone": fields.get("手机号", ""), "class_name": classroom.name if classroom else saved_class_name, "fields": fields})
     filtered = [i for i in items if (not search or search in (i["name"] or "") or search in i["username"]) and (not phone or phone in i["phone"]) and (not class_name or class_name in i["class_name"] or class_name in i["fields"].get("任课年级班级", ""))]
     return {"items": filtered[(page - 1) * page_size:page * page_size], "total": len(filtered), "page": page, "page_size": page_size}
 
@@ -425,7 +433,7 @@ async def lifecycle(db, actor, kind, identifier, body):
     else:
         item = await owned(db, Student, identifier, actor, lock=True)
         user = await db.get(User, item.user_id) if item.user_id else None
-        allowed = {"delete", "graduate"}
+        allowed = {"delete", "graduate", "suspend", "withdraw"}
     if body.action not in allowed:
         raise ApiError(422, "ROSTER_ACTION_INVALID", "该档案不支持此操作。")
     if user and user.id == actor.user_id:
@@ -466,7 +474,7 @@ async def lifecycle(db, actor, kind, identifier, body):
             await db.delete(user)
         await db.commit()
         return {"id": str(identifier), "status": "deleted", "message": "原档案已删除，请修改统一 Excel 模板后重新导入。"}
-    target = {"disable": "inactive", "depart": "departed", "graduate": "graduated"}[body.action]
+    target = {"disable": "inactive", "depart": "departed", "graduate": "graduated", "suspend": "suspended", "withdraw": "withdrawn"}[body.action]
     if item.status != target:
         item.status = target
         if user:

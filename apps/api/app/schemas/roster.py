@@ -20,5 +20,5 @@ class RosterConfirm(BaseModel):
 
 class RosterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["delete", "disable", "depart", "graduate"]
+    action: Literal["delete", "disable", "depart", "graduate", "suspend", "withdraw"]
     confirmed: Literal[True]

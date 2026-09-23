@@ -18,7 +18,7 @@ def teacher(account="teacher-a", name="合成教师甲", **values):
 
 
 def student(account="student-a", name="合成学生甲", **values):
-    return {"账号": account, "姓名": name, "年级（1-12）": "高中一年级", "班级号": "1班", **values}
+    return {"账号": account, "姓名": name, "年级（1-12）": "高中一年级", "班级号": "1班", "状态": "正常", **values}
 
 
 async def upload(client, rows, kind="teachers", columns=None):
@@ -210,13 +210,20 @@ async def test_students_keep_profile_class_without_dictionary_match(client, test
 async def test_student_suspected_duplicate_requires_row_confirmation(client, test_db, actors):
     original = await confirm(client, await upload(client, [student("original-account", "同名学生")], "students"))
     original_id = UUID(original["report"]["imported"][0]["id"])
-    batch = await upload(client, [student("replacement-account", "同名学生")], "students")
+    batch = await upload(client, [student("replacement-account", "同名学生"), student("discarded-account", "同名学生"), student("ordinary-account", "另一学生")], "students")
     assert batch["status"] == "ready"
-    assert batch["report"]["suspicious"][0]["row_number"] == 2
+    assert [row["row_number"] for row in batch["report"]["suspicious"]] == [2, 3]
+    assert all(row["keep"] for row in batch["report"]["suspicious"])
     assert batch["report"]["suspicious"][0]["matches"][0]["id"] == str(original_id)
     await confirm(client, batch, status=422)
-    done = await confirm(client, batch, duplicate_decisions={2: True})
-    assert done["report"]["success_count"] == 1 and done["report"]["skipped_count"] == 0
+    await confirm(client, batch, duplicate_decisions={2: True}, status=422)
+    assert await test_db.scalar(select(User).where(User.username == "ordinary-account")) is None
+    done = await confirm(client, batch, duplicate_decisions={2: True, 3: False})
+    assert done["report"]["success_count"] == 2 and done["report"]["skipped_count"] == 1
+    assert done["report"]["skipped_rows"] == [3]
+    assert await test_db.scalar(select(User).where(User.username == "discarded-account")) is None
+    assert await test_db.scalar(select(User).where(User.username == "ordinary-account")) is not None
+    assert (await confirm(client, batch, duplicate_decisions={2: True, 3: False}))["report"] == done["report"]
 
 
 @pytest.mark.asyncio

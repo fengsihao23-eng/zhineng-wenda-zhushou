@@ -7,7 +7,7 @@ import { BASE, Row, PageData, Table, Pager, Badge, QueryState, canWrite, useActi
 
 type Kind = "teachers" | "students";
 const roleNames: Record<string, string> = { SCHOOL_ADMIN: "学校管理员", EXAM_ADMIN: "考试管理员", TEACHER: "任课教师", HOMEROOM_TEACHER: "班主任", SUBJECT_LEADER: "备课 / 教研组长", GRADE_LEADER: "年级长", PRINCIPAL: "校长", ACADEMIC_DIRECTOR: "教务主任", GENERAL_DIRECTOR: "总务主任", SCHOOL_VIEWER: "全校数据查看" };
-const actionNames: Record<string, string> = { delete: "删除原档案", disable: "停用", depart: "离职", graduate: "毕业归档" };
+const actionNames: Record<string, string> = { delete: "删除原档案", disable: "停用", depart: "离职", suspend: "休学", withdraw: "退学", graduate: "毕业归档" };
 
 function Download({ path, filename, children }: { path: string; filename: string; children: React.ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
@@ -45,7 +45,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
     <div className="panel">
       <h2>维护{noun}档案</h2>
       <p>{noun}统一通过 Excel 导入。信息变更{!teacher && "（含调班）"}须先删除原档案，再修改模板重新导入；{teacher ? "删除保留完整快照，历史任教与成绩不变，不做任教关联拦截。" : "删除前检查关联数据。"}</p>
-      <p>{teacher ? "教师账号只与教师比对；手机号码原样保存，任教班级仅作关联参考。离职、停用在列表办理。" : "姓名、账号必填；年级填文本年级名，班级号填 N班，仅作学籍归属记录，不做班级字典匹配校验。学号可留空。毕业只停用账号并归档，保留全部历史。"}</p>
+      <p>{teacher ? "教师账号只与教师比对；手机号码原样保存，任教班级仅作关联参考。离职、停用在列表办理。" : "姓名、账号必填；状态仅接受「正常」，其余取值进入错误清单，全部修正后整表重新上传。年级填文本年级名，班级号填 N班，仅作学籍归属记录，不做班级字典匹配校验。学号可留空。休学、退学、毕业停用在列表办理，停用账号并保留档案和全部历史。"}</p>
       <p className="wb-help">下载文件直接采用所提供流程图内嵌模板，含原始样例；请将样例替换为本次需要导入的人员资料。{!teacher && "支持直接上传 .xls / .xlsx，30 列内容保持不变。"}</p>
       {teacher && <p className="wb-help">重导沿用原密码；仍使用初始密码时，新密码等于新账号，首次登录仍须修改。更换账号时，请在预览中指定对应的删除记录。</p>}
       <ol className="roster-steps"><li>下载模板</li><li>上传并整表预校验</li><li>预览 / 疑似重复逐条确认</li><li>确认入库并创建账号</li></ol>
@@ -91,7 +91,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
           <td>{row.class_name || row.fields?.["任课年级班级"] || "—"}</td>
           <td>{teacher ? <>{row.phone || "—"}<small className="subtle">{row.duties.map((d: string) => roleNames[d] || d).join("、")}</small></> : row.student_no || "—"}</td>
           <td><Badge value={row.status} /></td><td className="roster-actions"><button onClick={() => setSelected(row)}>查看档案</button>
-            {canWrite() && <><button onClick={() => { action.reset(); setOperation({ row, action: "delete" }); }}>删除原档案</button>{row.status === "active" && (teacher ? <><button onClick={() => setOperation({ row, action: "disable" })}>停用</button><button onClick={() => setOperation({ row, action: "depart" })}>离职</button></> : <button onClick={() => setOperation({ row, action: "graduate" })}>毕业归档</button>)}</>}
+            {canWrite() && <><button onClick={() => { action.reset(); setOperation({ row, action: "delete" }); }}>删除原档案</button>{row.status === "active" && (teacher ? <><button onClick={() => setOperation({ row, action: "disable" })}>停用</button><button onClick={() => setOperation({ row, action: "depart" })}>离职</button></> : <><button onClick={() => { action.reset(); setOperation({ row, action: "suspend" }); }}>休学</button><button onClick={() => { action.reset(); setOperation({ row, action: "withdraw" }); }}>退学</button><button onClick={() => setOperation({ row, action: "graduate" })}>毕业归档</button></>)}</>}
             {!teacher && row.status === "active" && <Link to={`/admin/students/${row.id}`}>查看学情</Link>}
           </td></tr>)}
       </Table><Pager page={page} total={query.data?.total || 0} onChange={setPage} />
@@ -102,10 +102,10 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
 
 function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const query = useJsonQuery<Row>(`${BASE}/roster/imports/${id}`);
-  return <section className="panel"><div className="wb-toolbar"><h2>导入预览与结果</h2><button onClick={onClose}>关闭批次</button></div><QueryState query={query}>{query.data && <BatchPreview key={`${id}-${query.data.status}`} batch={query.data} />}</QueryState></section>;
+  return <section className="panel"><div className="wb-toolbar"><h2>导入预览与结果</h2><button onClick={onClose}>关闭批次</button></div><QueryState query={query}>{query.data && <BatchPreview key={`${id}-${query.data.status}`} batch={query.data} onRefresh={() => { void query.refetch(); }} />}</QueryState></section>;
 }
 
-function BatchPreview({ batch }: { batch: Row }) {
+function BatchPreview({ batch, onRefresh }: { batch: Row; onRefresh: () => void }) {
   const action = useAction();
   const [decisions, setDecisions] = useState<Record<number, boolean>>({});
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
@@ -122,7 +122,7 @@ function BatchPreview({ batch }: { batch: Row }) {
     {batch.rows.length > 0 && <details open={ready}><summary>原始资料预览（全部 {batch.columns.length} 列）</summary><Table headers={["Excel 行号", ...batch.columns]}>{batch.rows.slice((previewPage - 1) * 30, previewPage * 30).map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td>{batch.columns.map((field: string) => <td className="roster-value" key={field}>{row.values[field] || "—"}</td>)}</tr>)}</Table><Pager page={previewPage} total={batch.rows.length} onChange={setPreviewPage} /></details>}
     {ready && teacher && <TeacherReimports batch={batch} page={previewPage} onPage={setPreviewPage} replacements={replacements} onChange={setReplacements} />}
     <ActionError action={action} />
-    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；变更重导沿用原密码，仍用初始密码的按新账号处理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])), teacher_replacements: Object.fromEntries(Object.entries(replacements).filter(([number, value]) => value && decisions[Number(number)] !== false)) } })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
+    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；变更重导沿用原密码，仍用初始密码的按新账号处理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])), teacher_replacements: Object.fromEntries(Object.entries(replacements).filter(([number, value]) => value && decisions[Number(number)] !== false)) } }, { onError: onRefresh })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
     {confirmed && <section role="status" className="wb-status"><h3>导入完成</h3><p>成功 {report.success_count} 条 · 主动放弃 {report.skipped_count} 条</p>{teacher && <p>其中教师信息变更 {report.changed_count || 0} 条</p>}<p>操作人：{report.confirmed_by_name} · 时间：{report.confirmed_at}</p>{report.skipped_rows.length > 0 && <p>放弃的 Excel 行号：{report.skipped_rows.join("、")}</p>}{report.unresolved_teaching.length > 0 && <p>以下班级参考未匹配，教师已正常导入；可在「教师任教」维护授权：{report.unresolved_teaching.map((row: Row) => `第${row.row_number}行 ${row.references.join("、")}`).join("；")}</p>}</section>}
   </>;
 }

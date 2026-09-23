@@ -1,4 +1,4 @@
-"""Fixed column contracts transcribed from 0922业务流程图_教师批量导入（新增）_V1.html."""
+"""Fixed roster contracts from 0922业务流程图_学生批量导入（新增）_V1.html."""
 import base64
 import io
 import re
@@ -114,9 +114,8 @@ def validate_rows(kind, source):
     source = iter(source)
     columns = [text(value) for value in next(source, ())]
     expected = COLUMNS[kind]
-    # The original student workbook has trailing spaces in mac/SN headers.
-    compare = (lambda cs: [c.strip() for c in cs]) if kind == "students" else (lambda cs: cs)
-    if compare(columns) != compare(expected):
+    # Preserve the template's exact column names, including its mac/SN spaces.
+    if columns != expected:
         message = "列名或列顺序与《学生资料模板.xlsx》不一致（文件级错误，不做行级校验）" if kind == "students" else "列名或列顺序与资料模板不一致（文件级错误，不做行级校验）"
         return [], [file_issue(message, "、".join(columns))]
     rows = []
