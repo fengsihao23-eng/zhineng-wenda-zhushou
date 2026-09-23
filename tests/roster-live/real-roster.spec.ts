@@ -160,15 +160,10 @@ test.describe.serial('real workbook + real Flash acceptance', () => {
     report.duplicate_keep_skip = {kept:1,skipped:1};report.teacher_lifecycle='passed';report.error_download='passed';save();
   });
 
-  test('student import and parent binding, real Flash questions and graduation retain all history', async ({ page, request }) => {
+  test('student import, real Flash questions and graduation retain all history', async ({ page, request }) => {
     await login(page,f.sandbox);
     const batch=await upload(page,'students',f.files.students);expect(batch.report.ok).toBe(true);
-    await page.getByText('家长绑定（可选；须已注册）',{exact:true}).click();
-    await page.getByLabel('第2行家长手机号').fill('13899999999');
-    await api(request,sandboxToken,'POST',`/roster/imports/${batch.id}/confirm`,{expected_revision:batch.revision,parent_phones:{2:'13899999999'}},422);
-    expect((await list(request,sandboxToken,'students')).length).toBe(0);
-    await page.getByLabel('第2行家长手机号').fill(f.sandbox.parent_phone);
-    const result=await confirm(page,batch.id);expect(result.report.parent_binding_count).toBe(1);expect(result.report.success_count).toBe(2);
+    const result=await confirm(page,batch.id);expect(result.report.success_count).toBe(2);expect(result.report.parent_binding_count).toBeUndefined();
     studentRows=await list(request,sandboxToken,'students');
     report.student_ids=studentRows.map(r=>r.id);save();
     // Only synthetic student scores are seeded; real teacher data never enters an LLM prompt.
@@ -199,12 +194,12 @@ test.describe.serial('real workbook + real Flash acceptance', () => {
     report.real_model_stream_and_readback='passed';
     const child=studentRows.find(r=>r.username===account);
     await api(request,sandboxToken,'POST',`/roster/students/records/${child.id}/actions`,{action:'delete',confirmed:true},409);
-    const parents=await api(request,sandboxToken,'GET',`/roster/students/${child.id}/parents`);expect(parents).toHaveLength(1);
-    await api(request,sandboxToken,'POST',`/roster/parents/${parents[0].id}/unbind`,{});
+    const parents=await api(request,sandboxToken,'GET',`/roster/students/${child.id}/parents`,undefined,404);
+    expect(parents.error.code ?? parents.error.message).toMatch(/NOT_FOUND|404|不存在/);
     await api(request,sandboxToken,'POST',`/roster/students/records/${child.id}/actions`,{action:'graduate',confirmed:true});
     await api(request,token,'GET','/api/v1/auth/me',undefined,403);
     expect((await list(request,sandboxToken,'students')).find(r=>r.id===child.id).status).toBe('graduated');
-    report.student_lifecycle_parent_binding='passed';report.synthetic_score_state=scoreState;report.graduated_student_id=child.id;save();
+    report.student_lifecycle='passed';report.synthetic_score_state=scoreState;report.graduated_student_id=child.id;save();
   });
 });
 

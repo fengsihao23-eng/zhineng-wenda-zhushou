@@ -2,7 +2,7 @@
 数据库模型
 """
 from app.db.models.education import (SourceRecord, ImportWorkspace, MappingTemplate, PrivateAsset, Paper, PaperVersion, Question, QuestionVersion, TaxonomyNode, QuestionTag, PaperDraft, OcrJob, ReportAttachment, ReviewEntry, ReviewRecord, HandoffMessage)
-from app.db.models.roster import TeacherProfile, TeacherDeletion, RosterImport, ParentBinding
+from app.db.models.roster import TeacherProfile, TeacherDeletion, RosterImport
 from app.db.models.school import School
 from app.db.models.security import TokenRevocation
 from app.db.models.user import User, Role, UserRole
@@ -34,7 +34,6 @@ __all__ = [
     "TeacherProfile",
     "TeacherDeletion",
     "RosterImport",
-    "ParentBinding",
     "TokenRevocation",
     "User",
     "Role",

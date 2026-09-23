@@ -7,8 +7,8 @@ from openpyxl import load_workbook
 from sqlalchemy import select, func
 from app.main import app
 from app.api.deps import get_current_user
-from app.db.models import User, Student, Role, UserRole, StudentExamScore, AuditLog, TeachingAssignment
-from app.db.models.roster import TeacherProfile, ParentBinding
+from app.db.models import User, Student, StudentExamScore, AuditLog, TeachingAssignment
+from app.db.models.roster import TeacherProfile
 from app.services.roster_excel import TEACHER_COLUMNS, STUDENT_COLUMNS, workbook_bytes
 from test_education_workbench import actors, post, setup_exam, add_scores, P  # noqa: F401
 
@@ -213,30 +213,20 @@ async def test_student_delete_with_scores_blocks_but_graduation_keeps_history(cl
 
 
 @pytest.mark.asyncio
-async def test_student_change_delete_reimport_and_parent_binding(client, test_db, actors):
+async def test_student_change_delete_reimport(client, test_db, actors):
     await classroom(client)
-    role = Role(id=uuid4(), code="PARENT", name="家长")
-    parent = User(id=uuid4(), school_id=actors["school"].id, username="registered-parent", account_type="parent", phone="13800000000", password_hash="unused")
-    test_db.add_all([role, parent])
-    await test_db.flush()
-    test_db.add(UserRole(user_id=parent.id, school_id=parent.school_id, role_id=role.id))
-    await test_db.commit()
-    batch = await upload(client, [student("parent-bound"), student("no-parent")], "students")
-    await confirm(client, batch, parent_phones={2: "not-registered"}, status=422)
-    assert await test_db.scalar(select(User).where(User.username == "parent-bound")) is None
-    done = await confirm(client, batch, parent_phones={2: "13800000000"})
+    batch = await upload(client, [student("moved-student"), student("kept-student")], "students")
+    done = await confirm(client, batch)
     identifier = done["report"]["imported"][0]["id"]
-    assert done["report"]["parent_binding_count"] == 1
-    binding = await test_db.scalar(select(ParentBinding).where(ParentBinding.student_id == UUID(identifier)))
-    await post(client, f"/roster/parents/{binding.id}/unbind", {})
-    assert await test_db.get(Student, UUID(identifier)) is not None
-    assert binding.status == "revoked"
+    assert "parent_binding_count" not in done["report"]
     await lifecycle(client, "students", identifier)
     assert await test_db.get(Student, UUID(identifier)) is None
     await post(client, "/school/classes", {"external_class_id": "10.2", "name": "高中一年级2班"})
-    changed = await confirm(client, await upload(client, [student("parent-bound", 班级号="2班")], "students"))
+    changed = await confirm(client, await upload(client, [student("moved-student", 班级号="2班")], "students"))
     item = await test_db.get(Student, UUID(changed["report"]["imported"][0]["id"]))
     assert item.external_class_id == "10.2"
+    assert (await client.get(P + "/roster/students/" + identifier + "/parents")).status_code == 404
+    await post(client, "/roster/parents/" + identifier + "/unbind", {}, status=404)
 
 
 @pytest.mark.asyncio

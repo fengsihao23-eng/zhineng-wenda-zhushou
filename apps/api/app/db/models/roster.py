@@ -1,6 +1,6 @@
-"""Excel roster intake and registered parent links (2026-09-22 flow)."""
+"""Excel roster intake for teacher/student maintenance (2026-09-22 flow)."""
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, ForeignKeyConstraint
 from sqlalchemy.sql import func
 from app.db.base import Base
 from app.db.types import UUID, JSONB
@@ -55,20 +55,3 @@ class RosterImport(Base):
     confirmation = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     confirmed_at = Column(DateTime(timezone=True))
-
-
-class ParentBinding(Base):
-    __tablename__ = "student_parent_bindings"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False, index=True)
-    student_id = Column(UUID(as_uuid=True), nullable=False)
-    parent_user_id = Column(UUID(as_uuid=True), nullable=False)
-    phone = Column(String(100), nullable=False)
-    status = Column(String(20), nullable=False, default="active")
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    revoked_at = Column(DateTime(timezone=True))
-    __table_args__ = (
-        ForeignKeyConstraint(["school_id", "student_id"], ["students.school_id", "students.id"], name="fk_parent_binding_student"),
-        ForeignKeyConstraint(["school_id", "parent_user_id"], ["users.school_id", "users.id"], name="fk_parent_binding_parent"),
-        UniqueConstraint("student_id", "parent_user_id", name="uq_student_parent_binding"),
-    )

@@ -10,7 +10,7 @@ os.environ["DEBUG"] = "false"
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.db.models import User, Role, UserRole, Student, ImportedClass, Subject, TeachingAssignment, StudentExamScore, StudentSubjectScore, QuestionScore, ChatSession, ChatMessage, ModelUsageLog, AuditLog
-from app.db.models.roster import TeacherProfile, RosterImport, ParentBinding
+from app.db.models.roster import TeacherProfile, RosterImport
 
 ROOT=Path(__file__).resolve().parents[2]
 PRIVATE=ROOT/'.local/yjyz-roster'
@@ -60,11 +60,9 @@ async def main():
         assert all(value>0 for value in counts.values())
         messages=await db.scalar(select(func.count()).select_from(ChatMessage).join(ChatSession,ChatSession.id==ChatMessage.session_id).where(ChatSession.student_id==student_id))
         assert messages>=4
-        binding=await db.scalar(select(ParentBinding).where(ParentBinding.student_id==student_id))
-        assert binding.status=='revoked'
         usage=await db.scalar(select(ModelUsageLog).where(ModelUsageLog.agent_run_id==UUID(report['real_model_answer']['agent_run_id'])))
         assert usage.model=='deepseek-flash' and usage.provider=='DeepSeek' and usage.total_tokens>0
-        report['database_readback']={'teacher_count':len(profiles),'classes':len(classes),'subjects':len(subjects),'direct_teaching_references':direct_count,'effective_grants':len(assignments),'roles':role_counts,'multi_subject_leader_grants':len(multi_grants),'import_audit_entries':audit_count,'real_staff_active_and_password_unchanged':160,'graduation_preserved_records':counts,'graduation_preserved_messages':messages,'parent_binding_status':binding.status,'model_usage':{'provider':usage.provider,'model':usage.model,'prompt_tokens':usage.prompt_tokens,'completion_tokens':usage.completion_tokens,'total_tokens':usage.total_tokens,'latency_ms':usage.latency_ms}}
+        report['database_readback']={'teacher_count':len(profiles),'classes':len(classes),'subjects':len(subjects),'direct_teaching_references':direct_count,'effective_grants':len(assignments),'roles':role_counts,'multi_subject_leader_grants':len(multi_grants),'import_audit_entries':audit_count,'real_staff_active_and_password_unchanged':160,'graduation_preserved_records':counts,'graduation_preserved_messages':messages,'model_usage':{'provider':usage.provider,'model':usage.model,'prompt_tokens':usage.prompt_tokens,'completion_tokens':usage.completion_tokens,'total_tokens':usage.total_tokens,'latency_ms':usage.latency_ms}}
         report['database_verified']=True
     (PRIVATE/'acceptance-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
     print(json.dumps(report['database_readback'],ensure_ascii=False))

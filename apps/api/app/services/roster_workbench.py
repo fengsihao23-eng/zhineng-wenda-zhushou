@@ -9,7 +9,7 @@ from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
 from app.db.models.user import User, Role, UserRole
 from app.db.models.student import Student
-from app.db.models.roster import TeacherProfile, TeacherDeletion, RosterImport, ParentBinding
+from app.db.models.roster import TeacherProfile, TeacherDeletion, RosterImport
 from app.db.models.import_batch import ImportedClass
 from app.db.models.teaching import TeachingAssignment
 from app.db.models.exam import Subject
@@ -168,25 +168,6 @@ async def teacher_grants(db, user, values, duties):
     return unresolved
 
 
-async def registered_parent(db, school_id, phone):
-    parents = (await db.scalars(select(User).where(User.school_id == school_id, User.status == "active", User.id.in_(role_users(school_id, "PARENT")), or_(User.phone == phone, User.username == phone)))).all()
-    return parents[0] if len(parents) == 1 else None
-
-
-async def bind_parent_record(db, actor, student, phone):
-    parent = await registered_parent(db, actor.school_id, phone)
-    if parent is None:
-        raise ApiError(422, "REGISTERED_PARENT_REQUIRED", "家长手机号必须唯一对应本校已注册且有效的家长账号。")
-    binding = await db.scalar(select(ParentBinding).where(ParentBinding.school_id == actor.school_id, ParentBinding.student_id == student.id, ParentBinding.parent_user_id == parent.id))
-    if binding is None:
-        binding = ParentBinding(id=uuid4(), school_id=actor.school_id, student_id=student.id, parent_user_id=parent.id, phone=phone)
-        db.add(binding)
-    else:
-        binding.status, binding.revoked_at = "active", None
-    audit(db, actor, "parent.bind", student, {"parent_user_id": str(parent.id)})
-    return binding
-
-
 async def student_password_hashes(rows):
     # A full grade can contain thousands of students; keep bcrypt's cost while
     # bounding CPU work instead of hashing each account serially on import.
@@ -218,11 +199,6 @@ async def confirm(db, actor, identifier, body):
     if set(body.duplicate_decisions) != suspects:
         raise ApiError(422, "DUPLICATE_CONFIRMATION_REQUIRED", "请逐条确认全部疑似重复教师保留或放弃。")
     row_numbers = {r["row_number"] for r in item.rows}
-    if (body.parent_phones and item.kind != "students") or set(body.parent_phones) - row_numbers:
-        raise ApiError(422, "PARENT_ROWS_INVALID", "家长手机号只能关联本批次学生行。")
-    for phone in body.parent_phones.values():
-        if phone.strip() and (len(phone) > 100 or await registered_parent(db, actor.school_id, phone.strip()) is None):
-            raise ApiError(422, "REGISTERED_PARENT_REQUIRED", "家长手机号须对应本校已注册有效家长；修正后再确认，整批尚未写入。")
     if item.kind == "teachers" and checked.get("reimports", []) != item.report.get("reimports", []):
         raise ApiError(409, "REIMPORT_CHANGED", "删除记录在预校验后发生变化，请重新上传核对。")
     replacement_ids = {row["row_number"]: UUID(row["snapshot_id"]) for row in checked.get("reimports", []) if body.duplicate_decisions.get(row["row_number"]) is not False}
@@ -243,7 +219,7 @@ async def confirm(db, actor, identifier, body):
         replacements[number] = (snapshot, original)
     classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == actor.school_id, ImportedClass.status == "active"))).all() if item.kind == "students" else []
     student_passwords = await student_password_hashes(item.rows) if item.kind == "students" else {}
-    imported, skipped, unresolved, bound, changed = [], [], [], 0, 0
+    imported, skipped, unresolved, changed = [], [], [], 0
     for row in item.rows:
         number, values = row["row_number"], row["values"]
         if body.duplicate_decisions.get(number) is False:
@@ -284,16 +260,12 @@ async def confirm(db, actor, identifier, body):
             student = Student(id=uuid4(), school_id=actor.school_id, user_id=user.id, name=user.display_name, student_no=values["学号"].strip() or None, external_student_id=str(user.id), class_id=classroom.id, external_class_id=classroom.external_class_id, source_system="roster_excel", profile_fields=values)
             db.add(student)
             await db.flush()
-            phone = body.parent_phones.get(number, "").strip()
-            if phone:
-                await bind_parent_record(db, actor, student, phone)
-                bound += 1
             record_id = student.id
         imported.append({"row_number": number, "id": str(record_id), "account": username})
     item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload
     operator = await db.get(User, actor.user_id)
-    item.report = {**checked, "success_count": len(imported), "skipped_count": len(skipped), "skipped_rows": skipped, "imported": imported, "parent_binding_count": bound, "changed_count": changed, "unresolved_teaching": unresolved, "confirmed_by": str(actor.user_id), "confirmed_by_name": operator.display_name or operator.username, "confirmed_at": item.confirmed_at.isoformat()}
-    audit(db, actor, "roster.import", item, {"kind": item.kind, "success_count": len(imported), "skipped_rows": skipped, "parent_binding_count": bound, "changed_count": changed})
+    item.report = {**checked, "success_count": len(imported), "skipped_count": len(skipped), "skipped_rows": skipped, "imported": imported, "changed_count": changed, "unresolved_teaching": unresolved, "confirmed_by": str(actor.user_id), "confirmed_by_name": operator.display_name or operator.username, "confirmed_at": item.confirmed_at.isoformat()}
+    audit(db, actor, "roster.import", item, {"kind": item.kind, "success_count": len(imported), "skipped_rows": skipped, "changed_count": changed})
     await db.commit()
     return view(item)
 
@@ -392,7 +364,7 @@ async def lifecycle(db, actor, kind, identifier, body):
         await db.commit()
         return {"id": str(identifier), "status": "deleted", "deletion_id": str(snapshot.id), "message": "原档案已删除，账号已释放；完整删除快照、历史任教和成绩均保留。请更新 Excel 后重导。"}
     if body.action == "delete":
-        related = await references(db, "users" if kind == "teachers" else "students", item.id, ("user_roles", "teacher_profiles") if kind == "teachers" else ("student_parent_bindings",))
+        related = await references(db, "users" if kind == "teachers" else "students", item.id, ("user_roles", "teacher_profiles") if kind == "teachers" else ())
         if kind == "students" and user:
             related += await references(db, "users", user.id, ("students", "user_roles"))
         if related:
@@ -401,7 +373,6 @@ async def lifecycle(db, actor, kind, identifier, body):
         if kind == "teachers":
             await db.execute(delete(TeacherProfile).where(TeacherProfile.id == item.id))
         else:
-            await db.execute(delete(ParentBinding).where(ParentBinding.student_id == item.id, ParentBinding.school_id == actor.school_id))
             await db.delete(item)
             await db.flush()
         if user:

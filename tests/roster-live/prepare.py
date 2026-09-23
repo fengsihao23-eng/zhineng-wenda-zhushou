@@ -55,15 +55,11 @@ async def main():
         school = School(id=uuid4(), code='QA-YJYZ-' + suffix, name='师生流程验收副本', source_system='QA')
         db.add(school); await db.flush()
         admin_role = await db.scalar(select(Role).where(Role.code=='SCHOOL_ADMIN'))
-        parent_role = await db.scalar(select(Role).where(Role.code=='PARENT'))
-        if parent_role is None:
-            parent_role=Role(id=uuid4(),code='PARENT',name='家长'); db.add(parent_role); await db.flush()
         admin=User(id=uuid4(),school_id=school.id,username='qa-roster-admin-'+suffix,account_type='general',display_name='流程验收管理员',password_hash=get_password_hash(password))
-        parent=User(id=uuid4(),school_id=school.id,username='qa-parent-'+suffix,account_type='parent',phone='13800000000',display_name='合成家长',password_hash=get_password_hash(password))
-        db.add_all([admin,parent]); await db.flush()
-        db.add_all([UserRole(user_id=admin.id,school_id=school.id,role_id=admin_role.id), UserRole(user_id=parent.id,school_id=school.id,role_id=parent_role.id)])
+        db.add(admin); await db.flush()
+        db.add(UserRole(user_id=admin.id,school_id=school.id,role_id=admin_role.id))
         await db.commit()
-        sandbox={'school_id':str(school.id),'username':admin.username,'password':password,'parent_phone':parent.phone}
+        sandbox={'school_id':str(school.id),'username':admin.username,'password':password}
     async with httpx.AsyncClient(base_url=state['baseUrl'],timeout=90,trust_env=False) as client:
         tokens=[]
         for actor in [identity,sandbox]:

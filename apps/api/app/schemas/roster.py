@@ -15,7 +15,6 @@ class RosterConfirm(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=1)
     duplicate_decisions: dict[int, bool] = Field(default_factory=dict)
-    parent_phones: dict[int, str] = Field(default_factory=dict)
     teacher_replacements: dict[int, UUID] = Field(default_factory=dict)
 
 
@@ -23,8 +22,3 @@ class RosterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["delete", "disable", "depart", "graduate"]
     confirmed: Literal[True]
-
-
-class ParentBind(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    phone: str = Field(min_length=1, max_length=100)

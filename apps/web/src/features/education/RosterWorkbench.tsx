@@ -48,7 +48,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
       <p>{teacher ? "教师账号只与教师比对；手机号码原样保存，任教班级仅作关联参考。离职、停用在列表办理。" : "姓名、账号必填；年级填文本年级名，班级号填 N班，须匹配本校班级。学号可留空。毕业只停用账号并归档，保留全部历史。"}</p>
       <p className="wb-help">下载文件直接采用所提供流程图内嵌模板，含原始样例；请将样例替换为本次需要导入的人员资料。{!teacher && "支持直接上传 .xls / .xlsx，30 列内容保持不变。"}</p>
       {teacher && <p className="wb-help">重导沿用原密码；仍使用初始密码时，新密码等于新账号，首次登录仍须修改。更换账号时，请在预览中指定对应的删除记录。</p>}
-      <ol className="roster-steps"><li>下载模板</li><li>上传并整表预校验</li><li>{teacher ? "预览 / 疑似重复逐条确认" : "预览 / 家长绑定"}</li><li>确认入库并创建账号</li></ol>
+      <ol className="roster-steps"><li>下载模板</li><li>上传并整表预校验</li><li>{teacher ? "预览 / 疑似重复逐条确认" : "预览导入结果"}</li><li>确认入库并创建账号</li></ol>
       <div className="wb-toolbar">
         <Download path={`/roster/${kind}/template`} filename={`${noun}资料模板.xlsx`}>下载{noun}资料模板（{teacher ? 24 : 30} 列）</Download>
         {teacher && <Download path="/roster/teachers/error-template" filename="错误清单模板.xlsx">下载错误清单模板（8 列）</Download>}
@@ -96,7 +96,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
           </td></tr>)}
       </Table><Pager page={page} total={query.data?.total || 0} onChange={setPage} />
     </QueryState>
-    {selected && <section className="panel"><div className="wb-toolbar"><h3>{selected.name} · 档案详情</h3><button onClick={() => setSelected(null)}>关闭档案</button></div><p>信息变更：删除原档案 → 修改统一 Excel 模板 → 重新上传并确认。</p><Table headers={["模板字段", "原始内容"]}>{Object.entries(selected.fields || {}).map(([key, value]) => <tr key={key}><td>{key}</td><td className="roster-value">{String(value || "—")}</td></tr>)}</Table>{!teacher && !selected.user_id && canWrite() && <LegacyAccountBinding key={`account-${selected.id}`} id={selected.id} />}{!teacher && <ParentBindings key={selected.id} id={selected.id} />}</section>}
+    {selected && <section className="panel"><div className="wb-toolbar"><h3>{selected.name} · 档案详情</h3><button onClick={() => setSelected(null)}>关闭档案</button></div><p>信息变更：删除原档案 → 修改统一 Excel 模板 → 重新上传并确认。</p><Table headers={["模板字段", "原始内容"]}>{Object.entries(selected.fields || {}).map(([key, value]) => <tr key={key}><td>{key}</td><td className="roster-value">{String(value || "—")}</td></tr>)}</Table>{!teacher && !selected.user_id && canWrite() && <LegacyAccountBinding key={`account-${selected.id}`} id={selected.id} />}</section>}
   </section>;
 }
 
@@ -109,7 +109,6 @@ function BatchPreview({ batch }: { batch: Row }) {
   const action = useAction();
   const [decisions, setDecisions] = useState<Record<number, boolean>>({});
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
-  const [phones, setPhones] = useState<Record<number, string>>({});
   const [previewPage, setPreviewPage] = useState(1);
   const [replacements, setReplacements] = useState<Record<number, string>>({});
   const report = batch.report, teacher = batch.kind === "teachers";
@@ -121,11 +120,10 @@ function BatchPreview({ batch }: { batch: Row }) {
     {report.issues.length > 0 && <><p role="alert">整批未写入。请下载错误清单，全部修正后整表重新上传。</p><Download path={`/roster/imports/${batch.id}/errors`} filename="导入错误清单.xlsx">下载本批次错误清单</Download><Table headers={["Excel 行号", "错误类型", "错误字段", "姓名 / 账号", "说明 / 建议"]}>{report.issues.map((issue: Row, index: number) => <tr key={index}><td>{issue.row_number ? `行${issue.row_number}` : "文件"}</td><td>{issue.error_type}</td><td>{issue.fields}</td><td>{issue.name} / {issue.account}</td><td>{issue.message}<br />{issue.suggestion}</td></tr>)}</Table></>}
     {ready && suspicious.length > 0 && <section aria-label="疑似重复教师确认"><h3>疑似重复：同姓名、同年级、同科目</h3><p>命中行默认保留，请逐条选择保留 / 放弃并勾选「已核对」。其余行将一并入库。</p><Table headers={["Excel 行号", "待导入教师", "已有教师 / 命中范围", "保留 / 放弃", "核对"]}>{suspicious.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.name} / {row.account}</td><td>{row.matches.map((m: Row, i: number) => <p key={i}>{m.name} / {m.account} · {m.subjects_grades.join("、")}</p>)}</td><td><select aria-label={`第${row.row_number}行保留或放弃`} value={String(decisions[row.row_number] ?? true)} disabled={!canWrite()} onChange={e => setDecisions({ ...decisions, [row.row_number]: e.target.value === "true" })}><option value="true">保留（默认）</option><option value="false">放弃</option></select></td><td><label><input type="checkbox" disabled={!canWrite()} checked={!!reviewed[row.row_number]} onChange={e => setReviewed({ ...reviewed, [row.row_number]: e.target.checked })} />已核对第 {row.row_number} 行</label></td></tr>)}</Table></section>}
     {batch.rows.length > 0 && <details open={ready}><summary>原始资料预览（全部 {batch.columns.length} 列）</summary><Table headers={["Excel 行号", ...batch.columns]}>{batch.rows.slice((previewPage - 1) * 30, previewPage * 30).map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td>{batch.columns.map((field: string) => <td className="roster-value" key={field}>{row.values[field] || "—"}</td>)}</tr>)}</Table><Pager page={previewPage} total={batch.rows.length} onChange={setPreviewPage} /></details>}
-    {ready && !teacher && <details><summary>家长绑定（可选；须已注册）</summary><p>30 列学生模板没有家长手机号列，在此按账号补充，不会将学生的「手机号」当作家长手机号。填写后随整批导入绑定；留空跳过。</p><Table headers={["Excel 行号", "学生 / 账号", "已注册家长手机号"]}>{batch.rows.slice((previewPage - 1) * 30, previewPage * 30).map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values["姓名"]} / {row.values["账号"]}</td><td><input aria-label={`第${row.row_number}行家长手机号`} maxLength={100} disabled={!canWrite()} value={phones[row.row_number] || ""} onChange={e => setPhones({ ...phones, [row.row_number]: e.target.value })} /></td></tr>)}</Table><Pager page={previewPage} total={batch.rows.length} onChange={setPreviewPage} /></details>}
     {ready && teacher && <TeacherReimports batch={batch} page={previewPage} onPage={setPreviewPage} replacements={replacements} onChange={setReplacements} />}
     <ActionError action={action} />
-    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；变更重导沿用原密码，仍用初始密码的按新账号处理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])), parent_phones: phones, teacher_replacements: Object.fromEntries(Object.entries(replacements).filter(([number, value]) => value && decisions[Number(number)] !== false)) } })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
-    {confirmed && <section role="status" className="wb-status"><h3>导入完成</h3><p>成功 {report.success_count} 条 · 主动放弃 {report.skipped_count} 条 · 家长绑定 {report.parent_binding_count} 条</p>{teacher && <p>其中教师信息变更 {report.changed_count || 0} 条</p>}<p>操作人：{report.confirmed_by_name} · 时间：{report.confirmed_at}</p>{report.skipped_rows.length > 0 && <p>放弃的 Excel 行号：{report.skipped_rows.join("、")}</p>}{report.unresolved_teaching.length > 0 && <p>以下班级参考未匹配，教师已正常导入；可在「教师任教」维护授权：{report.unresolved_teaching.map((row: Row) => `第${row.row_number}行 ${row.references.join("、")}`).join("；")}</p>}</section>}
+    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；变更重导沿用原密码，仍用初始密码的按新账号处理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])), teacher_replacements: Object.fromEntries(Object.entries(replacements).filter(([number, value]) => value && decisions[Number(number)] !== false)) } })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
+    {confirmed && <section role="status" className="wb-status"><h3>导入完成</h3><p>成功 {report.success_count} 条 · 主动放弃 {report.skipped_count} 条</p>{teacher && <p>其中教师信息变更 {report.changed_count || 0} 条</p>}<p>操作人：{report.confirmed_by_name} · 时间：{report.confirmed_at}</p>{report.skipped_rows.length > 0 && <p>放弃的 Excel 行号：{report.skipped_rows.join("、")}</p>}{report.unresolved_teaching.length > 0 && <p>以下班级参考未匹配，教师已正常导入；可在「教师任教」维护授权：{report.unresolved_teaching.map((row: Row) => `第${row.row_number}行 ${row.references.join("、")}`).join("；")}</p>}</section>}
   </>;
 }
 
@@ -178,11 +176,4 @@ function LegacyAccountBinding({ id }: { id: string }) {
   const [saved, setSaved] = useState(false);
   if (saved) return <p role="status">已绑定账号。</p>;
   return <section><p>此前外部同步的档案可补绑现有学生账号。通过 Excel 新增的档案会自动创建账号。</p><ActionError action={action} /><QueryState query={accounts}><FormPanel title="绑定现有学生账号" fields={[{ name: "user_id", label: "账号", type: "select", options: options(accounts.data?.filter(row => row.role === "STUDENT")) }]} pending={action.isPending} onSubmit={body => action.mutate({ path: `/school/students/${id}/bind`, body }, { onSuccess: () => setSaved(true) })} /></QueryState></section>;
-}
-
-function ParentBindings({ id }: { id: string }) {
-  const query = useJsonQuery<Row[]>(`${BASE}/roster/students/${id}/parents`);
-  const [phone, setPhone] = useState("");
-  const bind = useAction(), unbind = useAction();
-  return <section><h3>家长绑定</h3><p>仅关联已注册家长。解绑保留学生档案、成绩与历史数据。</p><QueryState query={query} empty={!query.data?.length}><Table headers={["家长手机号", "状态", "操作"]}>{query.data?.map(row => <tr key={row.id}><td>{row.phone}</td><td>{row.status === "active" ? "已绑定" : "已解绑"}</td><td>{canWrite() && row.status === "active" && <button disabled={unbind.isPending} onClick={() => unbind.mutate({ path: `/roster/parents/${row.id}/unbind`, body: {} })}>解绑</button>}</td></tr>)}</Table></QueryState><ActionError action={bind} /><ActionError action={unbind} />{canWrite() && <form className="wb-toolbar" onSubmit={event => { event.preventDefault(); bind.mutate({ path: `/roster/students/${id}/parents`, body: { phone } }, { onSuccess: () => setPhone("") }); }}><input aria-label="已注册家长手机号" placeholder="已注册家长手机号" maxLength={100} required value={phone} onChange={e => setPhone(e.target.value)} /><button disabled={bind.isPending}>绑定家长</button></form>}</section>;
 }

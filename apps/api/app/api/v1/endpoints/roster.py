@@ -9,11 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_management
 from app.api.v1.endpoints.education import writer, write
 from app.core.database import get_db
-from app.db.models.roster import RosterImport, ParentBinding
-from app.db.models.student import Student
-from app.schemas.roster import RosterKind, RosterUpload, RosterConfirm, RosterAction, ParentBind
+from app.db.models.roster import RosterImport
+from app.schemas.roster import RosterKind, RosterUpload, RosterConfirm, RosterAction
 from app.services import roster_workbench as roster
-from app.services.education_common import owned, data, audit, now
+from app.services.education_common import owned, data
 TEMPLATES = Path(__file__).resolve().parents[3] / "resources" / "roster"
 
 router = APIRouter(prefix="/platform/education/roster", tags=["roster"])
@@ -78,28 +77,3 @@ async def confirm(identifier: UUID, body: RosterConfirm, actor=Depends(writer), 
 @router.post("/{kind}/records/{identifier}/actions")
 async def lifecycle(kind: RosterKind, identifier: UUID, body: RosterAction, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
     return await write(db, roster.lifecycle(db, actor, kind, identifier, body))
-
-
-@router.get("/students/{identifier}/parents")
-async def parents(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    await owned(db, Student, identifier, actor)
-    rows = (await db.scalars(select(ParentBinding).where(ParentBinding.school_id == actor.school_id, ParentBinding.student_id == identifier))).all()
-    return [data(row, "id", "phone", "status", "created_at", "revoked_at") for row in rows]
-
-
-@router.post("/students/{identifier}/parents")
-async def bind_parent(identifier: UUID, body: ParentBind, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
-    student = await owned(db, Student, identifier, actor, lock=True)
-    binding = await write(db, roster.bind_parent_record(db, actor, student, body.phone.strip()))
-    await db.commit()
-    return data(binding, "id", "phone", "status")
-
-
-@router.post("/parents/{identifier}/unbind")
-async def unbind_parent(identifier: UUID, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
-    binding = await owned(db, ParentBinding, identifier, actor, lock=True)
-    if binding.status != "revoked":
-        binding.status, binding.revoked_at = "revoked", now()
-        audit(db, actor, "parent.unbind", binding)
-        await db.commit()
-    return data(binding, "id", "status")
