@@ -1,5 +1,6 @@
 .roster-workbench { min-width: 0; }
 .roster-workbench > .panel { margin-bottom: 20px; }
+.roster-detail-panel { scroll-margin-top: 20px; }
 .roster-steps { display: flex; gap: 32px; flex-wrap: wrap; padding-left: 24px; color: var(--color-muted); }
 .roster-actions { min-width: 220px; }
 .roster-actions button, .roster-actions a { margin: 4px 8px 4px 0; }

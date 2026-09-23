@@ -31,7 +31,11 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   await page.getByRole('button', { name: '确认导入并创建账号', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入完成', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '关闭批次', exact: true }).click();
-  await expect(page.getByRole('row').filter({ hasText: fixture.roster_accounts.old })).toContainText('131****7000');
+  const oldTeacher = page.getByRole('row').filter({ hasText: fixture.roster_accounts.old });
+  await expect(oldTeacher).toContainText('131****7000');
+  await oldTeacher.getByRole('button', { name: '查看档案', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'QA 流程教师 · 档案详情' })).toBeInViewport();
+  await page.getByRole('button', { name: '关闭档案', exact: true }).click();
   await upload(page, '教师', 'teacher-suspects');
   const confirm = page.getByRole('button', { name: '确认导入并创建账号', exact: true });
   await expect(confirm).toBeDisabled();
@@ -164,6 +168,7 @@ test('student fixed template import creates account and graduation retains the a
   await expect(row).toContainText('已毕业归档');
   await row.getByRole('button', { name: '查看档案', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'QA 流程学生 · 档案详情' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'QA 流程学生 · 档案详情' })).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath('student-graduation-archive.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.app-sidebar')).toBeHidden();
