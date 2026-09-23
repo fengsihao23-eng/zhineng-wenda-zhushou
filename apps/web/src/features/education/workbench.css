@@ -1,6 +1,27 @@
 .roster-workbench { min-width: 0; }
 .roster-workbench > .panel { margin-bottom: 20px; }
-.roster-detail-panel { scroll-margin-top: 20px; }
+.roster-detail-dialog {
+  box-sizing: border-box;
+  width: min(840px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 20px 24px 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--color-ink);
+  box-shadow: 0 20px 70px rgba(15, 27, 51, .25);
+}
+.roster-detail-dialog::backdrop { background: rgba(15, 27, 51, .55); }
+.roster-detail-dialog .wb-toolbar { justify-content: space-between; margin-top: 0; }
+.roster-detail-dialog h3 { margin: 0; }
+@media (max-width: 600px) {
+  .roster-detail-dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 16px; }
+}
 .roster-steps { display: flex; gap: 32px; flex-wrap: wrap; padding-left: 24px; color: var(--color-muted); }
 .roster-actions { min-width: 220px; }
 .roster-actions button, .roster-actions a { margin: 4px 8px 4px 0; }

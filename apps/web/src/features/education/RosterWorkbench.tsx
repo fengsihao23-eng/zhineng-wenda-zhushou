@@ -35,24 +35,16 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
   const [fileError, setFileError] = useState<Error | null>(null);
   const [reading, setReading] = useState(false);
   const [selected, setSelected] = useState<Row | null>(null);
-  const detailRef = useRef<HTMLElement>(null);
+  const detailRef = useRef<HTMLDialogElement>(null);
   const [operation, setOperation] = useState<{ row: Row; action: string } | null>(null);
   const [notice, setNotice] = useState("");
   const upload = useAction(), action = useAction();
   const query = useJsonQuery<PageData>(`${BASE}/roster/${kind}/records?${new URLSearchParams({ search, phone, class_name: className, page: String(page) })}`);
   const history = useJsonQuery<Row[]>(`${BASE}/roster/${kind}/imports`);
   const busy = reading || upload.isPending;
-  const revealDetail = () => {
-    detailRef.current?.scrollIntoView({ block: "start" });
-    detailRef.current?.focus({ preventScroll: true });
-  };
   useLayoutEffect(() => {
-    if (selected) revealDetail();
+    if (selected && !detailRef.current?.open) detailRef.current?.showModal();
   }, [selected]);
-  const showDetail = (row: Row) => {
-    if (selected?.id === row.id) revealDetail();
-    else setSelected(row);
-  };
   return <section className="roster-workbench">
     <div className="panel">
       <h2>维护{noun}档案</h2>
@@ -96,19 +88,19 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
       <p>{operation.action === "delete" ? (teacher ? "确认后原账号立即停止登录并释放账号名称，完整的 24 列资料、删除人和时间长期保留。历史任教与成绩不变；更新 Excel 后重新导入，原密码按规则沿用。" : "确认后删除原档案和对应登录账号。存在成绩、错题等关联时会拦截；删除成功后，须用更新后的 Excel 重新导入。") : "账号将立即停止访问，档案和历史成绩保留。"}</p>
       <div className="wb-toolbar"><button disabled={action.isPending} onClick={() => action.mutate({ path: `/roster/${kind}/records/${operation.row.id}/actions`, body: { action: operation.action, confirmed: true } }, { onSuccess: result => { setOperation(null); setSelected(null); setNotice(result.message); } })}>{action.isPending ? "处理中…" : `确认${actionNames[operation.action]}`}</button><button disabled={action.isPending} onClick={() => setOperation(null)}>取消</button></div>
     </section>}
-    {selected && <section className="panel roster-detail-panel" ref={detailRef} tabIndex={-1}><div className="wb-toolbar"><h3>{selected.name} · 档案详情</h3><button onClick={() => setSelected(null)}>关闭档案</button></div><p>信息变更：删除原档案 → 修改统一 Excel 模板 → 重新上传并确认。</p><Table headers={["模板字段", "原始内容"]}>{Object.entries(selected.fields || {}).map(([key, value]) => <tr key={key}><td>{key}</td><td className="roster-value">{String(value || "—")}</td></tr>)}</Table>{!teacher && !selected.user_id && canWrite() && <LegacyAccountBinding key={`account-${selected.id}`} id={selected.id} />}</section>}
     <QueryState query={query} empty={!query.data?.items.length}>
       <Table headers={["姓名 / 登录账号", "班级", teacher ? "手机号 / 职务" : "学号", "状态", "操作"]}>
         {query.data?.items.map(row => <tr key={row.id}>
           <td><strong>{row.name}</strong><small className="subtle">{row.username || "待绑定账号"}{!teacher && row.user_id && " · 已绑定账号"}</small></td>
           <td>{row.class_name || row.fields?.["任课年级班级"] || "—"}</td>
           <td>{teacher ? <>{row.phone || "—"}<small className="subtle">{row.duties.map((d: string) => roleNames[d] || d).join("、")}</small></> : row.student_no || "—"}</td>
-          <td><Badge value={row.status} /></td><td className="roster-actions"><button onClick={() => showDetail(row)}>查看档案</button>
+          <td><Badge value={row.status} /></td><td className="roster-actions"><button onClick={() => setSelected(row)}>查看档案</button>
             {canWrite() && <><button onClick={() => { action.reset(); setOperation({ row, action: "delete" }); }}>删除原档案</button>{row.status === "active" && (teacher ? <><button onClick={() => setOperation({ row, action: "disable" })}>停用</button><button onClick={() => setOperation({ row, action: "depart" })}>离职</button></> : <><button onClick={() => { action.reset(); setOperation({ row, action: "suspend" }); }}>休学</button><button onClick={() => { action.reset(); setOperation({ row, action: "withdraw" }); }}>退学</button><button onClick={() => setOperation({ row, action: "graduate" })}>毕业归档</button></>)}</>}
             {!teacher && row.status === "active" && <Link to={`/admin/students/${row.id}`}>查看学情</Link>}
           </td></tr>)}
       </Table><Pager page={page} total={query.data?.total || 0} onChange={setPage} />
     </QueryState>
+    {selected && <dialog className="roster-detail-dialog" ref={detailRef} aria-labelledby={`roster-detail-title-${kind}`} onClose={() => setSelected(null)}><div className="wb-toolbar"><h3 id={`roster-detail-title-${kind}`}>{selected.name} · 档案详情</h3><button type="button" onClick={() => detailRef.current?.close()}>关闭档案</button></div><p>信息变更：删除原档案 → 修改统一 Excel 模板 → 重新上传并确认。</p><Table headers={["模板字段", "原始内容"]}>{Object.entries(selected.fields || {}).map(([key, value]) => <tr key={key}><td>{key}</td><td className="roster-value">{String(value || "—")}</td></tr>)}</Table>{!teacher && !selected.user_id && canWrite() && <LegacyAccountBinding key={`account-${selected.id}`} id={selected.id} />}</dialog>}
   </section>;
 }
 

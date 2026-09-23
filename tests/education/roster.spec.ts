@@ -34,8 +34,10 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   const oldTeacher = page.getByRole('row').filter({ hasText: fixture.roster_accounts.old });
   await expect(oldTeacher).toContainText('131****7000');
   await oldTeacher.getByRole('button', { name: '查看档案', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'QA 流程教师 · 档案详情' })).toBeInViewport();
-  await page.getByRole('button', { name: '关闭档案', exact: true }).click();
+  const teacherDialog = page.getByRole('dialog', { name: 'QA 流程教师 · 档案详情' });
+  await expect(teacherDialog).toBeInViewport();
+  await teacherDialog.getByRole('button', { name: '关闭档案', exact: true }).click();
+  await expect(teacherDialog).toHaveCount(0);
   await upload(page, '教师', 'teacher-suspects');
   const confirm = page.getByRole('button', { name: '确认导入并创建账号', exact: true });
   await expect(confirm).toBeDisabled();
@@ -167,9 +169,11 @@ test('student fixed template import creates account and graduation retains the a
   await page.getByRole('button', { name: '确认毕业归档', exact: true }).click();
   await expect(row).toContainText('已毕业归档');
   await row.getByRole('button', { name: '查看档案', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'QA 流程学生 · 档案详情' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'QA 流程学生 · 档案详情' })).toBeInViewport();
+  const studentDialog = page.getByRole('dialog', { name: 'QA 流程学生 · 档案详情' });
+  await expect(studentDialog).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath('student-graduation-archive.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(studentDialog).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.app-sidebar')).toBeHidden();
   await page.locator('.workspace-main').evaluate(element => { element.scrollTop = 0; });
@@ -260,7 +264,7 @@ for (const scenario of [
       await expect(row.getByRole('button', { name: action, exact: true })).toHaveCount(0);
     }
     await row.getByRole('button', { name: '查看档案', exact: true }).click();
-    const archive = page.getByRole('heading', { name: `${scenario.name} · 档案详情`, exact: true }).locator('..').locator('..');
+    const archive = page.getByRole('dialog', { name: `${scenario.name} · 档案详情` });
     await expect(archive.locator('tbody').getByRole('row')).toHaveCount(30);
     await expect(archive.getByRole('row').filter({ has: page.getByRole('cell', { name: '状态', exact: true }) })).toContainText('正常');
     const deniedLogin = await request.post('/api/v1/auth/login', { data: { username, password: username } });
