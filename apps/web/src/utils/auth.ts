@@ -117,7 +117,7 @@ export const clearAuth = (): void => {
   if (storage) {
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index);
-      if (key?.startsWith('stream_cursor:')) storage.removeItem(key);
+      if (key?.startsWith('stream_cursor:') || key?.startsWith('roster-active-batch:') || key?.startsWith('school-workbench-tab:')) storage.removeItem(key);
     }
   }
   notifyAuthChanged();

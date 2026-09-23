@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
+import { getUserInfo } from "../../utils/auth";
 import { RosterWorkbench } from "./RosterWorkbench";
 import { useJsonQuery } from "../../hooks/useApi";
 import {
@@ -29,12 +30,25 @@ const tabs: Record<string, string> = {
   subjects: "学科",
   exams: "考试科目",
 };
+
+function savedSchoolTab(key: string): string | null {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+}
+
+function saveSchoolTab(key: string, tab: string): void {
+  try { sessionStorage.setItem(key, tab); } catch { /* Storage may be unavailable. */ }
+}
+
 export function SchoolWorkbenchPage() {
   const examAdmin = (getUserInfo()?.roles || []).includes("EXAM_ADMIN");
   const examOnly = examAdmin && !canWrite();
   const [params, setParams] = useSearchParams();
-  const requestedTab = params.get("tab") || "classes";
-  const [kind, setKind] = useState(examOnly ? "exams" : requestedTab in tabs ? requestedTab : "classes");
+  const user = getUserInfo();
+  const tabKey = `school-workbench-tab:${user?.school_id || "unknown"}:${user?.user_id || "anonymous"}`;
+  const requestedTab = params.get("tab");
+  const lastTab = savedSchoolTab(tabKey);
+  const kind = examOnly ? "exams" : requestedTab && requestedTab in tabs ? requestedTab : lastTab && lastTab in tabs ? lastTab : "classes";
+  useEffect(() => { if (!examOnly) saveSchoolTab(tabKey, kind); }, [examOnly, kind, tabKey]);
   const writable = canWrite() || (examAdmin && kind === "exams");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -142,7 +156,7 @@ export function SchoolWorkbenchPage() {
             key={key}
             className={kind === key ? "active" : ""}
             onClick={() => {
-              setKind(key);
+              saveSchoolTab(tabKey, key);
               setParams({ tab: key });
               setPage(1);
               setSelected(null);
@@ -483,5 +497,4 @@ export function ClassAnalysisPage() {
   );
 }
 import { roleOf } from "../../layouts/AppShell";
-import { getUserInfo } from "../../utils/auth";
 const getRole = () => roleOf(getUserInfo());

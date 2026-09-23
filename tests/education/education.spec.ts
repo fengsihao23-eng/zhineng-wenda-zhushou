@@ -163,6 +163,7 @@ test("CSV upload mapping preflight confirm receipt binding and real student read
   await expect(
     page.getByRole("row").filter({ hasText: "QA 导入学生" }),
   ).toContainText("已绑定账号");
+  await page.getByRole("dialog").getByRole("button", { name: "关闭档案" }).click();
   await logout(page);
   await login(page, "unbound");
   await page.goto("/profile");

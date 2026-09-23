@@ -3,11 +3,31 @@ import { Link } from "react-router-dom";
 import { useJsonQuery } from "../../hooks/useApi";
 import { apiFetch, apiError } from "../../services/api";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
+import { getUserInfo } from "../../utils/auth";
 import { BASE, Row, PageData, Table, Pager, Badge, QueryState, canWrite, useAction, ActionError, fileBase64, FormPanel, options } from "./shared";
 
 type Kind = "teachers" | "students";
 const roleNames: Record<string, string> = { SCHOOL_ADMIN: "学校管理员", EXAM_ADMIN: "考试管理员", TEACHER: "任课教师", HOMEROOM_TEACHER: "班主任", SUBJECT_LEADER: "备课 / 教研组长", GRADE_LEADER: "年级长", PRINCIPAL: "校长", ACADEMIC_DIRECTOR: "教务主任", GENERAL_DIRECTOR: "总务主任", SCHOOL_VIEWER: "全校数据查看" };
 const actionNames: Record<string, string> = { delete: "删除原档案", disable: "停用", depart: "离职", suspend: "休学", withdraw: "退学", graduate: "毕业归档" };
+
+function activeBatchKey(kind: Kind): string {
+  const user = getUserInfo();
+  return `roster-active-batch:${user?.school_id || "unknown"}:${user?.user_id || "anonymous"}:${kind}`;
+}
+
+function savedBatch(key: string): string {
+  try {
+    const id = sessionStorage.getItem(key) || "";
+    return /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ? id : "";
+  } catch { return ""; }
+}
+
+function rememberBatch(key: string, id: string): void {
+  try {
+    if (id) sessionStorage.setItem(key, id);
+    else sessionStorage.removeItem(key);
+  } catch { /* Storage may be unavailable. */ }
+}
 
 function Download({ path, filename, children }: { path: string; filename: string; children: React.ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
@@ -26,11 +46,13 @@ function Download({ path, filename, children }: { path: string; filename: string
 
 export function RosterWorkbench({ kind }: { kind: Kind }) {
   const teacher = kind === "teachers", noun = teacher ? "教师" : "学生";
+  const batchKey = activeBatchKey(kind);
   const [search, setSearch] = useState("");
   const [phone, setPhone] = useState("");
   const [className, setClassName] = useState("");
   const [page, setPage] = useState(1);
-  const [batchId, setBatchId] = useState("");
+  const [batchId, setBatchId] = useState(() => savedBatch(batchKey));
+  const showBatch = (id: string) => { rememberBatch(batchKey, id); setBatchId(id); };
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<Error | null>(null);
   const [reading, setReading] = useState(false);
@@ -63,7 +85,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
         try {
           if (file.size > 5_000_000) throw new Error("Excel 最大 5 MB、5000 行，请拆分文件。");
           const content = await fileBase64(file);
-          upload.mutate({ path: `/roster/${kind}/imports`, body: { filename: file.name, content_base64: content } }, { onSuccess: row => setBatchId(row.id) });
+          upload.mutate({ path: `/roster/${kind}/imports`, body: { filename: file.name, content_base64: content } }, { onSuccess: row => showBatch(row.id) });
         } catch (e) { setFileError(e as Error); } finally { setReading(false); }
       }} className="wb-toolbar">
         <label>上传{noun} Excel <input aria-label={`上传${noun} Excel`} type="file" accept={teacher ? ".xlsx" : ".xls,.xlsx"} disabled={busy} onChange={e => { setFile(e.target.files?.[0] || null); setFileError(null); }} /></label>
@@ -71,15 +93,15 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
       </form>}
       <ErrorDisplay error={fileError} /><ActionError action={upload} />
     </div>
-    {batchId && <BatchDetail key={batchId} id={batchId} onClose={() => setBatchId("")} />}
+    {batchId && <BatchDetail key={batchId} id={batchId} onClose={() => showBatch("")} />}
     <details className="panel"><summary>导入记录与操作回执</summary><QueryState query={history} empty={!history.data?.length}>
-      <Table headers={["文件", "状态", "上传操作人 / 时间", "操作"]}>{history.data?.map(row => <tr key={row.id}><td>{row.filename}</td><td><Badge value={row.status} /></td><td>{row.operator_name}<br />{row.created_at}</td><td><button onClick={() => setBatchId(row.id)}>查看批次</button></td></tr>)}</Table>
+      <Table headers={["文件", "状态", "上传操作人 / 时间", "操作"]}>{history.data?.map(row => <tr key={row.id}><td>{row.filename}</td><td><Badge value={row.status} /></td><td>{row.operator_name}<br />{row.created_at}</td><td><button onClick={() => showBatch(row.id)}>查看批次</button></td></tr>)}</Table>
     </QueryState></details>
     {teacher && <TeacherDeletionHistory />}
     <div className="wb-toolbar">
       <input aria-label={`${noun}姓名或账号`} placeholder="姓名 / 账号" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
       {teacher && <input aria-label="教师手机号" placeholder="手机号（支持脱敏文本）" value={phone} onChange={e => { setPhone(e.target.value); setPage(1); }} />}
-      <input aria-label={`${noun}班级筛选`} placeholder={teacher ? "任教班级 / 年级.班级" : "班级名称"} value={className} onChange={e => { setClassName(e.target.value); setPage(1); }} />
+      <input aria-label={`${noun}班级筛选`} placeholder={teacher ? "原表任课班级 / 年级.班级" : "班级名称"} value={className} onChange={e => { setClassName(e.target.value); setPage(1); }} />
     </div>
     {notice && <p role="status" className="wb-status">{notice}</p>}
     <ActionError action={action} />
@@ -89,7 +111,7 @@ export function RosterWorkbench({ kind }: { kind: Kind }) {
       <div className="wb-toolbar"><button disabled={action.isPending} onClick={() => action.mutate({ path: `/roster/${kind}/records/${operation.row.id}/actions`, body: { action: operation.action, confirmed: true } }, { onSuccess: result => { setOperation(null); setSelected(null); setNotice(result.message); } })}>{action.isPending ? "处理中…" : `确认${actionNames[operation.action]}`}</button><button disabled={action.isPending} onClick={() => setOperation(null)}>取消</button></div>
     </section>}
     <QueryState query={query} empty={!query.data?.items.length}>
-      <Table headers={["姓名 / 登录账号", "班级", teacher ? "手机号 / 职务" : "学号", "状态", "操作"]}>
+      <Table headers={["姓名 / 登录账号", teacher ? "原表任课班级" : "班级", teacher ? "手机号 / 职务" : "学号", "状态", "操作"]}>
         {query.data?.items.map(row => <tr key={row.id}>
           <td><strong>{row.name}</strong><small className="subtle">{row.username || "待绑定账号"}{!teacher && row.user_id && " · 已绑定账号"}</small></td>
           <td>{row.class_name || row.fields?.["任课年级班级"] || "—"}</td>

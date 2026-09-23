@@ -52,6 +52,21 @@ async def test_multi_subject_leader_has_each_subject_and_only_selected_grade(cli
     assert 'SUBJECT_LEADER' in (await test_db.get(TeacherProfile, identifier)).duties
 
 
+@pytest.mark.asyncio
+async def test_teacher_roster_uses_original_class_cell_not_leadership_grants(client, test_db, actors):
+    await classroom(client)
+    await post(client, '/school/classes', {'external_class_id': '10.2', 'name': '高中一年级2班'})
+    done = await confirm(client, await upload(client, [teacher('source-class-leader', 任课年级班级='数学:10.1;', 教研组长负责年级科目='10.数学')]))
+    identifier = UUID(done['report']['imported'][0]['id'])
+    grants = (await test_db.scalars(select(TeachingAssignment).where(TeachingAssignment.teacher_user_id == identifier))).all()
+    assert len(grants) == 2
+    listing = (await client.get(P + '/roster/teachers/records?search=source-class-leader')).json()
+    assert listing['total'] == 1
+    assert listing['items'][0]['class_name'] == listing['items'][0]['fields']['任课年级班级'] == '数学:10.1;'
+    filtered = (await client.get(P + '/roster/teachers/records?search=source-class-leader&class_name=10.2')).json()
+    assert filtered['total'] == 0, filtered
+
+
 def test_imported_admin_roles_do_not_match_negated_titles():
     assert 'SCHOOL_ADMIN' in duty_codes({'说明': '学校管理员'})
     assert 'EXAM_ADMIN' in duty_codes({'说明': '考试管理员'})

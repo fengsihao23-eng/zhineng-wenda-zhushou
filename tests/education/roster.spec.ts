@@ -27,6 +27,11 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   await upload(page, '教师', 'teacher-invalid');
   await expect(page.getByText('教师姓名、教师账号、状态', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '确认导入并创建账号', exact: true })).toHaveCount(0);
+  await page.goto('/admin/papers');
+  await page.goto('/admin/school');
+  await expect(page.getByRole('button', { name: '教师档案', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('heading', { name: '导入预览与结果' })).toBeVisible();
+  await expect(page.getByText('teacher-invalid.xlsx', { exact: true }).first()).toBeVisible();
   await upload(page, '教师', 'teacher-old');
   await page.getByRole('button', { name: '确认导入并创建账号', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入完成', exact: true })).toBeVisible();
@@ -92,7 +97,7 @@ test('teacher with teaching history can be deleted and reimported under a new lo
   expect(changed.ok()).toBe(true);
   await page.getByRole('button', { name: '关闭批次', exact: true }).click();
   const teacher = page.getByRole('row').filter({ hasText: fixture.roster_accounts.change });
-  await expect(teacher).toContainText('高中一年级1班');
+  await expect(teacher).toContainText('数学:10.1;');
   await teacher.getByRole('button', { name: '删除原档案', exact: true }).click();
   await page.getByRole('button', { name: '确认删除原档案', exact: true }).click();
   await expect(teacher).toHaveCount(0);

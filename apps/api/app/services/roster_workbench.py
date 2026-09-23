@@ -374,10 +374,15 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
     if kind == "teachers":
         rows = (await db.execute(select(User, TeacherProfile).outerjoin(TeacherProfile, TeacherProfile.id == User.id).where(User.school_id == actor.school_id, User.status != "deleted", User.id.in_(role_users(actor.school_id, "TEACHER"))).order_by(User.created_at.desc(), User.id))).all()
         grants = (await db.execute(select(TeachingAssignment.teacher_user_id, ImportedClass.name).join(ImportedClass, ImportedClass.id == TeachingAssignment.class_id).where(TeachingAssignment.school_id == actor.school_id))).all()
+        grants_by_teacher = {}
+        for teacher_id, name in grants:
+            grants_by_teacher.setdefault(teacher_id, set()).add(name)
         for user, profile in rows:
-            fields = profile.fields if profile else {}
-            names = sorted({n for uid, n in grants if uid == user.id})
-            items.append({**data(user, "id", "username", "status", "display_name"), "name": user.display_name, "phone": fields.get("手机号码", user.phone or ""), "class_name": "、".join(names), "fields": fields, "duties": profile.duties if profile else ["TEACHER"]})
+            fields = (profile.fields or {}) if profile else {}
+            # Imported profiles show the workbook cell. Leadership grants can cover
+            # an entire grade and must not be presented as classes taught in Excel.
+            display_class = fields.get("任课年级班级", "") if profile else "、".join(sorted(grants_by_teacher.get(user.id, ())))
+            items.append({**data(user, "id", "username", "status", "display_name"), "name": user.display_name, "phone": fields.get("手机号码", user.phone or ""), "class_name": display_class, "fields": fields, "duties": profile.duties if profile else ["TEACHER"]})
     else:
         rows = (await db.execute(select(Student, User).outerjoin(User, User.id == Student.user_id).where(Student.school_id == actor.school_id).order_by(Student.created_at.desc(), Student.id))).all()
         for student, user in rows:
