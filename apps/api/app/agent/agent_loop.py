@@ -174,7 +174,7 @@ class AgentLoop:
             if provider_name == "fake":
                 model_name = "fake-model"
             elif provider_name == "deepseek":
-                model_name = settings.DEFAULT_MODEL if "deepseek" in settings.DEFAULT_MODEL.lower() else "deepseek-chat"
+                model_name = settings.DEEPSEEK_MODEL
             else:
                 model_name = settings.DEFAULT_MODEL
             model_response = await self.model_gateway.chat(
@@ -182,6 +182,8 @@ class AgentLoop:
                 messages=messages,
                 tools=None,
                 temperature=0.2,
+                max_tokens=settings.MAX_TOKENS,
+                timeout=settings.AGENT_TIMEOUT_SECONDS,
                 trace_context={"agent_run_id": str(run_id)},
             )
             answer = model_response.content or model_response.text or "暂时无法生成回答。"

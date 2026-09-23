@@ -1,7 +1,7 @@
 """
 认证依赖
 """
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -70,6 +70,7 @@ class AuthenticatedStudent:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> AuthenticatedUser:
@@ -114,6 +115,10 @@ async def get_current_user(
         )
 
     await ensure_account_environment(user, db)
+    if payload.get("password_version", 0) != user.password_version:
+        raise credentials_exception
+    if user.must_change_password and request.url.path not in {"/api/v1/auth/me", "/api/v1/auth/change-password"}:
+        raise HTTPException(status_code=403, detail="首次登录请先修改初始密码。", headers={"X-Error-Code": "PASSWORD_CHANGE_REQUIRED"})
 
     # 角色必须从数据库读取，不能信任 JWT 中的可变 claims。
     role_result = await db.execute(
@@ -125,6 +130,8 @@ async def get_current_user(
         )
     )
     roles = [code for code in role_result.scalars().all() if code]
+    if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password":
+        raise HTTPException(status_code=403, detail="当前职务仅有全校数据查看权限。", headers={"X-Error-Code": "SCHOOL_READ_ONLY"})
 
     return AuthenticatedUser(
         user_id=user.id,

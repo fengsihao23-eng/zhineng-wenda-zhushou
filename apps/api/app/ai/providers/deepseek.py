@@ -14,7 +14,10 @@ class DeepSeekProvider(OpenAICompatibleProvider):
             name="DeepSeek",
             base_url=settings.DEEPSEEK_API_BASE,
             api_key=api_key,
-            default_model="deepseek-chat",
-            price_per_1k_input=Decimal("0.0001"),
-            price_per_1k_output=Decimal("0.0002")
+            default_model=settings.DEEPSEEK_MODEL,
+            # Flash peak, cache-miss ceiling estimate (USD / 1K); actual billing
+            # varies with cache hits and peak/off-peak hours.
+            price_per_1k_input=Decimal("0.0003"),
+            price_per_1k_output=Decimal("0.0012"),
+            extra_body={"thinking": {"type": settings.DEEPSEEK_THINKING}},
         )

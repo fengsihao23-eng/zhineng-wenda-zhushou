@@ -13,6 +13,9 @@ const root = path.resolve(
 );
 const scratch = await mkdtemp(path.join(tmpdir(), "education-browser-"));
 const python = path.join(root, ".venv/bin/python");
+const apiPort = Number(process.env.QA_API_PORT || 8028);
+const webPort = Number(process.env.QA_WEB_PORT || 5208);
+const apiBase = `http://127.0.0.1:${apiPort}`;
 const credential = randomBytes(32).toString("base64url");
 const env = {
   ...process.env,
@@ -112,7 +115,7 @@ const api = spawn(
     "--host",
     "127.0.0.1",
     "--port",
-    "8028",
+    String(apiPort),
     "--workers",
     "2",
     "--no-access-log",
@@ -126,7 +129,7 @@ for (let i = 0; i < 20; i++) {
   try {
     if (
       (
-        await fetch("http://127.0.0.1:8028/api/v1/health", {
+        await fetch(`${apiBase}/api/v1/health`, {
           signal: AbortSignal.timeout(1000),
         })
       ).ok
@@ -146,7 +149,7 @@ const server = createServer(async (req, res) => {
     if (req.url.startsWith("/api/")) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
-      const result = await fetch("http://127.0.0.1:8028" + req.url, {
+      const result = await fetch(apiBase + req.url, {
         method: req.method,
         headers: req.headers,
         body: ["GET", "HEAD"].includes(req.method)
@@ -193,11 +196,11 @@ const server = createServer(async (req, res) => {
     res.end("Isolated QA proxy failed");
   }
 });
-await new Promise((resolve, reject) => {
-  server.on("error", reject);
-  server.listen(5208, "127.0.0.1", resolve);
-});
 try {
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(webPort, "127.0.0.1", resolve);
+  });
   process.stdout.write(
     await run(
       process.execPath,
@@ -211,6 +214,7 @@ try {
         env: {
           ...env,
           QA_PASSWORD: credential,
+          QA_BASE_URL: `http://127.0.0.1:${server.address().port}`,
           QA_FIXTURE_PATH: fixturePath,
           QA_OUTPUT_DIR: path.join(scratch, "results"),
         },

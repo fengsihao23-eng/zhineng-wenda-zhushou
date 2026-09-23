@@ -1,4 +1,4 @@
-import { apiError, safeFetch } from './http';
+import { ApiError, apiError, safeFetch } from './http';
 import { getRefreshToken } from '../utils/auth';
 /**
  * 认证服务API
@@ -9,6 +9,22 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 export interface LoginRequest {
   username: string;
   password: string;
+  school_id?: string;
+  account_type?: 'teacher' | 'student' | 'parent' | 'general';
+  identity_id?: string;
+}
+
+export interface LoginIdentity {
+  id: string;
+  display_name: string;
+  school_name: string;
+  account_type: 'teacher' | 'student' | 'parent' | 'general';
+}
+
+export class LoginIdentityRequired extends ApiError {
+  constructor(public readonly identities: LoginIdentity[]) {
+    super('账号和密码已验证，请确认本次登录身份。', 409, 'LOGIN_IDENTITY_REQUIRED');
+  }
 }
 
 export interface LoginResponse {
@@ -33,6 +49,8 @@ export interface RefreshTokenResponse {
 }
 
 export interface UserInfoResponse {
+  must_change_password?: boolean;
+  account_type?: string;
   user_id: string;
   username: string;
   display_name: string;
@@ -60,6 +78,12 @@ export const loginApi = async (data: LoginRequest): Promise<LoginResponse> => {
     body: JSON.stringify(data),
   });
 
+  if (response.status === 409) {
+    const payload = await response.clone().json().catch(() => null);
+    if (payload?.error?.code === 'LOGIN_IDENTITY_REQUIRED') {
+      throw new LoginIdentityRequired(payload.error.details.identities);
+    }
+  }
   if (!response.ok) {
     throw await apiError(response, '登录失败');
   }

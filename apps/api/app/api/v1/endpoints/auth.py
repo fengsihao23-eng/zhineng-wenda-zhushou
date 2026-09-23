@@ -8,9 +8,13 @@ from sqlalchemy import select
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
+from typing import Literal
+from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.errors import ApiError
+from app.db.models.school import School
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -21,6 +25,7 @@ from app.core.security import (
     revoke_token,
     validate_token,
     verify_password,
+    get_password_hash,
 )
 from app.db.models.user import Role, User, UserRole
 from app.db.models.student import Student
@@ -34,7 +39,9 @@ class LoginRequest(BaseModel):
     """登录请求"""
     username: str = Field(..., description="用户名")
     password: str = Field(..., description="密码")
-    school_id: UUID | None = Field(None, description="学校ID；多校同名账号时必填")
+    school_id: UUID | None = Field(None, description="可选学校范围；默认根据账号和密码自动识别")
+    account_type: Literal["teacher", "student", "parent", "general"] | None = None
+    identity_id: UUID | None = Field(None, description="凭据对应多个身份时，选择服务端已验证的身份")
 
 
 class LoginResponse(BaseModel):
@@ -69,6 +76,12 @@ async def _load_roles(db: AsyncSession, user: User) -> list[str]:
     return [code for code in result.scalars().all() if code]
 
 
+def account_kind(user, roles):
+    if user.account_type != "general":
+        return user.account_type
+    return next((kind for role, kind in (("TEACHER", "teacher"), ("STUDENT", "student"), ("PARENT", "parent")) if role in roles), "general")
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     request: LoginRequest,
@@ -80,27 +93,38 @@ async def login(
     返回访问令牌和刷新令牌
     """
     # 查询用户
-    user_query = select(User).where(User.username == request.username)
+    user_query = select(User).where(User.username == request.username.strip(), User.status != "deleted")
     if request.school_id is not None:
         user_query = user_query.where(User.school_id == request.school_id)
+    if request.account_type is not None:
+        role_code = {"teacher": "TEACHER", "student": "STUDENT", "parent": "PARENT"}.get(request.account_type)
+        role_ids = select(UserRole.user_id).join(Role, Role.id == UserRole.role_id).where(Role.code == role_code)
+        user_query = user_query.where((User.account_type == request.account_type) | ((User.account_type == "general") & User.id.in_(role_ids)))
     result = await db.execute(user_query)
     candidates = result.scalars().all()
-    # Usernames are unique only inside a school.  Never select an arbitrary
-    # tenant when a caller omits school_id and names collide.
-    user = candidates[0] if len(candidates) == 1 else None
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误"
-        )
-
-    # 验证密码
-    if not verify_password(request.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误"
-        )
+    # Match the supplied credentials before considering role or school. Never
+    # guess an account type from a phone number, prefix, or the first DB row.
+    matched = []
+    for candidate in candidates:
+        if await run_in_threadpool(verify_password, request.password, candidate.password_hash):
+            matched.append(candidate)
+    active = [candidate for candidate in matched if candidate.status == "active"]
+    verified = active or matched
+    if request.identity_id is not None:
+        verified = [candidate for candidate in verified if candidate.id == request.identity_id]
+    if not verified:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    if len(verified) > 1:
+        if not active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户账号已被禁用")
+        identities = []
+        for candidate in verified:
+            await ensure_account_environment(candidate, db)
+            candidate_roles = await _load_roles(db, candidate)
+            school_name = await db.scalar(select(School.name).where(School.id == candidate.school_id))
+            identities.append({"id": str(candidate.id), "display_name": candidate.display_name or candidate.username, "school_name": school_name, "account_type": account_kind(candidate, candidate_roles)})
+        raise ApiError(409, "LOGIN_IDENTITY_REQUIRED", "账号和密码已验证，请确认本次登录身份。", details={"identities": identities})
+    user = verified[0]
 
     # 检查用户状态
     if user.status != "active":
@@ -130,6 +154,7 @@ async def login(
         "username": user.username,
         "school_id": str(user.school_id),
         "roles": roles,
+        "password_version": user.password_version,
         "sid": str(uuid4()),
         "session_exp": int((datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
@@ -153,7 +178,9 @@ async def login(
             "username": user.username,
             "display_name": user.display_name or user.username,
             "roles": roles,
-            "student_id": str(student.id) if student else None
+            "account_type": account_kind(user, roles),
+            "student_id": str(student.id) if student else None,
+            "must_change_password": user.must_change_password,
         }
     )
 
@@ -190,7 +217,7 @@ async def refresh_token(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if user is None or user.status != "active":
+    if user is None or user.status != "active" or payload.get("password_version", 0) != user.password_version:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户账号不可用",
@@ -222,6 +249,7 @@ async def refresh_token(
         "username": user.username,
         "school_id": str(user.school_id),
         "roles": roles,
+        "password_version": user.password_version,
         "sid": payload["sid"],
         "session_exp": payload["session_exp"],
     }
@@ -283,6 +311,32 @@ async def logout(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=72)
+
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.scalar(select(User).where(User.id == current.user_id).with_for_update().execution_options(populate_existing=True))
+    if not verify_password(request.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="当前密码不正确。")
+    if request.new_password == user.username or verify_password(request.new_password, user.password_hash) or len(request.new_password.encode()) > 72:
+        raise HTTPException(status_code=422, detail="新密码不能与账号或当前密码相同，长度为 8–72 字节。")
+    user.password_hash = get_password_hash(request.new_password)
+    user.must_change_password = False
+    user.password_version += 1
+    from app.services.education_common import audit
+    audit(db, current, "account.password_change", user)
+    await db.commit()
+    token_data = {"sub": str(user.id), "username": user.username, "school_id": str(user.school_id), "roles": await _load_roles(db, user), "password_version": user.password_version, "sid": str(uuid4())}
+    return {"access_token": create_access_token(token_data), "refresh_token": create_refresh_token(token_data), "token_type": "bearer", "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60}
+
+
 @router.get("/me")
 async def get_current_user_info(
     current_user = Depends(get_current_user),
@@ -329,5 +383,7 @@ async def get_current_user_info(
         "display_name": user.display_name,
         "school_id": str(user.school_id),
         "roles": current_user.roles,
+        "must_change_password": user.must_change_password,
+        "account_type": account_kind(user, current_user.roles),
         "student": student_data
     }

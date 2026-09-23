@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
+import { RosterWorkbench } from "./RosterWorkbench";
 import { useJsonQuery } from "../../hooks/useApi";
 import {
   BASE,
@@ -22,27 +23,32 @@ import {
 
 const tabs: Record<string, string> = {
   classes: "班级",
-  students: "学生与账号",
-  teachers: "教师账号",
+  students: "学生档案",
+  teachers: "教师档案",
   teaching: "教师任教",
   subjects: "学科",
   exams: "考试科目",
 };
 export function SchoolWorkbenchPage() {
-  const [kind, setKind] = useState("classes");
+  const examAdmin = (getUserInfo()?.roles || []).includes("EXAM_ADMIN");
+  const examOnly = examAdmin && !canWrite();
+  const [params, setParams] = useSearchParams();
+  const requestedTab = params.get("tab") || "classes";
+  const [kind, setKind] = useState(examOnly ? "exams" : requestedTab in tabs ? requestedTab : "classes");
+  const writable = canWrite() || (examAdmin && kind === "exams");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Row | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const list = useJsonQuery<PageData>(
     `${BASE}/school/${kind}?page=${page}&search=${encodeURIComponent(search)}`,
+    kind !== "teachers" && kind !== "students",
   );
   const classes = useSchoolOptions("classes"),
     subjects = useSchoolOptions("subjects");
-  const accounts = useJsonQuery<Row[]>(`${BASE}/accounts`);
+  const accounts = useJsonQuery<Row[]>(`${BASE}/accounts`, !examOnly);
   const create = useAction();
   const update = useAction("PUT");
-  const bind = useAction();
   const [notice, setNotice] = useState("");
   const statusField: Field = {
     name: "status",
@@ -54,21 +60,9 @@ export function SchoolWorkbenchPage() {
     ],
   };
   const fields: Record<string, Field[]> = {
-    teachers: [{ name: "display_name", label: "教师显示名称" }, statusField],
     classes: [
       { name: "external_class_id", label: "外部班级标识" },
       { name: "name", label: "班级名称" },
-    ],
-    students: [
-      { name: "external_student_id", label: "外部学生标识" },
-      { name: "student_no", label: "学号" },
-      { name: "name", label: "姓名" },
-      {
-        name: "class_id",
-        label: "班级",
-        type: "select",
-        options: options(classes.data?.items),
-      },
     ],
     subjects: [
       { name: "external_subject_id", label: "外部学科标识" },
@@ -134,22 +128,22 @@ export function SchoolWorkbenchPage() {
   const editFields =
     kind === "classes"
       ? [{ name: "name", label: "班级名称" } as Field, statusField]
-      : kind === "students"
-        ? [fields.students[3], statusField]
-        : fields[kind];
+      : fields[kind];
   return (
     <AppShell title="师生班级与考试" eyebrow="业务生产 / 学校范围">
-      <ReadOnlyNote />
+      {!examOnly && <ReadOnlyNote />}
+      {examOnly && <p className="wb-help">考试管理员可维护本校考试及考试科目。</p>}
       <p className="wb-help">
-        身份按外部标识绑定；导入档案与登录账号分别管理。停用不删除历史成绩，外部来源记录保留只读。
+        教师与学生档案统一通过 Excel 新增；变更先删后导，毕业停用保留历史。班级字典可用「高中一年级1班」作为班级名称，或「10.1」作为外部班级标识。
       </p>
       <div className="wb-tabs">
-        {Object.entries(tabs).map(([key, label]) => (
+        {Object.entries(examOnly ? { exams: tabs.exams } : tabs).map(([key, label]) => (
           <button
             key={key}
             className={kind === key ? "active" : ""}
             onClick={() => {
               setKind(key);
+              setParams({ tab: key });
               setPage(1);
               setSelected(null);
               setShowCreate(false);
@@ -160,6 +154,7 @@ export function SchoolWorkbenchPage() {
           </button>
         ))}
       </div>
+      {kind === "teachers" || kind === "students" ? <RosterWorkbench key={kind} kind={kind} /> : <>
       <div className="wb-toolbar">
         <input
           aria-label="搜索名称"
@@ -170,7 +165,7 @@ export function SchoolWorkbenchPage() {
             setPage(1);
           }}
         />
-        {canWrite() && kind !== "teachers" && (
+        {writable && (
           <button
             onClick={() => {
               setShowCreate(!showCreate);
@@ -181,14 +176,8 @@ export function SchoolWorkbenchPage() {
           </button>
         )}
       </div>
-      {kind === "teachers" && (
-        <p>
-          维护已有教师账号的显示名称和状态；账号开通沿用当前身份流程，任教授权在“教师任教”中单独维护。
-        </p>
-      )}
       <ActionError action={create} />
       <ActionError action={update} />
-      <ActionError action={bind} />
       {notice && (
         <p role="status" className="wb-status">
           {notice}
@@ -253,22 +242,13 @@ export function SchoolWorkbenchPage() {
                         row.external_subject_id}
                     </small>
                   </td>
-                  <td>
-                    {kind === "teachers"
-                      ? "现有身份账号"
-                      : row.source_system || "待补充"}
-                  </td>
-                  <td>
-                    {row.status && <Badge value={row.status} />}{" "}
-                    {kind === "students" &&
-                      (row.user_id ? "已绑定账号" : "待绑定账号")}
-                  </td>
+                  <td>{row.source_system || "待补充"}</td>
+                  <td>{row.status && <Badge value={row.status} />}</td>
                 </>
               )}
               <td>
-                {canWrite() &&
-                  (["teaching", "teachers"].includes(kind) ||
-                    row.source_system === "native") &&
+                {writable &&
+                  (kind === "teaching" || row.source_system === "native") &&
                   kind !== "subjects" && (
                     <button
                       onClick={() => {
@@ -279,14 +259,8 @@ export function SchoolWorkbenchPage() {
                       维护
                     </button>
                   )}
-                {kind === "students" && canWrite() && (
-                  <button onClick={() => setSelected(row)}>账号绑定</button>
-                )}
                 {kind === "exams" && (
                   <button onClick={() => setSelected(row)}>考试科目</button>
-                )}
-                {kind === "students" && (
-                  <Link to={`/admin/students/${row.id}`}>查看学情</Link>
                 )}
               </td>
             </tr>
@@ -300,9 +274,8 @@ export function SchoolWorkbenchPage() {
             <h2>{selected.name || "任教关系"}</h2>
             <button onClick={() => setSelected(null)}>关闭详情</button>
           </div>
-          {canWrite() &&
-            (["teaching", "teachers"].includes(kind) ||
-              selected.source_system === "native") && (
+          {writable &&
+            (kind === "teaching" || selected.source_system === "native") && (
               <FormPanel
                 key={`${kind}-${selected.id}`}
                 title="维护当前记录"
@@ -327,37 +300,15 @@ export function SchoolWorkbenchPage() {
                 }
               />
             )}
-          {kind === "students" && canWrite() && (
-            <FormPanel
-              key={`bind-${selected.id}`}
-              title="绑定现有学生账号"
-              fields={[
-                {
-                  name: "user_id",
-                  label: "账号",
-                  type: "select",
-                  options: options(
-                    accounts.data?.filter((a) => a.role === "STUDENT"),
-                  ),
-                },
-              ]}
-              pending={bind.isPending}
-              onSubmit={(v) =>
-                bind.mutate(
-                  { path: `/school/students/${selected.id}/bind`, body: v },
-                  { onSuccess: saved },
-                )
-              }
-            />
-          )}
           {kind === "exams" && (
             <ExamSubjects
               id={selected.id}
-              writable={selected.source_system === "native" && canWrite()}
+              writable={selected.source_system === "native" && writable}
             />
           )}
         </section>
       )}
+      </>}
     </AppShell>
   );
 }

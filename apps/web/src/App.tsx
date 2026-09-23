@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { ChatContainer } from './components/ChatContainer'
 import { Login } from './pages/Login'
+import { ChangePassword } from './pages/ChangePassword'
 import { RoleGate } from './components/RoleGate'
 import { STUDENT_ROLES, TEACHER_ROLES, SCHOOL_ROLES, CITY_ROLES, homePath } from './utils/permissions'
 import { StudentDetailPage, SchoolDetailPage } from './pages/ManagementDetails'
@@ -114,6 +115,7 @@ function App() {
           <Suspense fallback={<div className="loading-screen">正在加载页面…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<RoleGate><HomeRedirect /></RoleGate>} />
             <Route path="/chat" element={<RoleGate allowed={STUDENT_ROLES}><ChatPage /></RoleGate>} />
             <Route path="/profile" element={<RoleGate allowed={STUDENT_ROLES}><ProfilePage /></RoleGate>} />
@@ -129,7 +131,7 @@ function App() {
             <Route path="/teacher/handoffs" element={<RoleGate allowed={TEACHER_ROLES}><HandoffPage /></RoleGate>} />
             <Route path="/teacher/risks" element={<RoleGate allowed={TEACHER_ROLES}><RiskPage /></RoleGate>} />
             <Route path="/admin" element={<RoleGate allowed={SCHOOL_ROLES}><ManagementOverviewPage /></RoleGate>} />
-            <Route path="/admin/school" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SchoolWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/school" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN', 'EXAM_ADMIN']}><SchoolWorkbenchPage /></RoleGate>} />
             <Route path="/admin/imports" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ImportWorkbenchPage /></RoleGate>} />
             <Route path="/admin/papers" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperWorkbenchPage /></RoleGate>} />
             <Route path="/admin/papers/:paperId/split/:versionId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperSplitPage /></RoleGate>} />

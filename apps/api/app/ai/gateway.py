@@ -101,7 +101,7 @@ class ModelGateway:
 
     async def chat(
         self,
-        model: str = "deepseek-chat",
+        model: str | None = None,
         messages: list = None,
         tools: list[dict] | None = None,
         temperature: float = 0.7,
@@ -110,6 +110,7 @@ class ModelGateway:
         trace_context: dict | None = None
     ) -> ModelResponse:
         """统一对话调用"""
+        model = model or settings.DEFAULT_MODEL
         provider = self._get_provider(model)
 
         # 转换ChatMessage对象为dict
@@ -197,6 +198,8 @@ class ModelGateway:
         return {
             "configured_provider": configured,
             "available_providers": available,
+            "default_model": settings.DEEPSEEK_MODEL if configured == "deepseek" else settings.DEFAULT_MODEL,
+            "thinking": settings.DEEPSEEK_THINKING if configured == "deepseek" else None,
             "real_model_ready": any(name != "fake" for name in available),
             "test_model_enabled": "fake" in available,
         }

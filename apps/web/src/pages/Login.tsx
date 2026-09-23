@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCurrentUserApi, loginApi } from '../services/auth'
+import { getCurrentUserApi, loginApi, LoginIdentityRequired } from '../services/auth'
 import { setAuthSession } from '../utils/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import { useMutation } from '@tanstack/react-query'
@@ -13,18 +13,20 @@ export function Login() {
   const submittingRef = useRef(false)
   const navigate = useNavigate()
   const login = useMutation({
-    mutationFn: async () => {
-      const response = await loginApi({ username, password })
+    mutationFn: async (identityId?: string) => {
+      const response = await loginApi({ username: username.trim(), password, identity_id: identityId })
       const user = await getCurrentUserApi(response.access_token)
       return { response, user }
     },
     onSuccess: ({ response, user }) => {
       setAuthSession(response.access_token, response.refresh_token, user)
-      navigate('/')
+      navigate(user.must_change_password ? '/change-password' : '/')
     },
     onSettled: () => { submittingRef.current = false },
   })
   const loading = login.isPending
+  const identities = login.error instanceof LoginIdentityRequired ? login.error.identities : []
+  const identityNames = { teacher: '教师', student: '学生', parent: '家长', general: '管理账号' }
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     if (submittingRef.current || loading || !username.trim() || !password) return
@@ -41,7 +43,7 @@ export function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
-          <ErrorDisplay error={login.error} title="登录失败" />
+          <ErrorDisplay error={identities.length ? null : login.error} title="登录失败" />
 
           <div className="form-group">
             <label htmlFor="username">用户名</label>
@@ -49,8 +51,9 @@ export function Login() {
               id="username"
               type="text"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="请输入用户名"
+              onChange={(e) => { setUsername(e.target.value); login.reset() }}
+              autoComplete="username"
+              placeholder="请输入账号"
               disabled={loading}
               required
             />
@@ -62,12 +65,23 @@ export function Login() {
               id="password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); login.reset() }}
+              autoComplete="current-password"
               placeholder="请输入密码"
               disabled={loading}
               required
             />
           </div>
+
+          <p className="login-hint">输入账号和密码，系统将自动识别身份并进入对应工作台。</p>
+          {identities.length > 0 && <section className="login-identities" aria-label="确认登录身份">
+            <p role="status">账号和密码对应以下身份，请确认本次登录身份。</p>
+            {identities.map(identity => <button type="button" key={identity.id} disabled={loading} onClick={() => {
+              if (submittingRef.current) return
+              submittingRef.current = true
+              login.mutate(identity.id)
+            }}><strong>{identityNames[identity.account_type]} · {identity.display_name}</strong><span>{identity.school_name}</span></button>)}
+          </section>}
 
           <button
             type="submit"

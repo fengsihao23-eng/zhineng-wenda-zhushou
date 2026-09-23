@@ -10,7 +10,8 @@ from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.db.models import School, Student, Subject, ExamSubject, QuestionScore
+from app.db.models import School, Student, Subject, ExamSubject, QuestionScore, ImportedClass
+from app.services.roster_excel import TEACHER_COLUMNS, STUDENT_COLUMNS, workbook_bytes
 from app.db.models.education import Question, QuestionVersion
 
 
@@ -39,10 +40,27 @@ async def main():
         fill="black",
     )
     image.save(scratch / "paper-two-pages.pdf", save_all=True, append_images=[second])
+    suffix = uuid4().hex[:10]
+    fixture["roster_accounts"] = {key: f"roster-{key}-{suffix}" for key in ("old", "keep", "skip", "student", "change", "changed")}
+    files = {
+        "teacher-invalid": (TEACHER_COLUMNS, [{"教师账号": "", "教师姓名": "", "状态": "离职"}]),
+        "teacher-old": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["old"], "教师姓名": "QA 流程教师", "状态": "正常", "任课年级班级": "数学:99.1;", "手机号码": "131****7000"}]),
+        "teacher-suspects": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"][key], "教师姓名": "QA 流程教师", "状态": "正常", "任课年级班级": "数学:99.2;"} for key in ("keep", "skip")]),
+        "student-roster": (STUDENT_COLUMNS, [{"账号": fixture["roster_accounts"]["student"], "姓名": "QA 流程学生", "年级（1-12）": "高中一年级", "班级号": "1班"}]),
+        "teacher-change-before": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["change"], "教师姓名": "QA 变更教师", "状态": "正常", "任课年级班级": "数学:10.1;"}]),
+        "teacher-change-after": (TEACHER_COLUMNS, [{"教师账号": fixture["roster_accounts"]["changed"], "教师姓名": "QA 变更教师", "状态": "正常", "任课年级班级": ""}]),
+        "student-login-shared": (STUDENT_COLUMNS, [{"账号": fixture["users"]["teacher"], "姓名": "QA 同名学生", "年级（1-12）": "高中一年级", "班级号": "1班"}]),
+    }
+    fixture["roster_files"] = {}
+    for key, (columns, rows) in files.items():
+        path = scratch / f"{key}.xlsx"
+        path.write_bytes(workbook_bytes(columns, [[row.get(c, "") for c in columns] for row in rows]))
+        fixture["roster_files"][key] = str(path)
     async with AsyncSessionLocal() as db:
         school = await db.get(School, UUID(fixture["school_id"]))
         if not school.code.startswith("QA-"):
             raise RuntimeError("Synthetic school required")
+        db.add(ImportedClass(id=uuid4(), school_id=school.id, external_class_id="10.1", name="高中一年级1班", source_system="native"))
         student = await db.get(Student, UUID(fixture["student_id"]))
         student.external_student_id = "qa-evidence-student"
         subject = await db.scalar(select(Subject).where(Subject.school_id == school.id))

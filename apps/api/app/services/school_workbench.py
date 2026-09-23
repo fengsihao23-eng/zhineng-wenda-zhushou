@@ -66,6 +66,7 @@ async def listing(db, actor, kind, search="", page=1, page_size=30):
         query = query.options(
             load_only(User.id, User.school_id, User.display_name, User.status)
         ).where(
+            User.status != "deleted",
             User.id.in_(
                 select(UserRole.user_id)
                 .join(Role, Role.id == UserRole.role_id)
@@ -74,7 +75,7 @@ async def listing(db, actor, kind, search="", page=1, page_size=30):
         )
         if search:
             query = query.where(User.display_name.contains(search, autoescape=True))
-    if is_teacher_only(actor):
+    if is_teacher_only(actor) and not (actor.has_role("EXAM_ADMIN") and kind in {"classes", "subjects", "exams"}):
         if kind == "teaching":
             query = query.where(*active_grants(actor))
         elif kind == "classes":

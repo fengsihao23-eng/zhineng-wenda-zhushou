@@ -44,7 +44,7 @@ from app.db.models.student import Student
 logger = get_logger(__name__)
 router = APIRouter(prefix="/platform", tags=["platform"])
 management_roles = require_management("TEACHER", "SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA")
-school_admin_roles = require_management("SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA")
+school_admin_roles = require_management("SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA", "SCHOOL_VIEWER")
 city_roles = require_management("CITY_OPERATOR", "SUPER_ADMIN")
 
 

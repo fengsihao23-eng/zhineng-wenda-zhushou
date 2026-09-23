@@ -1,3 +1,12 @@
+.roster-workbench { min-width: 0; }
+.roster-workbench > .panel { margin-bottom: 20px; }
+.roster-steps { display: flex; gap: 32px; flex-wrap: wrap; padding-left: 24px; color: var(--color-muted); }
+.roster-actions { min-width: 220px; }
+.roster-actions button, .roster-actions a { margin: 4px 8px 4px 0; }
+.roster-value { white-space: pre-wrap; min-width: 100px; max-width: 380px; overflow-wrap: anywhere; }
+.roster-workbench summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.roster-workbench .data-table-wrap { max-width: 100%; }
+.roster-workbench select, .roster-workbench input:not([type="checkbox"]) { padding: 8px; border: 1px solid #cdd2e1; border-radius: 6px; }
 .wb-toolbar,
 .wb-tabs {
   display: flex;

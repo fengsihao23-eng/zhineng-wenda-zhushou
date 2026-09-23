@@ -113,6 +113,42 @@
   cursor: not-allowed;
 }
 
+.login-hint,
+.login-identities p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.login-identities {
+  display: grid;
+  gap: var(--spacing-8);
+}
+
+.login-identities button {
+  display: grid;
+  gap: 4px;
+  padding: 12px var(--spacing-16);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-inputs);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.login-identities button:hover,
+.login-identities button:focus-visible {
+  border-color: var(--color-accent);
+  background: var(--color-wash);
+}
+
+.login-identities span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
 .test-accounts {
   margin-top: var(--spacing-24);
   padding-top: var(--spacing-24);

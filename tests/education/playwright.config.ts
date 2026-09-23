@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: [["list"]],
   outputDir: process.env.QA_OUTPUT_DIR || "/tmp/qa-education-browser",
   use: {
-    baseURL: "http://127.0.0.1:5208",
+    baseURL: process.env.QA_BASE_URL || "http://127.0.0.1:5208",
     ...devices["Desktop Chrome"],
     trace: "off",
     video: "off",

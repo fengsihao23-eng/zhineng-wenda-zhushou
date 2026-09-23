@@ -4,7 +4,7 @@ API v1 路由
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import health, auth, chat, prompts, traces, platform
-from app.api.v1.endpoints import management_details, education
+from app.api.v1.endpoints import management_details, education, roster
 
 api_router = APIRouter()
 
@@ -27,3 +27,4 @@ api_router.include_router(traces.router, prefix="/admin", tags=["admin", "traces
 api_router.include_router(platform.router)
 api_router.include_router(management_details.router)
 api_router.include_router(education.router)
+api_router.include_router(roster.router)

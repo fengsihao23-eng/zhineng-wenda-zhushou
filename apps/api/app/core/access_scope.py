@@ -14,7 +14,7 @@ def is_city(user):
 
 
 def is_teacher_only(user):
-    return user.has_role("TEACHER") and not any(user.has_role(role) for role in ("SCHOOL_ADMIN", "QA", "CITY_OPERATOR", "SUPER_ADMIN"))
+    return user.has_role("TEACHER") and not any(user.has_role(role) for role in ("SCHOOL_ADMIN", "QA", "CITY_OPERATOR", "SUPER_ADMIN", "SCHOOL_VIEWER"))
 
 
 def active_grants(user):

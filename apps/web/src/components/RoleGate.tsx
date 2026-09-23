@@ -20,6 +20,7 @@ export function RoleGate({ allowed = ALL_ROLES, children }: { allowed?: readonly
   if (identity.isPending || identity.isFetching) return <div className="loading-screen">正在核验访问权限…</div>
   if (identity.error) return <div className="chat-error-screen"><ErrorDisplay error={identity.error} title="身份核验失败" onRetry={() => { void identity.refetch() }} /><Link to="/login">返回登录</Link></div>
   if (JSON.stringify(getUserInfo()) !== JSON.stringify(identity.data)) return <div className="loading-screen">正在更新角色权限…</div>
+  if (identity.data?.must_change_password) return <Navigate to="/change-password" replace />
   if (!hasAnyRole(identity.data || null, allowed)) return <section className="empty-state" role="alert"><h1>无权访问此页面</h1><p>当前账号没有该角色权限，页面数据未加载。</p><Link to="/">返回我的工作台</Link></section>
   return <>{children}</>
 }

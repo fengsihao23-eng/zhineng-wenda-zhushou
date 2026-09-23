@@ -2,7 +2,7 @@
 学生模型
 """
 from sqlalchemy import Column, String, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint, Index
-from app.db.types import UUID
+from app.db.types import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
 
@@ -19,6 +19,7 @@ class Student(Base):
     external_student_id = Column(String(100), comment="外部系统学生ID")
     student_no = Column(String(50), comment="学号")
     name = Column(String(100), nullable=False, comment="姓名")
+    profile_fields = Column(JSONB, nullable=False, default=dict, server_default="{}")
     grade_id = Column(UUID(as_uuid=True), comment="年级ID")
     class_id = Column(UUID(as_uuid=True), comment="班级ID")
     external_class_id = Column(String(100), comment="外部系统班级ID")
@@ -32,7 +33,6 @@ class Student(Base):
     __table_args__ = (
         Index("uq_students_bound_user", "school_id", "user_id", unique=True, postgresql_where=user_id.is_not(None), sqlite_where=user_id.is_not(None)),
         UniqueConstraint("school_id", "external_student_id", name="uq_school_external_student"),
-        UniqueConstraint("school_id", "student_no", name="uq_school_student_no"),
         UniqueConstraint("school_id", "id", name="uq_students_school_id_id"),
         ForeignKeyConstraint(
             ["school_id", "user_id"],

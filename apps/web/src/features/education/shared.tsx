@@ -15,6 +15,8 @@ export const canWrite = () =>
 export const labels: Record<string, string> = {
   active: "有效",
   inactive: "已停用",
+  departed: "已离职",
+  graduated: "已毕业归档",
   draft: "草稿",
   published: "正式",
   uploaded: "已上传",

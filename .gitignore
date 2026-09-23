@@ -29,6 +29,17 @@ wheels/
 .env
 .env.local
 .env.*.local
+.local/
+/阳江一中高中教师资料模板0511.xlsx
+/阳江一中高中一年级学生资料模板0511.xls
+
+# ============ 含真实师生样例的产物（公开仓库禁止入库；改为私有仓库后再决定是否提交） ============
+# 两份业务流程图内嵌了真实教师 4 条、学生 49 条样例（含姓名与登录账号）；
+# 程序内置的下载模板 teachers.xlsx / students.xlsx 带同样样例。
+# errors.xlsx 与 tests/fixtures/student_roster.xls 为合成数据，正常入库。
+/0922业务流程图_*.html
+/apps/api/app/resources/roster/teachers.xlsx
+/apps/api/app/resources/roster/students.xlsx
 
 # ==================== 日志 ====================
 logs/

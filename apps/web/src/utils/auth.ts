@@ -58,6 +58,8 @@ function removeLegacyPersistentAuth(): void {
 removeLegacyPersistentAuth();
 
 export interface UserInfo {
+  must_change_password?: boolean;
+  account_type?: string;
   user_id: string;
   username: string;
   display_name: string;

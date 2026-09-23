@@ -38,9 +38,17 @@ from app.services import (
 from app.services.education_common import owned, data, audit, claim
 
 router = APIRouter(prefix="/platform/education", tags=["education"])
-reader = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "TEACHER")
-admin_reader = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN")
+reader = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "TEACHER", "SCHOOL_VIEWER")
+admin_reader = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "SCHOOL_VIEWER")
 write_role = require_management("SCHOOL_ADMIN", "SUPER_ADMIN")
+exam_read_role = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "SCHOOL_VIEWER", "EXAM_ADMIN")
+exam_write_role = require_management("SCHOOL_ADMIN", "SUPER_ADMIN", "EXAM_ADMIN")
+school_read_role = require_management("SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "TEACHER", "SCHOOL_VIEWER", "EXAM_ADMIN")
+
+
+async def exam_writer(actor=Depends(exam_write_role), db: AsyncSession = Depends(get_db)):
+    await db.scalar(select(School.id).where(School.id == actor.school_id).with_for_update())
+    return actor
 
 
 async def writer(actor=Depends(write_role), db: AsyncSession = Depends(get_db)):
@@ -69,9 +77,11 @@ async def school_list(
     search: str = Query("", max_length=100),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
-    actor=Depends(reader),
+    actor=Depends(school_read_role),
     db: AsyncSession = Depends(get_db),
 ):
+    if actor.has_role("EXAM_ADMIN") and not any(actor.has_role(r) for r in ("SCHOOL_ADMIN", "SUPER_ADMIN", "SCHOOL_VIEWER", "QA")) and kind not in {"exams", "classes", "subjects"}:
+        raise ApiError(403, "EXAM_SCOPE_ONLY", "考试管理员仅可维护考试科目，不能维护师生档案或任教授权。")
     return await school.listing(db, actor, kind, search, page, page_size)
 
 
@@ -109,7 +119,7 @@ async def student_create(
     actor=Depends(writer),
     db: AsyncSession = Depends(get_db),
 ):
-    return await write(db, school.create(db, actor, "students", body, key))
+    raise ApiError(409, "ROSTER_EXCEL_REQUIRED", "学生统一通过 30 列 Excel 模板导入，不提供单个新增。")
 
 
 @router.put("/school/students/{identifier}")
@@ -119,9 +129,7 @@ async def student_update(
     actor=Depends(writer),
     db: AsyncSession = Depends(get_db),
 ):
-    return await write(
-        db, school.update_record(db, actor, "students", identifier, body)
-    )
+    raise ApiError(409, "ROSTER_REIMPORT_REQUIRED", "学生变更（含调班）须先删除原档案，再修改 Excel 重新导入；毕业请使用毕业归档操作。")
 
 
 @router.post("/school/students/{identifier}/bind")
@@ -163,7 +171,7 @@ async def teacher_update(
     actor=Depends(writer),
     db: AsyncSession = Depends(get_db),
 ):
-    return await write(db, school.update_teacher(db, actor, identifier, body))
+    raise ApiError(409, "ROSTER_REIMPORT_REQUIRED", "教师变更须先删除原档案，再修改 Excel 重新导入；离职 / 停用请使用列表操作。")
 
 
 @router.post("/school/subjects")
@@ -180,7 +188,7 @@ async def subject_create(
 async def exam_create(
     body: ExamCreate,
     key: UUID | None = Header(None, alias="Idempotency-Key"),
-    actor=Depends(writer),
+    actor=Depends(exam_writer),
     db: AsyncSession = Depends(get_db),
 ):
     return await write(db, school.create(db, actor, "exams", body, key))
@@ -190,7 +198,7 @@ async def exam_create(
 async def exam_update(
     identifier: UUID,
     body: ExamCreate,
-    actor=Depends(writer),
+    actor=Depends(exam_writer),
     db: AsyncSession = Depends(get_db),
 ):
     return await write(db, school.update_record(db, actor, "exams", identifier, body))
@@ -198,7 +206,7 @@ async def exam_update(
 
 @router.get("/exams/{identifier}")
 async def exam_get(
-    identifier: UUID, actor=Depends(admin_reader), db: AsyncSession = Depends(get_db)
+    identifier: UUID, actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)
 ):
     return await school.exam_detail(db, actor, identifier)
 
@@ -207,7 +215,7 @@ async def exam_get(
 async def exam_subject(
     identifier: UUID,
     body: ExamSubjectWrite,
-    actor=Depends(writer),
+    actor=Depends(exam_writer),
     db: AsyncSession = Depends(get_db),
 ):
     return await write(db, school.set_exam_subject(db, actor, identifier, body))

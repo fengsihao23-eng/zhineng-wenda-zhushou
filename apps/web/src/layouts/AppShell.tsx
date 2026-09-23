@@ -12,7 +12,7 @@ type NavItem = { path: string; label: string; icon: string; group?: string }
 export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' {
   const roles = user?.roles || []
   if (roles.some(role => role.toUpperCase() === 'CITY_OPERATOR' || role.toUpperCase() === 'SUPER_ADMIN')) return 'city'
-  if (roles.some(role => role.toUpperCase() === 'SCHOOL_ADMIN' || role.toUpperCase() === 'QA')) return 'school'
+  if (roles.some(role => role.toUpperCase() === 'SCHOOL_ADMIN' || role.toUpperCase() === 'QA' || role.toUpperCase() === 'SCHOOL_VIEWER')) return 'school'
   if (roles.some(role => role.toUpperCase() === 'TEACHER')) return 'teacher'
   return 'student'
 }
@@ -66,7 +66,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
   const navigate = useNavigate()
   const user = getUserInfo()
   const role = roleOf(user)
-  const navItems = role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, { path: '/admin/school', label: '本校教务工作台', icon: 'users', group: '业务生产' }] : navByRole[role]
+  const navItems = role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [{ path: '/admin/school', label: '考试科目管理', icon: 'file', group: '业务生产' }, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, { path: '/admin/school', label: '本校教务工作台', icon: 'users', group: '业务生产' }] : navByRole[role]
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
   const serviceState = health.isLoading ? 'loading' : health.error ? 'unavailable' : health.data?.model?.real_model_ready ? 'ready' : 'model_pending'
   const [collapsed, setCollapsed] = useState(() => {

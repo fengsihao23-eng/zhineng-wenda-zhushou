@@ -150,11 +150,11 @@ test("CSV upload mapping preflight confirm receipt binding and real student read
     .click();
   await expect(page.getByRole("heading", { name: "导入回执" })).toBeVisible();
   await page.getByRole("link", { name: "进入学生账号绑定" }).click();
-  await page.getByRole("button", { name: "学生与账号", exact: true }).click();
+  await page.getByRole("button", { name: "学生档案", exact: true }).click();
   await page
     .getByRole("row")
     .filter({ hasText: "QA 导入学生" })
-    .getByRole("button", { name: "账号绑定", exact: true })
+    .getByRole("button", { name: "查看档案", exact: true })
     .click();
   await page
     .getByLabel("账号", { exact: true })

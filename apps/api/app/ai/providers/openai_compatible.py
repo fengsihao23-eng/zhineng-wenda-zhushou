@@ -22,12 +22,14 @@ class OpenAICompatibleProvider(BaseProvider):
         default_model: str,
         price_per_1k_input: Decimal,
         price_per_1k_output: Decimal,
+        extra_body: dict | None = None,
     ):
         super().__init__(name)
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
         )
+        self.extra_body = extra_body
         self.default_model = default_model
         self.price_input = price_per_1k_input
         self.price_output = price_per_1k_output
@@ -56,6 +58,8 @@ class OpenAICompatibleProvider(BaseProvider):
         if tools:
             params["tools"] = tools
 
+        if self.extra_body is not None:
+            params["extra_body"] = self.extra_body
         response = await self.client.chat.completions.create(**params)
 
         latency_ms = int((time.time() - start) * 1000)
@@ -85,6 +89,8 @@ class OpenAICompatibleProvider(BaseProvider):
         if tools:
             params["tools"] = tools
 
+        if self.extra_body is not None:
+            params["extra_body"] = self.extra_body
         stream = await self.client.chat.completions.create(**params)
 
         async for chunk in stream:
@@ -136,6 +142,6 @@ class OpenAICompatibleProvider(BaseProvider):
 
     def estimate_cost(self, usage: Usage, model: str) -> Decimal:
         """估算成本"""
-        input_cost = (usage.prompt_tokens / 1000) * self.price_input
-        output_cost = (usage.completion_tokens / 1000) * self.price_output
+        input_cost = (Decimal(usage.prompt_tokens) / 1000) * self.price_input
+        output_cost = (Decimal(usage.completion_tokens) / 1000) * self.price_output
         return input_cost + output_cost

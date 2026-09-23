@@ -289,12 +289,15 @@ async def test_teacher_account_status_and_name_readback_do_not_expose_credential
     changed = await client.put(
         P + f"/school/teachers/{actors['teacher'].id}", json=body
     )
-    assert changed.status_code == 200 and changed.json()["status"] == "inactive"
-    again = await client.put(P + f"/school/teachers/{actors['teacher'].id}", json=body)
-    assert again.json() == changed.json()
-    assert (await client.get(P + "/school/teachers")).json()["items"][0][
-        "display_name"
-    ] == "QA 更新教师"
+    assert changed.status_code == 409
+    assert changed.headers["X-Error-Code"] == "ROSTER_REIMPORT_REQUIRED"
+    # The 0922 flow replaces in-place edits with delete/reimport and explicit status actions.
+    updated = await post(client, f"/roster/teachers/records/{actors['teacher'].id}/actions", {"action": "disable", "confirmed": True})
+    assert updated["status"] == "inactive"
+    rows = (await client.get(P + "/school/teachers")).json()["items"]
+    assert rows[0]["display_name"] == "合成教师"
+    assert rows[0]["status"] == "inactive"
+    assert "password_hash" not in rows[0]
 
 
 @pytest.mark.asyncio

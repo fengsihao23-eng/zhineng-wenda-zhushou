@@ -2,7 +2,7 @@
 核心配置
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Union
+from typing import List, Union, Literal
 from pydantic import Field, field_validator, model_validator
 from secrets import token_urlsafe
 
@@ -46,7 +46,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_API_BASE: str = "https://api.openai.com/v1"
     DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
+    DEEPSEEK_API_BASE: str = "https://api.deepseek.com"
+    DEEPSEEK_MODEL: str = "deepseek-flash"
+    DEEPSEEK_THINKING: Literal["enabled", "disabled"] = "disabled"
     # ``fake`` is an explicit test-only mode.  ``auto`` selects the first
     # configured real provider and never silently falls back to fake.
     MODEL_PROVIDER: str = "auto"
