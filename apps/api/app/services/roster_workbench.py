@@ -26,6 +26,49 @@ def role_users(school_id, role):
     return select(UserRole.user_id).join(Role, Role.id == UserRole.role_id).where(UserRole.school_id == school_id, Role.code == role)
 
 
+def _student_text(value):
+    return "" if value is None else str(value).strip()
+
+
+def _student_key(values):
+    return (
+        _student_text(values.get("姓名")),
+        _student_text(values.get("年级（1-12）")),
+        _student_text(values.get("班级号")),
+    )
+
+
+def _student_record_key(student, classes_by_id):
+    fields = student.profile_fields or {}
+    name = _student_text(student.name)
+    grade = _student_text(fields.get("年级（1-12）"))
+    class_number = _student_text(fields.get("班级号"))
+    if grade and class_number:
+        return name, grade, class_number
+
+    classroom = classes_by_id.get(student.class_id)
+    external_class_id = _student_text(student.external_class_id)
+    if classroom is None and external_class_id:
+        classroom = next(
+            (item for item in classes_by_id.values() if _student_text(item.external_class_id) == external_class_id),
+            None,
+        )
+    if classroom is not None:
+        compact_name = _student_text(classroom.name).replace(" ", "")
+        for label in GRADE_NAMES.values():
+            if compact_name.startswith(label):
+                suffix = compact_name[len(label):]
+                if suffix:
+                    return name, label, suffix if suffix.endswith("班") else f"{suffix}班"
+        match = re.fullmatch(r"(\d+)\.(\d+)", external_class_id)
+        if match:
+            return name, GRADE_NAMES.get(int(match[1]), ""), f"{match[2]}班"
+    match = re.fullmatch(r"(\d+)\.(\d+)", external_class_id)
+    if match:
+        return name, GRADE_NAMES.get(int(match[1]), ""), f"{match[2]}班"
+    return name, grade, class_number
+
+
 async def resolve_student_class(db, school_id, values, classes=None):
     grade_name, number = values.get("年级（1-12）", "").strip(), values.get("班级号", "").strip()
     if not grade_name or not number:
@@ -40,11 +83,31 @@ async def resolve_student_class(db, school_id, values, classes=None):
 
 async def preflight(db, school_id, kind, rows):
     role = "TEACHER" if kind == "teachers" else "STUDENT"
-    existing = (await db.scalars(select(User).where(User.school_id == school_id, User.status != "deleted", or_(User.id.in_(role_users(school_id, role)), User.account_type == role.lower())))).all()
+    account_scope = or_(User.id.in_(role_users(school_id, role)), User.account_type == role.lower())
+    if kind == "students":
+        account_scope = or_(account_scope, User.id.in_(select(Student.user_id).where(Student.school_id == school_id, Student.user_id.is_not(None))))
+    existing = (await db.scalars(select(User).where(User.school_id == school_id, User.status != "deleted", account_scope))).all()
     accounts = {u.username for u in existing}
     profiles = (await db.scalars(select(TeacherProfile).where(TeacherProfile.school_id == school_id))).all() if kind == "teachers" else []
     staff = {u.id: u for u in existing}
-    classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == school_id, ImportedClass.status == "active"))).all() if kind == "students" else []
+    classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == school_id))).all() if kind == "students" else []
+    student_matches = {}
+    if kind == "students":
+        student_rows = (await db.execute(
+            select(Student, User)
+            .outerjoin(User, User.id == Student.user_id)
+            .where(Student.school_id == school_id)
+        )).all()
+        classes_by_id = {item.id: item for item in classes}
+        for existing_student, existing_user in student_rows:
+            key = _student_record_key(existing_student, classes_by_id)
+            if all(key):
+                student_matches.setdefault(key, []).append({
+                    "id": str(existing_student.id),
+                    "name": existing_student.name,
+                    "account": existing_user.username if existing_user else "",
+                    "grade_class": f"{key[1]} · {key[2]}",
+                })
     seen, issues, suspicious = {}, [], []
     name_field, account_field = ("教师姓名", "教师账号") if kind == "teachers" else ("姓名", "账号")
     for row in rows:
@@ -61,13 +124,15 @@ async def preflight(db, school_id, kind, rows):
         for field in (name_field, account_field):
             if not values[field].strip():
                 issue("必填缺失", field, f"必填项「{field}」为空", "逐项补填后整表重新上传")
-            elif len(values[field].strip()) > 100:
+            elif kind == "teachers" and len(values[field].strip()) > 100:
                 issue("字段过长", field, f"「{field}」超过账号系统的 100 字限制", "缩短该字段后整表重新上传")
         if account:
+            duplicate_type = "教师账号重复" if role == "TEACHER" else "账号重复"
             if account in accounts:
-                issue(f"{role == 'TEACHER' and '教师' or '学生'}账号重复", account_field, "与系统已有同类账号重复", "如需变更，请先在列表删除原记录，再重新导入")
+                existing_message = "与系统已有同类账号重复" if role == "TEACHER" else "与系统已有学生账号重复（库内已存在，账号即登录账号）"
+                issue(duplicate_type, account_field, existing_message, "如需变更，请先在列表删除原记录，再重新导入")
             if account in seen:
-                issue(f"{role == 'TEACHER' and '教师' or '学生'}账号重复", account_field, f"与本次文件内第 {seen[account]} 行账号重复", "同一账号只保留一行，修正后整表重新上传")
+                issue(duplicate_type, account_field, f"与本次文件内第 {seen[account]} 行账号重复", "同一账号只保留一行，修正后整表重新上传")
             seen.setdefault(account, number)
         if kind == "teachers":
             if values["状态"] != "正常":
@@ -97,9 +162,18 @@ async def preflight(db, school_id, kind, rows):
                     matches = sorted(grouped.values(), key=lambda match: match["id"])
                     suspicious.append({"row_number": number, "name": name, "account": account, "keep": True, "matches": matches})
         else:
-            if await resolve_student_class(db, school_id, values, classes) is None:
-                issue("班级无法匹配", "年级（1-12）", "年级和班级须唯一匹配本校有效班级", "年级填文本名（如高中一年级），班级号填 N班；先维护系统班级字典")
-                fields.append("班级号")
+            # Grade and class are retained as student profile data only. The
+            # new-student flow deliberately does not require a class dictionary
+            # match; an optional match is resolved during the write step.
+            key = _student_key(values)
+            if all(key) and student_matches.get(key):
+                suspicious.append({
+                    "row_number": number,
+                    "name": name,
+                    "account": account,
+                    "keep": True,
+                    "matches": student_matches[key],
+                })
         if messages:
             issues.append(error_row(row, types, fields, messages, suggestions, kind))
     report = {"ok": not issues, "issues": issues, "suspicious": suspicious, "total_rows": len(rows)}
@@ -197,7 +271,8 @@ async def confirm(db, actor, identifier, body):
         raise ApiError(409, "DUPLICATES_CHANGED", "疑似重复名单已变化，请重新上传并逐条确认。")
     suspects = {r["row_number"] for r in checked["suspicious"]}
     if set(body.duplicate_decisions) != suspects:
-        raise ApiError(422, "DUPLICATE_CONFIRMATION_REQUIRED", "请逐条确认全部疑似重复教师保留或放弃。")
+        noun = "教师" if item.kind == "teachers" else "学生"
+        raise ApiError(422, "DUPLICATE_CONFIRMATION_REQUIRED", f"请逐条确认全部疑似重复{noun}保留或放弃。")
     row_numbers = {r["row_number"] for r in item.rows}
     if item.kind == "teachers" and checked.get("reimports", []) != item.report.get("reimports", []):
         raise ApiError(409, "REIMPORT_CHANGED", "删除记录在预校验后发生变化，请重新上传核对。")
@@ -257,7 +332,18 @@ async def confirm(db, actor, identifier, body):
         else:
             await grant_roles(db, user, ["STUDENT"])
             classroom = await resolve_student_class(db, actor.school_id, values, classes)
-            student = Student(id=uuid4(), school_id=actor.school_id, user_id=user.id, name=user.display_name, student_no=values["学号"].strip() or None, external_student_id=str(user.id), class_id=classroom.id, external_class_id=classroom.external_class_id, source_system="roster_excel", profile_fields=values)
+            student = Student(
+                id=uuid4(),
+                school_id=actor.school_id,
+                user_id=user.id,
+                name=user.display_name,
+                student_no=values["学号"].strip() or None,
+                external_student_id=str(user.id),
+                class_id=classroom.id if classroom else None,
+                external_class_id=classroom.external_class_id if classroom else None,
+                source_system="roster_excel",
+                profile_fields=values,
+            )
             db.add(student)
             await db.flush()
             record_id = student.id

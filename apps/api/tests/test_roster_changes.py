@@ -146,19 +146,19 @@ async def test_login_identical_credentials_offer_only_verified_active_identities
 
 
 @pytest.mark.asyncio
-async def test_student_preflight_rejects_entire_batch_and_rechecks_classes(client, test_db, actors):
-    room = await classroom(client)
-    batch = await upload(client, [student("valid-row"), student("bad-row", 班级号="99班")], "students")
+async def test_student_preflight_keeps_batch_atomic_without_class_dictionary_matching(client, test_db, actors):
+    batch = await upload(client, [student("valid-row"), student("bad-row", 姓名="")], "students")
     assert batch["status"] == "invalid"
     await confirm(client, batch, status=409)
     assert await test_db.scalar(select(User).where(User.username == "valid-row")) is None
+    room = await classroom(client)
     good = await upload(client, [student("valid-row")], "students")
     from app.db.models import ImportedClass
     classroom_record = await test_db.get(ImportedClass, UUID(room["id"]))
     classroom_record.status = "inactive"
     await test_db.commit()
-    await confirm(client, good, status=409)
-    assert await test_db.scalar(select(User).where(User.username == "valid-row")) is None
+    done = await confirm(client, good)
+    assert done["report"]["success_count"] == 1
 
 
 @pytest.mark.asyncio

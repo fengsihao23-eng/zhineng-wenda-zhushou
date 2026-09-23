@@ -46,6 +46,11 @@ async def test_template_contract_and_file_level_rejection(client, test_db, actor
         book = load_workbook(io.BytesIO(response.content))
         assert [c.value for c in book.active[1]] == columns
         book.close()
+    student_errors = await client.get(P + "/roster/students/error-template")
+    error_book = load_workbook(io.BytesIO(student_errors.content))
+    assert [c.value for c in error_book.active[1]] == ["行号", "错误类型", "错误字段", "姓名", "账号", "错误说明", "原始内容", "处理建议"]
+    assert error_book.active.max_row == 8 and error_book.active.max_column == 8
+    error_book.close()
     before = await test_db.scalar(select(func.count()).select_from(User))
     columns = TEACHER_COLUMNS.copy()
     columns[0], columns[1] = columns[1], columns[0]
@@ -184,17 +189,34 @@ async def test_principal_no_class_import_gets_school_read_only(client, actors):
 
 
 @pytest.mark.asyncio
-async def test_students_require_class_but_not_student_number_or_phone_format(client, test_db, actors):
-    bad = await upload(client, [student("missing-class")], "students")
-    assert bad["status"] == "invalid" and "班级号" in bad["report"]["issues"][0]["fields"]
+async def test_students_keep_profile_class_without_dictionary_match(client, test_db, actors):
+    missing_class = await upload(client, [student("missing-class")], "students")
+    assert missing_class["status"] == "ready" and missing_class["report"]["ok"]
+    imported_without_dictionary = await confirm(client, missing_class)
+    first = await test_db.get(Student, UUID(imported_without_dictionary["report"]["imported"][0]["id"]))
+    assert first.user_id and first.student_no is None and first.class_id is None
+    assert first.profile_fields["年级（1-12）"] == "高中一年级"
     await classroom(client)
-    done = await confirm(client, await upload(client, [student("new-student", 手机号="no-format-check"), student("second-student", 学籍号="same-is-not-identity")], "students"))
+    done = await confirm(client, await upload(client, [student("new-student", "新学生甲", 手机号="no-format-check"), student("second-student", "新学生乙", 学籍号="same-is-not-identity")], "students"))
     assert done["report"]["success_count"] == 2
     for row in done["report"]["imported"]:
         item = await test_db.get(Student, UUID(row["id"]))
         assert item.user_id and item.student_no is None and item.class_id
     duplicate = await upload(client, [student("new-student")], "students")
     assert duplicate["status"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_student_suspected_duplicate_requires_row_confirmation(client, test_db, actors):
+    original = await confirm(client, await upload(client, [student("original-account", "同名学生")], "students"))
+    original_id = UUID(original["report"]["imported"][0]["id"])
+    batch = await upload(client, [student("replacement-account", "同名学生")], "students")
+    assert batch["status"] == "ready"
+    assert batch["report"]["suspicious"][0]["row_number"] == 2
+    assert batch["report"]["suspicious"][0]["matches"][0]["id"] == str(original_id)
+    await confirm(client, batch, status=422)
+    done = await confirm(client, batch, duplicate_decisions={2: True})
+    assert done["report"]["success_count"] == 1 and done["report"]["skipped_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -244,7 +266,7 @@ async def test_departure_invalidates_login_and_scope_and_rejects_form_edit(clien
 @pytest.mark.asyncio
 async def test_original_embedded_templates_preflight_all_sample_rows(client, actors):
     await classroom(client)
-    for kind, count in [("teachers", 4), ("students", 49)]:
+    for kind, count in [("teachers", 4), ("students", 1)]:
         response = await client.get(P + f"/roster/{kind}/template")
         batch = await post(client, f"/roster/{kind}/imports", {"filename": "原始模板.xlsx", "content_base64": base64.b64encode(response.content).decode()})
         assert batch["report"]["ok"] and batch["report"]["total_rows"] == count

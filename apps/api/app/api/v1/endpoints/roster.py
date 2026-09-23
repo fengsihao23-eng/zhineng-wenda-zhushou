@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.db.models.roster import RosterImport
 from app.schemas.roster import RosterKind, RosterUpload, RosterConfirm, RosterAction
 from app.services import roster_workbench as roster
+from app.services.roster_excel import student_error_template_bytes, student_template_bytes
 from app.services.education_common import owned, data
 TEMPLATES = Path(__file__).resolve().parents[3] / "resources" / "roster"
 
@@ -25,12 +26,19 @@ def excel(content, filename):
 
 @router.get("/{kind}/template")
 async def template(kind: RosterKind, actor=Depends(reader)):
-    return excel((TEMPLATES / f"{kind}.xlsx").read_bytes(), "教师资料模板.xlsx" if kind == "teachers" else "学生资料模板.xlsx")
+    if kind == "students":
+        return excel(student_template_bytes(), "学生资料模板.xlsx")
+    return excel((TEMPLATES / f"{kind}.xlsx").read_bytes(), "教师资料模板.xlsx")
 
 
 @router.get("/teachers/error-template")
 async def error_template(actor=Depends(reader)):
     return excel((TEMPLATES / "errors.xlsx").read_bytes(), "错误清单模板.xlsx")
+
+
+@router.get("/students/error-template")
+async def student_error_template(actor=Depends(reader)):
+    return excel(student_error_template_bytes(), "学生错误清单模板.xlsx")
 
 
 @router.get("/{kind}/records")
