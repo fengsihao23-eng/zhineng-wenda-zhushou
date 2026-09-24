@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useJsonQuery, useApiMutation } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
+import { DetailDialog } from "../../components/DetailDialog";
+import { ListView } from "../../components/ListControls";
+import { HelpTip } from "../../components/HelpTip";
 import {
   BASE,
   Row,
@@ -74,9 +77,9 @@ export function StudentReviews() {
   return (
     <section className="panel">
       <h2>我的订正与复习</h2>
-      <p>掌握状态由你自评记录，考试丢分不会自动推断为未掌握。</p>
+      <HelpTip label="复习说明">掌握状态由你自评记录，考试丢分不会自动推断为未掌握。</HelpTip>
       <QueryState query={query} empty={!query.data?.length}>
-        {query.data?.map((r) => (
+        <ListView items={query.data || []}>{rows => rows.map((r) => (
           <div className="wb-toolbar" key={r.id}>
             <span>
               {r.score.exam} · {r.score.subject} · 第 {r.score.question_no} 题
@@ -84,9 +87,9 @@ export function StudentReviews() {
             <Badge value={r.mastery} />
             <button onClick={() => setId(r.id)}>查看 / 记录订正</button>
           </div>
-        ))}
+        ))}</ListView>
       </QueryState>
-      {id && <ReviewDetail key={id} id={id} />}
+      {id && <DetailDialog title="订正与复习记录" onClose={() => setId("")}><ReviewDetail key={id} id={id} /></DetailDialog>}
     </section>
   );
 }

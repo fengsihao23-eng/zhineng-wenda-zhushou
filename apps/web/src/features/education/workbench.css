@@ -22,11 +22,17 @@
 @media (max-width: 600px) {
   .roster-detail-dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 16px; }
 }
-.roster-steps { display: flex; gap: 32px; flex-wrap: wrap; padding-left: 24px; color: var(--color-muted); }
 .roster-actions { min-width: 220px; }
 .roster-actions button, .roster-actions a { margin: 4px 8px 4px 0; }
 .roster-value { white-space: pre-wrap; min-width: 100px; max-width: 380px; overflow-wrap: anywhere; }
-.roster-workbench summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.roster-workbench details:not(.help-tip) > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.wb-page-actions h2 { margin: 0; font-size: 20px; }
+.wb-page-actions .help-tip { margin-right: auto; }
+.wb-page-actions > a { white-space: nowrap; }
+.wb-toolbar > h2 { margin: 0; }
+.wb-toolbar a { text-decoration: none; }
+.wb-toolbar a:not(.primary-button):not(.secondary-button) { color: var(--color-accent); }
+@media (min-width: 768px) { .wb-page-actions .help-tip__content { left: auto; right: 0; } }
 .roster-workbench .data-table-wrap { max-width: 100%; }
 .roster-workbench select, .roster-workbench input:not([type="checkbox"]) { padding: 8px; border: 1px solid #cdd2e1; border-radius: 6px; }
 .wb-toolbar,
@@ -272,6 +278,7 @@
 .data-table td {
   font-variant-numeric: tabular-nums;
 }
+.data-table td > small.subtle { display: block; margin-top: 4px; }
 .data-table button {
   margin: 3px 5px 3px 0;
 }

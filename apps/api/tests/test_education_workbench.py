@@ -917,3 +917,42 @@ async def test_chat_selected_exam_subject_source_history_and_evidence(
         json={"exam_id": str(uuid4()), "expected_version": 2},
     )
     assert bad.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resource", ["papers", "questions", "sources"])
+async def test_list_page_size_boundaries_and_school_isolation(client, test_db, actors, resource):
+    from app.db.models.education import Paper, Question
+
+    exam = await setup_exam(client, actors)
+    for index in range(35):
+        common = {"id": uuid4(), "school_id": actors["school"].id}
+        if resource == "papers":
+            row = Paper(**common, exam_id=UUID(exam["id"]), subject_id=actors["subject"].id, title=f"试卷 {index}")
+        elif resource == "questions":
+            row = Question(**common, subject_id=actors["subject"].id, title=f"题目 {index}", kind="standalone")
+        else:
+            row = SourceRecord(**common, source_system="test", entity_type="exam", external_id=str(index), source_version="v1", content_hash="a" * 64, captured_at=datetime.now(timezone.utc), native_id=UUID(exam["id"]), payload={})
+        test_db.add(row)
+    await test_db.commit()
+    default = (await client.get(f"{P}/{resource}")).json()
+    assert default["total"] == 35
+    assert len(default["items"]) == 30
+    all_rows = (await client.get(f"{P}/{resource}?page_size=100")).json()["items"]
+    collected = []
+    for page, count in [(1, 10), (2, 10), (3, 10), (4, 5), (5, 0)]:
+        response = await client.get(f"{P}/{resource}?page={page}&page_size=10")
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["total"] == 35
+        assert len(result["items"]) == count
+        collected.extend(result["items"])
+    assert [row["id"] for row in collected] == [row["id"] for row in all_rows]
+    assert len((await client.get(f"{P}/{resource}?page=2&page_size=20")).json()["items"]) == 15
+    assert len((await client.get(f"{P}/{resource}?page_size=50")).json()["items"]) == 35
+    for invalid in [0, 101]:
+        assert (await client.get(f"{P}/{resource}?page_size={invalid}")).status_code == 422
+    actors["switch"]("foreign")
+    isolated = (await client.get(f"{P}/{resource}?page_size=100")).json()
+    assert isolated["items"] == []
+    assert isolated["total"] == 0

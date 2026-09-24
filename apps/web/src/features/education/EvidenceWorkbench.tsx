@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
@@ -14,21 +15,24 @@ import {
   FormPanel,
   Table,
   Pager,
+  usePagination,
+  HelpTip,
   useSchoolOptions,
   options,
   AssetUpload,
   AssetButton,
 } from "./shared";
 
-export function SourcesWorkbenchPage() {
-  const [page, setPage] = useState(1),
-    [kind, setKind] = useState(""),
-    [id, setId] = useState(""),
+export function SourcesWorkbenchPage({ view = "list" }: { view?: "list" | "create" | "detail" }) {
+  const { sourceId: id = "" } = useParams();
+  const [kind, setKind] = useState(""),
     [file, setFile] = useState<File | null>(null),
     [error, setError] = useState<Error | null>(null),
     [reading, setReading] = useState(false);
+  const pagination = usePagination(kind);
+  const { page, pageSize } = pagination;
   const list = useJsonQuery<PageData>(
-      `${BASE}/sources?page=${page}${kind ? `&entity_type=${kind}` : ""}`,
+      `${BASE}/sources?page=${page}&page_size=${pageSize}${kind ? `&entity_type=${kind}` : ""}`, view === "list",
     ),
     detail = useJsonQuery<Row>(`${BASE}/sources/${id}`, !!id),
     action = useAction();
@@ -51,18 +55,19 @@ export function SourcesWorkbenchPage() {
     }
   };
   return (
-    <AppShell title="旧资料接入与来源映射" eyebrow="业务生产 / 受控快照">
+    <AppShell title={view === "create" ? "接入旧资料" : view === "detail" ? "来源详情" : "来源映射列表"} eyebrow="业务生产 / 旧资料与来源">
       <ReadOnlyNote />
-      <p>
-        当前接入方式：受控快照。这里显示导出版本、水位、内容校验和稳定映射，不表示已连接旧系统实时接口。
-      </p>
       <div className="wb-toolbar">
+        {view !== "list" && <Link className="secondary-button" to="/admin/sources">返回来源列表</Link>}
+        {view === "list" && canWrite() && <Link className="primary-button" to="/admin/sources/new">接入旧资料</Link>}
+        <HelpTip label="来源说明">当前通过学校确认的导出快照接入，非实时同步。可查看导出版本、时间和来源映射。</HelpTip>
+      </div>
+      {view === "list" && <><div className="wb-toolbar">
         <select
           aria-label="来源实体"
           value={kind}
           onChange={(e) => {
             setKind(e.target.value);
-            setPage(1);
           }}
         >
           <option value="">全部实体</option>
@@ -81,6 +86,7 @@ export function SourcesWorkbenchPage() {
           ))}
         </select>
       </div>
+      {list.data && !list.error && <Pager {...pagination} total={list.data.total} />}
       <QueryState query={list} empty={!list.data?.items.length}>
         <Table headers={["实体 / 旧标识", "来源 / 版本", "数据水位", "操作"]}>
           {list.data?.items.map((r) => (
@@ -93,14 +99,13 @@ export function SourcesWorkbenchPage() {
               </td>
               <td>{r.captured_at}</td>
               <td>
-                <button onClick={() => setId(r.id)}>查看映射与依据</button>
+                <Link to={`/admin/sources/${r.id}`}>查看映射与依据</Link>
               </td>
             </tr>
           ))}
         </Table>
-        <Pager page={page} total={list.data?.total || 0} onChange={setPage} />
-      </QueryState>
-      {id && (
+      </QueryState></>}
+      {view === "detail" && id && (
         <section className="panel">
           <h2>来源详情</h2>
           <QueryState query={detail}>
@@ -121,15 +126,14 @@ export function SourcesWorkbenchPage() {
           </QueryState>
         </section>
       )}
-      {canWrite() && (
+      {view === "create" && canWrite() && (
         <section className="panel">
-          <h2>接收学校确认的导出快照</h2>
-          <p>
+          <div className="wb-toolbar"><h2>接收学校确认的导出快照</h2><HelpTip label="文件要求">
             文件遵循受控快照契约，包含
             source_system、source_version、captured_at 和 records；学生按
             external_student_id
             匹配，原件先在试卷或报告上传区保存。整批失败不会留下部分映射。
-          </p>
+          </HelpTip></div>
           <label>
             快照 JSON 文件
             <input
@@ -156,7 +160,7 @@ export function SourcesWorkbenchPage() {
           {action.data && (
             <p role="status" className="wb-status">
               已核验 {action.data.count} 个来源实体 · 版本{" "}
-              {action.data.source_version}。请在上方列表回读。
+              {action.data.source_version}。<Link to="/admin/sources">查看来源列表</Link>
             </p>
           )}
         </section>
@@ -165,21 +169,23 @@ export function SourcesWorkbenchPage() {
   );
 }
 
-export function ReportWorkbenchPage() {
-  const list = useJsonQuery<Row[]>(`${BASE}/reports`),
+export function ReportWorkbenchPage({ view = "list" }: { view?: "list" | "create" }) {
+  const navigate = useNavigate();
+  const list = useJsonQuery<Row[]>(`${BASE}/reports`, view === "list"),
     students = useSchoolOptions("students"),
     exams = useSchoolOptions("exams"),
     subjects = useSchoolOptions("subjects"),
     action = useAction();
   const [asset, setAsset] = useState<Row | null>(null);
   return (
-    <AppShell title="正式报告与原件" eyebrow="教学分析 / 报告版本">
+    <AppShell title={view === "create" ? "保存新报告版本" : "正式报告与原件"} eyebrow="教学分析 / 报告版本">
       <ReadOnlyNote />
-      <p>
-        人工确认后的正式报告与原件按版本保存；不会自动批改或扩大学生诊断权益。学生端每次查看原件重新核验授权。
-      </p>
-      <QueryState query={list} empty={!list.data?.length}>
-        <Table headers={["学生 / 考试", "类型 / 版本", "来源 / 时间", "原件"]}>
+      <div className="wb-toolbar">
+        {view === "create" ? <Link className="secondary-button" to="/admin/reports">返回报告列表</Link> : canWrite() && <Link className="primary-button" to="/admin/reports/new">保存新报告版本</Link>}
+        <HelpTip label="报告说明">人工确认后的正式报告与原件按版本保存；不会自动批改或扩大学生诊断权益。</HelpTip>
+      </div>
+      {view === "list" && <QueryState query={list} empty={!list.data?.length}>
+        <Table paginate headers={["学生 / 考试", "类型 / 版本", "来源 / 时间", "原件"]}>
           {list.data?.map((r) => (
             <tr key={r.id}>
               <td>
@@ -212,10 +218,10 @@ export function ReportWorkbenchPage() {
             </tr>
           ))}
         </Table>
-      </QueryState>
-      {canWrite() && (
+      </QueryState>}
+      {view === "create" && canWrite() && (
         <section className="panel">
-          <h2>保存新报告版本</h2>
+          <h2>上传与绑定报告</h2>
           <AssetUpload label="上传正式报告原件" onUploaded={setAsset} />
           {asset && (
             <>
@@ -287,7 +293,7 @@ export function ReportWorkbenchPage() {
                         asset_id: asset.id,
                       },
                     },
-                    { onSuccess: () => setAsset(null) },
+                    { onSuccess: () => { setAsset(null); navigate("/admin/reports"); } },
                   )
                 }
               />

@@ -1,0 +1,6 @@
+.list-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin: 16px 0; padding-top: 14px; border-top: 1px solid var(--color-hairline); color: var(--color-muted); font-size: 14px; }
+.list-pagination__size, .list-pagination__pages { display: flex; align-items: center; gap: 10px; }
+.list-pagination__pages { margin-left: auto; }
+.list-pagination select, .list-pagination button { min-height: 36px; padding: 6px 10px; border: 1px solid var(--color-hairline); border-radius: 8px; background: var(--color-surface); color: var(--color-ink); }
+.list-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 600px) { .list-pagination { gap: 12px; } .list-pagination__pages { width: 100%; margin-left: 0; justify-content: space-between; } }

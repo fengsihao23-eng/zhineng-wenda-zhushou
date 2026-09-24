@@ -7,6 +7,7 @@ import { RoleGate } from './components/RoleGate'
 import { STUDENT_ROLES, TEACHER_ROLES, SCHOOL_ROLES, CITY_ROLES, homePath } from './utils/permissions'
 import { StudentDetailPage, SchoolDetailPage } from './pages/ManagementDetails'
 import { SchoolWorkbenchPage, ClassAnalysisPage } from './features/education/SchoolWorkbench'
+import { RosterTaskPage } from './features/education/RosterWorkbench'
 import { ImportWorkbenchPage } from './features/education/ImportWorkbench'
 import { PaperWorkbenchPage, PaperSplitPage } from './features/education/PaperWorkbench'
 import { QuestionWorkbenchPage } from './features/education/QuestionWorkbench'
@@ -19,6 +20,8 @@ import {
   StudentDashboardPage,
   StudentDiagnosisPage,
   StudentMistakesPage,
+  StudentReviewsPage,
+  StudentSupportHistoryPage,
   StudentSupportPage,
   StudentTrendsPage,
 } from './pages/StudentPages'
@@ -122,6 +125,8 @@ function App() {
             <Route path="/trends" element={<RoleGate allowed={STUDENT_ROLES}><StudentTrendsPage /></RoleGate>} />
             <Route path="/diagnosis" element={<RoleGate allowed={STUDENT_ROLES}><StudentDiagnosisPage /></RoleGate>} />
             <Route path="/mistakes" element={<RoleGate allowed={STUDENT_ROLES}><StudentMistakesPage /></RoleGate>} />
+            <Route path="/mistakes/reviews" element={<RoleGate allowed={STUDENT_ROLES}><StudentReviewsPage /></RoleGate>} />
+            <Route path="/support/records" element={<RoleGate allowed={STUDENT_ROLES}><StudentSupportHistoryPage /></RoleGate>} />
             <Route path="/support" element={<RoleGate allowed={STUDENT_ROLES}><StudentSupportPage /></RoleGate>} />
             <Route path="/teacher" element={<RoleGate allowed={TEACHER_ROLES}><ManagementOverviewPage /></RoleGate>} />
             <Route path="/teacher/analysis" element={<RoleGate allowed={TEACHER_ROLES}><ClassAnalysisPage /></RoleGate>} />
@@ -132,12 +137,25 @@ function App() {
             <Route path="/teacher/risks" element={<RoleGate allowed={TEACHER_ROLES}><RiskPage /></RoleGate>} />
             <Route path="/admin" element={<RoleGate allowed={SCHOOL_ROLES}><ManagementOverviewPage /></RoleGate>} />
             <Route path="/admin/school" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN', 'EXAM_ADMIN']}><SchoolWorkbenchPage /></RoleGate>} />
+            {([
+              { path: 'import', view: 'import' },
+              { path: 'imports', view: 'history' },
+              { path: 'imports/:batchId', view: 'batch' },
+              { path: 'deletions', view: 'deletions' },
+            ] as const).map(({ path, view }) => <Route key={path} path={`/admin/school/:kind/${path}`} element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><RosterTaskPage key={path} view={view} /></RoleGate>} />)}
             <Route path="/admin/imports" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ImportWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/imports/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ImportWorkbenchPage key="create" view="create" /></RoleGate>} />
+            <Route path="/admin/imports/:importId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ImportWorkbenchPage key="detail" view="detail" /></RoleGate>} />
             <Route path="/admin/papers" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/papers/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperWorkbenchPage key="create" view="create" /></RoleGate>} />
+            <Route path="/admin/papers/:paperId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperWorkbenchPage key="detail" view="detail" /></RoleGate>} />
             <Route path="/admin/papers/:paperId/split/:versionId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><PaperSplitPage /></RoleGate>} />
             <Route path="/admin/questions" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><QuestionWorkbenchPage /></RoleGate>} />
             <Route path="/admin/sources" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/sources/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage key="create" view="create" /></RoleGate>} />
+            <Route path="/admin/sources/:sourceId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage key="detail" view="detail" /></RoleGate>} />
             <Route path="/admin/reports" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ReportWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/reports/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ReportWorkbenchPage key="create" view="create" /></RoleGate>} />
             <Route path="/admin/analysis" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ClassAnalysisPage /></RoleGate>} />
             <Route path="/admin/students" element={<RoleGate allowed={SCHOOL_ROLES}><StudentRosterPage /></RoleGate>} />
             <Route path="/admin/students/:studentId" element={<RoleGate allowed={SCHOOL_ROLES}><StudentDetailPage /></RoleGate>} />

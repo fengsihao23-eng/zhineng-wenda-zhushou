@@ -133,6 +133,7 @@ test("CSV upload mapping preflight confirm receipt binding and real student read
 }) => {
   await login(page, "admin");
   await page.goto("/admin/imports");
+  await page.getByRole("link", { name: "上传新批次", exact: true }).click();
   await page.getByLabel("批次编号").fill("browser-batch");
   await page.getByLabel("选择 CSV 文件").setInputFiles(csvFiles());
   await page.getByRole("button", { name: "上传新批次" }).click();
@@ -143,10 +144,11 @@ test("CSV upload mapping preflight confirm receipt binding and real student read
   await page.getByRole("button", { name: "确认导入", exact: true }).dblclick();
   await expect(page.getByRole("heading", { name: "导入回执" })).toBeVisible();
   await page.reload();
+  await page.getByRole("link", { name: "返回导入记录" }).click();
   await page
     .getByRole("row")
     .filter({ hasText: "browser-batch" })
-    .getByRole("button")
+    .getByRole("link")
     .click();
   await expect(page.getByRole("heading", { name: "导入回执" })).toBeVisible();
   await page.getByRole("link", { name: "进入学生账号绑定" }).click();
@@ -176,6 +178,7 @@ test("CSV invalid rows block confirmation and no-permission direct access is rej
 }) => {
   await login(page, "admin");
   await page.goto("/admin/imports");
+  await page.getByRole("link", { name: "上传新批次", exact: true }).click();
   await page.getByLabel("批次编号").fill("browser-invalid");
   await page.getByLabel("选择 CSV 文件").setInputFiles(csvFiles(true));
   await page.getByRole("button", { name: "上传新批次" }).click();
@@ -199,6 +202,7 @@ test("paper original upload split autosave refresh OCR and manual publish are re
 }) => {
   await login(page, "admin");
   await page.goto("/admin/papers");
+  await page.getByRole("link", { name: "上传新试卷", exact: true }).click();
   await page
     .getByLabel("上传原件", { exact: true })
     .setInputFiles(fixture.pdf_path);
@@ -288,6 +292,7 @@ test("taxonomy create tree reference protection and question source versions", a
   await page
     .getByRole("button", { name: "知识点树与标签", exact: true })
     .click();
+  await page.getByRole("button", { name: "新建知识点 / 标签", exact: true }).click();
   await page.getByLabel("节点名称").fill("QA 加法知识点");
   await page
     .getByLabel("学科", { exact: true })
@@ -315,6 +320,7 @@ test("taxonomy create tree reference protection and question source versions", a
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByLabel("已核对最新题干、答案与标签").check();
   await page.getByRole("button", { name: "确认发布最新版本" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "QA 新建正式题" }),
   ).toContainText("正式");
@@ -348,6 +354,7 @@ test("student original correction review is persistent and explicitly self-asses
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("复习记录已保存并重新读取。")).toBeVisible();
   await page.reload();
+  await page.getByRole("link", { name: "我的订正与复习", exact: true }).click();
   await page.getByRole("button", { name: "查看 / 记录订正" }).click();
   await expect(
     page.getByText("QA 已重新计算，两组各两个合为四。", { exact: true }),
@@ -363,6 +370,8 @@ test("human two-way messages return to the student after staff action", async ({
   await expect(
     page.getByText("已提交人工转接，老师会在工作时间内联系你。"),
   ).toBeVisible();
+  await page.getByRole("link", { name: "反馈与求助记录" }).click();
+  await page.getByRole("button", { name: "人工工单", exact: true }).click();
   await page
     .getByRole("button", { name: "查看人工消息与处理进度" })
     .first()
@@ -385,7 +394,8 @@ test("human two-way messages return to the student after staff action", async ({
   await card.getByRole("button", { name: "发送消息", exact: true }).click();
   await logout(page);
   await login(page, "student");
-  await page.goto("/support");
+  await page.goto("/support/records");
+  await page.getByRole("button", { name: "人工工单", exact: true }).click();
   await page
     .getByRole("button", { name: "查看人工消息与处理进度" })
     .first()
@@ -394,6 +404,7 @@ test("human two-way messages return to the student after staff action", async ({
     page.getByText("QA 老师回复：已核对原件。", { exact: true }),
   ).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "人工工单", exact: true }).click();
   await page
     .getByRole("button", { name: "查看人工消息与处理进度" })
     .first()

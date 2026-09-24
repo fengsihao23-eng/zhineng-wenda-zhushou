@@ -364,6 +364,7 @@ async def snapshot_ingest(
 async def sources(
     entity_type: str | None = None,
     page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
     actor=Depends(admin_reader),
     db: AsyncSession = Depends(get_db),
 ):
@@ -374,8 +375,8 @@ async def sources(
     rows = (
         await db.scalars(
             query.order_by(SourceRecord.created_at.desc(), SourceRecord.id)
-            .offset((page - 1) * 30)
-            .limit(30)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
     ).all()
     return {
@@ -515,6 +516,7 @@ async def paper_list(
     subject_id: UUID | None = None,
     exam_id: UUID | None = None,
     page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
     actor=Depends(reader),
     db: AsyncSession = Depends(get_db),
 ):
@@ -529,8 +531,8 @@ async def paper_list(
     rows = (
         await db.scalars(
             query.order_by(Paper.created_at.desc(), Paper.id)
-            .offset((page - 1) * 30)
-            .limit(30)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
     ).all()
     return {
@@ -587,6 +589,7 @@ async def questions(
     search: str = Query("", max_length=100),
     deleted: bool = False,
     page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
     actor=Depends(reader),
     db: AsyncSession = Depends(get_db),
 ):
@@ -624,8 +627,8 @@ async def questions(
     rows = (
         await db.scalars(
             query.order_by(Question.created_at.desc(), Question.id)
-            .offset((page - 1) * 30)
-            .limit(30)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
     ).all()
     return {

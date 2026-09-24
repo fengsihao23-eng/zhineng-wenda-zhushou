@@ -17,7 +17,7 @@ async function login(page: Page, actor = f.identity) {
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible({ timeout: 15000 });
   await page.goto('/admin/school?tab=teachers');
-  await expect(page.getByRole('heading', { name: '维护教师档案', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '教师信息列表', exact: true })).toBeVisible();
 }
 async function auth(request: APIRequestContext, actor: any, type?: string) {
   const response = await request.post('/api/v1/auth/login', { data: { username: actor.username, password: actor.password, school_id: actor.school_id, account_type: type } });
@@ -36,7 +36,7 @@ async function list(request: APIRequestContext, token: string, kind: string) {
   return rows;
 }
 async function upload(page: Page, kind: 'teachers'|'students', filename: string) {
-  if (kind === 'students') await page.getByRole('button', { name: '学生档案', exact: true }).click();
+  await page.goto(`/admin/school/${kind}/import`);
   const noun = kind === 'teachers' ? '教师' : '学生';
   const done = page.waitForResponse(response => response.url().endsWith(`/roster/${kind}/imports`) && response.request().method() === 'POST');
   await page.getByLabel(`上传${noun} Excel`).setInputFiles(filename);

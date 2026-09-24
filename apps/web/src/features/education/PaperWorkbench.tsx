@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
@@ -16,6 +16,8 @@ import {
   FormPanel,
   Table,
   Pager,
+  usePagination,
+  HelpTip,
   useSchoolOptions,
   options,
   AssetUpload,
@@ -24,18 +26,26 @@ import {
   labels,
 } from "./shared";
 
-export function PaperWorkbenchPage() {
-  const [page, setPage] = useState(1),
-    [id, setId] = useState(""),
-    [asset, setAsset] = useState<Row | null>(null);
-  const list = useJsonQuery<PageData>(`${BASE}/papers?page=${page}`),
+export function PaperWorkbenchPage({ view = "list" }: { view?: "list" | "create" | "detail" }) {
+  const pagination = usePagination();
+  const { page, pageSize } = pagination;
+  const { paperId: id = "" } = useParams();
+  const navigate = useNavigate();
+  const [asset, setAsset] = useState<Row | null>(null);
+  const list = useJsonQuery<PageData>(`${BASE}/papers?page=${page}&page_size=${pageSize}`, view === "list"),
     exams = useSchoolOptions("exams"),
     subjects = useSchoolOptions("subjects"),
     action = useAction();
   return (
-    <AppShell title="试卷与原件" eyebrow="业务生产 / 试卷版本">
+    <AppShell title={view === "create" ? "上传新试卷" : view === "detail" ? "试卷详情" : "试卷与原件"} eyebrow="业务生产 / 试卷版本">
       <ReadOnlyNote />
-      <p>原件受权限控制；替换会新增版本，已经引用的原件保持不变。</p>
+      <div className="wb-toolbar">
+        {view !== "list" && <Link className="secondary-button" to="/admin/papers">返回试卷列表</Link>}
+        {view === "list" && canWrite() && <Link className="primary-button" to="/admin/papers/new">上传新试卷</Link>}
+        <HelpTip label="版本说明">替换原件会新增版本，已经引用的原件保持不变。</HelpTip>
+      </div>
+      {view === "list" && <>
+      {list.data && !list.error && <Pager {...pagination} total={list.data.total} />}
       <QueryState query={list} empty={!list.data?.items.length}>
         <Table headers={["试卷", "来源", "状态", "操作"]}>
           {list.data?.items.map((p) => (
@@ -46,14 +56,13 @@ export function PaperWorkbenchPage() {
                 <Badge value={p.status} />
               </td>
               <td>
-                <button onClick={() => setId(p.id)}>原件 / 版本 / 拆题</button>
+                <Link to={`/admin/papers/${p.id}`}>原件 / 版本 / 拆题</Link>
               </td>
             </tr>
           ))}
         </Table>
-        <Pager page={page} total={list.data?.total || 0} onChange={setPage} />
-      </QueryState>
-      {canWrite() && (
+      </QueryState></>}
+      {view === "create" && canWrite() && (
         <section className="panel">
           <h2>上传新试卷</h2>
           <AssetUpload onUploaded={setAsset} />
@@ -86,8 +95,8 @@ export function PaperWorkbenchPage() {
                     { path: "/papers", body: { ...v, asset_id: asset.id } },
                     {
                       onSuccess: (p) => {
-                        setId(p.id);
                         setAsset(null);
+                        navigate(`/admin/papers/${p.id}`);
                       },
                     },
                   )
@@ -98,7 +107,7 @@ export function PaperWorkbenchPage() {
           <ActionError action={action} />
         </section>
       )}
-      {id && <PaperDetail key={id} id={id} />}
+      {view === "detail" && id && <PaperDetail key={id} id={id} />}
     </AppShell>
   );
 }
@@ -110,7 +119,7 @@ function PaperDetail({ id }: { id: string }) {
     <section className="panel">
       <QueryState query={query}>
         <h2>{query.data?.title}</h2>
-        <Table headers={["版本 / 时间", "原件", "操作"]}>
+        <Table paginate headers={["版本 / 时间", "原件", "操作"]}>
           {query.data?.versions?.map((v: Row) => (
             <tr key={v.id}>
               <td>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AppShell } from "../../layouts/AppShell";
+import { DetailDialog } from "../../components/DetailDialog";
 import { useJsonQuery } from "../../hooks/useApi";
 import {
   BASE,
@@ -15,6 +16,8 @@ import {
   FormPanel,
   Table,
   Pager,
+  usePagination,
+  HelpTip,
   useSchoolOptions,
   options,
   labels,
@@ -49,15 +52,17 @@ function Questions() {
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [deleted, setDeleted] = useState(false);
-  const [page, setPage] = useState(1);
+  const pagination = usePagination(JSON.stringify([subject, search, kind, deleted]));
+  const { page, pageSize } = pagination;
   const [id, setId] = useState("");
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const list = useJsonQuery<PageData>(
-    `${BASE}/questions?${new URLSearchParams({ page: String(page), search, deleted: String(deleted), ...(subject ? { subject_id: subject } : {}), ...(kind ? { kind } : {}) })}`,
+    `${BASE}/questions?${new URLSearchParams({ page: String(page), page_size: String(pageSize), search, deleted: String(deleted), ...(subject ? { subject_id: subject } : {}), ...(kind ? { kind } : {}) })}`,
   );
   const action = useAction<{ items: Row[] }>();
   const [receipt, setReceipt] = useState<Row[]>([]);
+  const [showReceipt, setShowReceipt] = useState(false);
   return (
     <>
       <div className="wb-toolbar">
@@ -68,7 +73,7 @@ function Questions() {
             value={subject}
             onChange={(e) => {
               setSubject(e.target.value);
-              setPage(1);
+              setSelected([]);
             }}
           >
             <option value="">全部学科</option>
@@ -85,7 +90,7 @@ function Questions() {
             value={kind}
             onChange={(e) => {
               setKind(e.target.value);
-              setPage(1);
+              setSelected([]);
             }}
           >
             <option value="">全部层级</option>
@@ -102,7 +107,7 @@ function Questions() {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
-            setPage(1);
+            setSelected([]);
           }}
         />
         <label>
@@ -112,7 +117,6 @@ function Questions() {
             onChange={(e) => {
               setDeleted(e.target.checked);
               setSelected([]);
-              setPage(1);
             }}
           />
           回收站
@@ -122,7 +126,7 @@ function Questions() {
         )}
       </div>
       <ActionError action={action} />
-      {creating && (
+      {creating && <DetailDialog title="新建题目" onClose={() => setCreating(false)}>
         <QuestionForm
           onSaved={(row) => {
             setId(row.id);
@@ -130,7 +134,8 @@ function Questions() {
           }}
           parents={list.data?.items || []}
         />
-      )}
+      </DetailDialog>}
+      {list.data && !list.error && <Pager {...pagination} total={list.data.total} />}
       <QueryState query={list} empty={!list.data?.items.length}>
         <Table headers={["选择", "标题 / 层级", "状态 / 来源", "操作"]}>
           {list.data?.items.map((row) => (
@@ -172,7 +177,6 @@ function Questions() {
             </tr>
           ))}
         </Table>
-        <Pager page={page} total={list.data?.total || 0} onChange={setPage} />
       </QueryState>
       {canWrite() && selected.length > 0 && (
         <div className="wb-toolbar">
@@ -201,9 +205,9 @@ function Questions() {
           </button>
         </div>
       )}
-      {!!receipt.length && (
-        <section className="panel" role="status">
-          <h3>逐项操作回执</h3>
+      {!!receipt.length && <div className="wb-toolbar"><span role="status">已处理 {receipt.length} 条，成功 {receipt.filter(row => row.ok).length} 条</span><button onClick={() => setShowReceipt(true)}>查看逐项操作回执</button></div>}
+      {showReceipt && (
+        <DetailDialog title="逐项操作回执" onClose={() => setShowReceipt(false)}>
           <ul>
             {receipt.map((r) => (
               <li key={r.id}>
@@ -215,16 +219,16 @@ function Questions() {
               </li>
             ))}
           </ul>
-        </section>
+        </DetailDialog>
       )}
-      {id && (
+      {id && <DetailDialog title="题目详情" onClose={() => setId("")}>
         <QuestionDetail
           key={id}
           id={id}
           onClose={() => setId("")}
           onSelect={setId}
         />
-      )}
+      </DetailDialog>}
     </>
   );
 }
@@ -481,6 +485,7 @@ function QuestionDetail({
 }
 function Taxonomy() {
   const [deleted, setDeleted] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const subjects = useSchoolOptions("subjects");
   const query = useJsonQuery<Row[]>(`${BASE}/taxonomy?deleted=${deleted}`);
@@ -565,7 +570,8 @@ function Taxonomy() {
           />
           回收站
         </label>
-        <p>父子须同学科、同类型；被题目或成绩引用的节点不可删除。</p>
+        <HelpTip label="知识点维护说明">父子须同学科、同类型；被题目或成绩引用的节点不可删除。</HelpTip>
+        {canWrite() && !deleted && <button className="primary-button" onClick={() => { action.reset(); update.reset(); setEditing(null); setCreating(true); }}>新建知识点 / 标签</button>}
       </div>
       <ActionError action={life} />
       <QueryState query={query} empty={!nodes.length}>
@@ -588,8 +594,8 @@ function Taxonomy() {
             </div>
           ))}
       </QueryState>
-      {canWrite() && !deleted && (
-        <>
+      {canWrite() && !deleted && (creating || editing) && (
+        <DetailDialog title={editing ? "编辑知识点 / 标签" : "新建知识点 / 标签"} busy={action.isPending || update.isPending} onClose={() => { setCreating(false); setEditing(null); }}>
           <ActionError action={action} />
           <ActionError action={update} />
           <FormPanel
@@ -608,13 +614,10 @@ function Taxonomy() {
                   },
                   { onSuccess: () => setEditing(null) },
                 );
-              else action.mutate({ path: "/taxonomy", body });
+              else action.mutate({ path: "/taxonomy", body }, { onSuccess: () => setCreating(false) });
             }}
           />
-          {editing && (
-            <button onClick={() => setEditing(null)}>取消编辑</button>
-          )}
-        </>
+        </DetailDialog>
       )}
     </>
   );

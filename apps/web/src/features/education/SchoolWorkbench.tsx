@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
+import { DetailDialog } from "../../components/DetailDialog";
 import { getUserInfo } from "../../utils/auth";
 import { RosterWorkbench } from "./RosterWorkbench";
 import { useJsonQuery } from "../../hooks/useApi";
@@ -18,6 +19,8 @@ import {
   FormPanel,
   Table,
   Pager,
+  usePagination,
+  HelpTip,
   useSchoolOptions,
   options,
 } from "./shared";
@@ -50,12 +53,13 @@ export function SchoolWorkbenchPage() {
   const kind = examOnly ? "exams" : requestedTab && requestedTab in tabs ? requestedTab : lastTab && lastTab in tabs ? lastTab : "classes";
   useEffect(() => { if (!examOnly) saveSchoolTab(tabKey, kind); }, [examOnly, kind, tabKey]);
   const writable = canWrite() || (examAdmin && kind === "exams");
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const pagination = usePagination(`${kind}:${search}`);
+  const { page, pageSize } = pagination;
   const [selected, setSelected] = useState<Row | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const list = useJsonQuery<PageData>(
-    `${BASE}/school/${kind}?page=${page}&search=${encodeURIComponent(search)}`,
+    `${BASE}/school/${kind}?page=${page}&page_size=${pageSize}&search=${encodeURIComponent(search)}`,
     kind !== "teachers" && kind !== "students",
   );
   const classes = useSchoolOptions("classes"),
@@ -137,7 +141,7 @@ export function SchoolWorkbenchPage() {
   const saved = () => {
     setSelected(null);
     setShowCreate(false);
-    setNotice("已保存。列表已从服务端重新读取。");
+    setNotice("已保存。");
   };
   const editFields =
     kind === "classes"
@@ -146,10 +150,7 @@ export function SchoolWorkbenchPage() {
   return (
     <AppShell title="师生班级与考试" eyebrow="业务生产 / 学校范围">
       {!examOnly && <ReadOnlyNote />}
-      {examOnly && <p className="wb-help">考试管理员可维护本校考试及考试科目。</p>}
-      <p className="wb-help">
-        教师与学生档案统一通过 Excel 新增；变更先删后导，毕业停用保留历史。班级字典可用「高中一年级1班」作为班级名称，或「10.1」作为外部班级标识。
-      </p>
+      {kind !== "teachers" && kind !== "students" && <HelpTip label="使用说明">{examOnly ? "考试管理员可维护本校考试及考试科目。" : "班级名称可填写「高中一年级1班」，外部班级标识可填写「10.1」。师生档案在对应标签中通过 Excel 导入。"}</HelpTip>}
       <div className="wb-tabs">
         {Object.entries(examOnly ? { exams: tabs.exams } : tabs).map(([key, label]) => (
           <button
@@ -158,7 +159,7 @@ export function SchoolWorkbenchPage() {
             onClick={() => {
               saveSchoolTab(tabKey, key);
               setParams({ tab: key });
-              setPage(1);
+              setSearch("");
               setSelected(null);
               setShowCreate(false);
               setNotice("");
@@ -176,7 +177,6 @@ export function SchoolWorkbenchPage() {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
-            setPage(1);
           }}
         />
         {writable && (
@@ -190,15 +190,16 @@ export function SchoolWorkbenchPage() {
           </button>
         )}
       </div>
-      <ActionError action={create} />
-      <ActionError action={update} />
+      {!showCreate && <ActionError action={create} />}
+      {!selected && <ActionError action={update} />}
       {notice && (
         <p role="status" className="wb-status">
           {notice}
         </p>
       )}
       {accounts.error && <QueryState query={accounts}>{null}</QueryState>}
-      {showCreate && (
+      {showCreate && <DetailDialog title={`新建${tabs[kind]}`} busy={create.isPending} onClose={() => setShowCreate(false)}>
+        <ActionError action={create} />
         <FormPanel
           key={kind}
           title={`新建${tabs[kind]}`}
@@ -212,7 +213,8 @@ export function SchoolWorkbenchPage() {
             )
           }
         />
-      )}
+      </DetailDialog>}
+      {list.data && !list.error && <Pager {...pagination} total={list.data.total} />}
       <QueryState query={list} empty={!list.data?.items.length}>
         <Table
           headers={
@@ -280,14 +282,10 @@ export function SchoolWorkbenchPage() {
             </tr>
           ))}
         </Table>
-        <Pager page={page} total={list.data?.total || 0} onChange={setPage} />
       </QueryState>
       {selected && (
-        <section className="panel">
-          <div className="wb-toolbar">
-            <h2>{selected.name || "任教关系"}</h2>
-            <button onClick={() => setSelected(null)}>关闭详情</button>
-          </div>
+        <DetailDialog title={selected.name || "任教关系"} busy={update.isPending} onClose={() => setSelected(null)}>
+          <ActionError action={update} />
           {writable &&
             (kind === "teaching" || selected.source_system === "native") && (
               <FormPanel
@@ -320,7 +318,7 @@ export function SchoolWorkbenchPage() {
               writable={selected.source_system === "native" && writable}
             />
           )}
-        </section>
+        </DetailDialog>
       )}
       </>}
     </AppShell>
@@ -436,7 +434,7 @@ export function ClassAnalysisPage() {
             {query.data?.average ?? "暂无"} · 最低 / 最高：
             {query.data?.minimum ?? "—"} / {query.data?.maximum ?? "—"}
           </p>
-          <p className="wb-help">{query.data?.note}</p>
+          {query.data?.note && <HelpTip label="统计说明">{query.data.note}</HelpTip>}
           <h2>得分率分布</h2>
           <div className="wb-toolbar">
             {query.data?.distribution?.map((bucket: Row) => (
@@ -463,7 +461,7 @@ export function ClassAnalysisPage() {
               {query.data?.unmapped_question_count ?? 0}
             </p>
           )}
-          <Table headers={["知识点", "累计丢分", "小题记录", "学生样本量"]}>
+          <Table key={`knowledge-${JSON.stringify(scope)}`} paginate headers={["知识点", "累计丢分", "小题记录", "学生样本量"]}>
             {query.data?.knowledge_points?.map((p: Row) => (
               <tr key={p.name}>
                 <td>{p.name}</td>
@@ -474,7 +472,7 @@ export function ClassAnalysisPage() {
             ))}
           </Table>
           <h2>学生详情下钻</h2>
-          <Table headers={["匿名序号", "得分", "操作"]}>
+          <Table key={`students-${JSON.stringify(scope)}`} paginate headers={["匿名序号", "得分", "操作"]}>
             {query.data?.students?.map((s: Row) => (
               <tr key={s.student_id}>
                 <td>{s.label}</td>
@@ -485,7 +483,7 @@ export function ClassAnalysisPage() {
                   <Link
                     to={`/${teacher ? "teacher" : "admin"}/students/${s.student_id}`}
                   >
-                    查看授权学情（记录访问）
+                    查看学情
                   </Link>
                 </td>
               </tr>

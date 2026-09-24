@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
@@ -13,12 +13,14 @@ import {
   Table,
   canWrite,
   ReadOnlyNote,
+  HelpTip,
 } from "./shared";
 
-export function ImportWorkbenchPage() {
-  const list = useJsonQuery<Row[]>(`${BASE}/imports`);
+export function ImportWorkbenchPage({ view = "list" }: { view?: "list" | "create" | "detail" }) {
+  const list = useJsonQuery<Row[]>(`${BASE}/imports`, view === "list");
   const upload = useAction();
-  const [id, setId] = useState("");
+  const navigate = useNavigate();
+  const { importId: id = "" } = useParams();
   const [files, setFiles] = useState<File[]>([]);
   const [batch, setBatch] = useState("");
   const [source, setSource] = useState("school_csv");
@@ -41,7 +43,7 @@ export function ImportWorkbenchPage() {
           path: "/imports",
           body: { batch_key: batch, source_system: source, files: payload },
         },
-        { onSuccess: (r) => setId(r.id) },
+        { onSuccess: (r) => navigate(`/admin/imports/${r.id}`) },
       );
     } catch (e) {
       setError(e as Error);
@@ -50,18 +52,14 @@ export function ImportWorkbenchPage() {
     }
   };
   return (
-    <AppShell title="成绩导入工作台" eyebrow="业务生产 / 导入与回执">
+    <AppShell title={view === "create" ? "新建成绩导入" : view === "detail" ? "成绩导入详情" : "成绩导入记录"} eyebrow="业务生产 / 成绩导入">
       <ReadOnlyNote />
-      <p>
-        上传八类 CSV → 字段映射 → 预检逐行错误 → 确认事务导入 →
-        进度与回执。档案导入后还需单独绑定登录账号。
-      </p>
-      <p className="wb-help">
-        支持 UTF-8
-        CSV：schools、classes、students、exams、subjects、student_exam_scores、student_subject_scores、question_scores。每个文件名须带
-        .csv。
-      </p>
-      {canWrite() && (
+      <div className="wb-toolbar">
+        {view !== "list" && <Link className="secondary-button" to="/admin/imports">返回导入记录</Link>}
+        {view !== "create" && canWrite() && <Link className="primary-button" to="/admin/imports/new">上传新批次</Link>}
+        <HelpTip label="导入说明"><p>上传 CSV 后，完成字段映射和预检，再确认导入。导入的学生档案需要单独绑定登录账号。</p><p>支持 UTF-8 CSV：schools、classes、students、exams、subjects、student_exam_scores、student_subject_scores、question_scores。文件名须带 .csv，总大小不超过 5 MB。</p></HelpTip>
+      </div>
+      {view === "create" && canWrite() && (
         <form
           className="panel wb-form"
           onSubmit={(e) => {
@@ -116,8 +114,8 @@ export function ImportWorkbenchPage() {
       )}
       <ErrorDisplay error={error} />
       <ActionError action={upload} />
-      <QueryState query={list} empty={!list.data?.length}>
-        <Table headers={["批次", "来源", "状态", "操作"]}>
+      {view === "list" && <QueryState query={list} empty={!list.data?.length}>
+        <Table paginate headers={["批次", "来源", "状态", "操作"]}>
           {list.data?.map((row) => (
             <tr key={row.id}>
               <td>{row.batch_key}</td>
@@ -126,13 +124,13 @@ export function ImportWorkbenchPage() {
                 <Badge value={row.status} />
               </td>
               <td>
-                <button onClick={() => setId(row.id)}>映射 / 查看回执</button>
+                <Link to={`/admin/imports/${row.id}`}>映射 / 查看回执</Link>
               </td>
             </tr>
           ))}
         </Table>
-      </QueryState>
-      {id && <ImportDetail key={id} id={id} />}
+      </QueryState>}
+      {view === "detail" && id && <ImportDetail key={id} id={id} />}
     </AppShell>
   );
 }
@@ -218,7 +216,7 @@ function ImportDetail({ id }: { id: string }) {
           const meta = value as { headers: string[]; row_count: number };
           const schema = query.data?.schema[file];
           return (
-            <details key={file} open>
+            <details key={file} open={!frozen}>
               <summary>
                 {file} · {meta.row_count} 行
               </summary>
@@ -283,7 +281,7 @@ function ImportDetail({ id }: { id: string }) {
         {query.data?.report?.issues?.length > 0 && (
           <div className="wb-error-list" role="alert">
             <h3>逐行错误（修正原 CSV 后使用新批次）</h3>
-            <Table headers={["文件", "行", "错误码 / 字段说明"]}>
+            <Table paginate headers={["文件", "行", "错误码 / 字段说明"]}>
               {query.data?.report.issues.map((i: Row, n: number) => (
                 <tr key={n}>
                   <td>{i.file}</td>
@@ -365,9 +363,7 @@ function ImportDetail({ id }: { id: string }) {
               已提交 {query.data.report.imported_rows} 行 · 未绑定账号{" "}
               {query.data.report.unbound_accounts} 个
             </p>
-            <p className="wb-code">
-              内容校验：{query.data.report.batch_content_hash}
-            </p>
+            <HelpTip label="内容校验"><span className="wb-code">{query.data.report.batch_content_hash}</span></HelpTip>
             <ul>
               {Object.entries(query.data.report.counts || {}).map(([k, v]) => (
                 <li key={k}>
@@ -375,7 +371,7 @@ function ImportDetail({ id }: { id: string }) {
                 </li>
               ))}
             </ul>
-            <Link to="/admin/school">进入学生账号绑定</Link> ·{" "}
+            <Link to="/admin/school?tab=students">进入学生账号绑定</Link> ·{" "}
             <Link to="/admin/sources">查看来源映射</Link>
           </div>
         )}

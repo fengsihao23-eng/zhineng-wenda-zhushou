@@ -6,6 +6,9 @@ import { AppShell, useCurrentRole } from '../layouts/AppShell'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import { HumanConversation } from '../features/education/LearningPanels'
 import { useJsonQuery } from '../hooks/useApi'
+import { HelpTip } from '../components/HelpTip'
+import { DetailDialog } from '../components/DetailDialog'
+import { Pagination, useClientPagination } from '../components/ListControls'
 import './ManagementPages.css'
 
 type Role = 'teacher' | 'school' | 'city'
@@ -62,11 +65,13 @@ export function StudentRosterPage() {
   const [query, setQuery] = useState('')
   const [onlyRisk, setOnlyRisk] = useState(false)
   const rows = (data || []).filter(row => (row.name + (row.student_no || '') + row.school).includes(query)).filter(row => !onlyRisk || row.open_risks > 0)
+  const pagination = useClientPagination(rows, JSON.stringify([query, onlyRisk]))
   const base = role === 'teacher' ? '/teacher' : '/admin'
   return <AppShell title="学生与班级"><ManagementState loading={loading} error={error} onRetry={reload} empty={!data?.length}>
-    <p>{role === 'teacher' ? '仅显示当前有效任教班级及学科。没有配置任教关系时不会展示全校数据。' : '当前授权范围内的学生数据。'}</p>
-    <div className="filter-row"><input className="filter-input" placeholder="搜索姓名、学号或学校" value={query} onChange={event => setQuery(event.target.value)} /><label className="check-filter"><input type="checkbox" checked={onlyRisk} onChange={event => setOnlyRisk(event.target.checked)} /> 只看待跟进</label><span className="subtle">共 {rows.length} 名学生</span></div>
-    {!rows.length ? <div className="inline-empty">没有符合筛选条件的学生。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>学生</th><th>学校</th><th>{role === 'teacher' ? '任教学科成绩' : '最近考试 / 总分'}</th><th>风险</th><th>操作</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td><strong>{row.name}</strong><div className="subtle">{row.student_no || '未填写学号'}</div></td><td>{row.school}</td><td>{row.score_scope === 'teaching_subjects' ? row.subject_scores?.length ? row.subject_scores.map(score => <div key={score.subject}>{score.subject}：{score.score} 分 · {score.exam}</div>) : '任教学科暂无成绩' : <>{row.latest_exam || '暂无考试'} · {row.latest_score ?? '—'}</>}</td><td>{row.open_risks} 个待跟进</td><td><Link className="action-link" to={base + '/students/' + row.id}>查看学情</Link></td></tr>)}</tbody></table></div>}
+    <HelpTip label="数据范围">{role === 'teacher' ? '仅显示当前有效任教班级及学科。没有配置任教关系时不会展示全校数据。' : '当前授权范围内的学生数据。'}</HelpTip>
+    <div className="filter-row"><input className="filter-input" placeholder="搜索姓名、学号或学校" value={query} onChange={event => setQuery(event.target.value)} /><label className="check-filter"><input type="checkbox" checked={onlyRisk} onChange={event => setOnlyRisk(event.target.checked)} /> 只看待跟进</label></div>
+    <Pagination {...pagination} />
+    {!rows.length ? <div className="inline-empty">没有符合筛选条件的学生。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>学生</th><th>学校</th><th>{role === 'teacher' ? '任教学科成绩' : '最近考试 / 总分'}</th><th>风险</th><th>操作</th></tr></thead><tbody>{pagination.items.map(row => <tr key={row.id}><td><strong>{row.name}</strong><div className="subtle">{row.student_no || '未填写学号'}</div></td><td>{row.school}</td><td>{row.score_scope === 'teaching_subjects' ? row.subject_scores?.length ? row.subject_scores.map(score => <div key={score.subject}>{score.subject}：{score.score} 分 · {score.exam}</div>) : '任教学科暂无成绩' : <>{row.latest_exam || '暂无考试'} · {row.latest_score ?? '—'}</>}</td><td>{row.open_risks} 个待跟进</td><td><Link className="action-link" to={base + '/students/' + row.id}>查看学情</Link></td></tr>)}</tbody></table></div>}
   </ManagementState></AppShell>
 }
 
@@ -78,11 +83,13 @@ export function KnowledgePage() {
   const [filter, setFilter] = useState('all')
   const [editor, setEditor] = useState<Knowledge | 'new' | null>(null)
   const rows = (data || []).filter(item => filter === 'all' || item.status === filter)
+  const pagination = useClientPagination(rows, filter)
   return <AppShell title="知识库治理"><ManagementState loading={loading} error={error} onRetry={reload}>
-    <p className="subtle">文档审核是真实工作流；课程检索与 RAG 尚未接入，发布不代表已用于问答。</p>
+    <HelpTip label="发布说明">发布后的文档进入知识库；目前尚未用于智能问答检索。</HelpTip>
     <div className="page-toolbar"><select className="filter-select" aria-label="文档状态" value={filter} onChange={event => setFilter(event.target.value)}>{['all', 'draft', 'pending_review', 'rejected', 'published', 'offline'].map(status => <option key={status} value={status}>{status === 'all' ? '全部' : workflowLabel(status)}</option>)}</select><button className="primary-button" onClick={() => setEditor('new')}>+ 新建文档</button></div>
-    {editor && <KnowledgeForm key={editor === 'new' ? 'new' : editor.id} item={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} />}
-    {!rows.length ? <div className="inline-empty">当前状态下没有知识文档。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>文档</th><th>来源引用</th><th>状态 / 版本</th><th>操作</th></tr></thead><tbody>{rows.map(item => <tr key={item.id}><td><strong>{item.title}</strong><div className="subtle">{item.subject} · {item.doc_type}</div>{item.rejection_reason && <p>驳回意见：{item.rejection_reason}</p>}</td><td>{item.source_name}<div className="subtle">{item.source_reference}</div></td><td><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span> {item.version}</td><td><KnowledgeActions item={item} onEdit={() => setEditor(item)} /></td></tr>)}</tbody></table></div>}
+    {editor && <DetailDialog title={editor === 'new' ? '新建文档' : '编辑文档'} onClose={() => setEditor(null)}><KnowledgeForm key={editor === 'new' ? 'new' : editor.id} item={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} /></DetailDialog>}
+    <Pagination {...pagination} />
+    {!rows.length ? <div className="inline-empty">当前状态下没有知识文档。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>文档</th><th>来源引用</th><th>状态 / 版本</th><th>操作</th></tr></thead><tbody>{pagination.items.map(item => <tr key={item.id}><td><strong>{item.title}</strong><div className="subtle">{item.subject} · {item.doc_type}</div>{item.rejection_reason && <p>驳回意见：{item.rejection_reason}</p>}</td><td>{item.source_name}<div className="subtle">{item.source_reference}</div></td><td><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span> {item.version}</td><td><KnowledgeActions item={item} onEdit={() => setEditor(item)} /></td></tr>)}</tbody></table></div>}
   </ManagementState></AppShell>
 }
 
@@ -90,10 +97,12 @@ export function FeedbackPage() {
   const { data, loading, error, reload } = useData<Feedback[]>('/platform/management/feedback')
   const [filter, setFilter] = useState('all')
   const rows = (data || []).filter(item => filter === 'all' || item.status === filter)
+  const pagination = useClientPagination(rows, filter)
   return <AppShell title="反馈运营"><ManagementState loading={loading} error={error} onRetry={reload}>
     <StatusFilter value={filter} onChange={setFilter} values={['all', 'open', 'acknowledged', 'resolved', 'closed']} />
+    <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的反馈。</div>}
-    <div className="feedback-grid">{rows.map(item => <article className="feedback-card" key={item.id}><div className="feedback-card__top"><strong>{item.category}</strong><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.note || '用户未填写补充说明。'}</p><p className="subtle">提交于 {item.created_at?.slice(0, 16).replace('T', ' ') || '—'}</p><WorkflowControls kind="feedback" item={item} /></article>)}</div>
+    <div className="feedback-grid">{pagination.items.map(item => <article className="feedback-card" key={item.id}><div className="feedback-card__top"><strong>{item.category}</strong><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.note || '用户未填写补充说明。'}</p><p className="subtle">提交于 {item.created_at?.slice(0, 16).replace('T', ' ') || '—'}</p><WorkflowControls kind="feedback" item={item} /></article>)}</div>
   </ManagementState></AppShell>
 }
 
@@ -105,11 +114,13 @@ export function RiskPage() {
   const { data, loading, error, reload } = useData<Risk[]>('/platform/management/risks')
   const [filter, setFilter] = useState('all')
   const rows = (data || []).filter(item => filter === 'all' || item.status === filter)
+  const pagination = useClientPagination(rows, filter)
   return <AppShell title="风险事件看板"><ManagementState loading={loading} error={error} onRetry={reload}>
     <StatusFilter value={filter} onChange={setFilter} values={['all', 'open', 'acknowledged', 'resolved', 'closed']} />
-    <p className="subtle">先确认事件，再填写实际处理结果。系统风险标记不等于最终判断。</p>
+    <HelpTip label="处理说明">先确认事件，再填写实际处理结果。系统风险标记不等于最终判断。</HelpTip>
+    <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的风险事件。</div>}
-    <div className="risk-list">{rows.map(item => <article className={'risk-card risk-card--' + item.severity} key={item.id}><div className="risk-card__signal"><h3>{item.title}</h3><span>{({ low: '低风险', medium: '中风险', high: '高风险', critical: '严重' } as Record<string, string>)[item.severity]}</span><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.detail}</p><p className="subtle">来源：{item.source}</p><WorkflowControls kind="risk" item={item} /></article>)}</div>
+    <div className="risk-list">{pagination.items.map(item => <article className={'risk-card risk-card--' + item.severity} key={item.id}><div className="risk-card__signal"><h3>{item.title}</h3><span>{({ low: '低风险', medium: '中风险', high: '高风险', critical: '严重' } as Record<string, string>)[item.severity]}</span><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.detail}</p><p className="subtle">来源：{item.source}</p><WorkflowControls kind="risk" item={item} /></article>)}</div>
   </ManagementState></AppShell>
 }
 
@@ -117,15 +128,18 @@ export function HandoffPage() {
   const { data, loading, error, reload } = useData<Handoff[]>('/platform/management/handoffs')
   const [filter, setFilter] = useState('all')
   const rows = (data || []).filter(item => filter === 'all' || item.status === filter)
+  const pagination = useClientPagination(rows, filter)
   return <AppShell title="人工转接"><ManagementState loading={loading} error={error} onRetry={reload}>
     <StatusFilter value={filter} onChange={setFilter} values={['all', 'open', 'accepted', 'resolved', 'closed']} />
-    <p className="subtle">接单后可回复学生；双方可刷新查看消息与真实处理记录。关闭或重新打开时须填写原因。</p>
+    <HelpTip label="转接说明">接单后可回复学生；双方可刷新查看消息与处理记录。关闭或重新打开时须填写原因。</HelpTip>
+    <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的工单。</div>}
-    <div className="handoff-list">{rows.map(item => <article className="handoff-card" key={item.id}><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></article>)}</div>
+    <div className="handoff-list">{pagination.items.map(item => <article className="handoff-card" key={item.id}><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></article>)}</div>
   </ManagementState></AppShell>
 }
 
 export function SchoolPage() {
   const { data, loading, error, reload } = useData<SchoolRow[]>('/platform/management/schools')
-  return <AppShell title="学校运营" eyebrow="市级运营中心 / 学校运营"><ManagementState loading={loading} error={error} onRetry={reload} empty={!data?.length}><div className="school-cards">{data?.map(school => <article className="school-card" key={school.id}><div className="school-card__top"><div><h3>{school.name}</h3><p>{school.code}</p></div><span>{school.status === 'active' ? '接入正常' : school.status}</span></div><div className="school-metrics"><div><strong>{school.students}</strong><span>学生</span></div><div><strong>{school.open_risks}</strong><span>待处理风险</span></div></div><div className="school-card__footer"><span>数据范围：本校汇总</span><Link className="action-link" to={'/ops/schools/' + school.id}>查看运营详情 ↗</Link></div></article>)}</div></ManagementState></AppShell>
+  const pagination = useClientPagination(data || [])
+  return <AppShell title="学校运营" eyebrow="市级运营中心 / 学校运营"><ManagementState loading={loading} error={error} onRetry={reload} empty={!data?.length}><Pagination {...pagination} /><div className="school-cards">{pagination.items.map(school => <article className="school-card" key={school.id}><div className="school-card__top"><div><h3>{school.name}</h3><p>{school.code}</p></div><span>{school.status === 'active' ? '接入正常' : school.status}</span></div><div className="school-metrics"><div><strong>{school.students}</strong><span>学生</span></div><div><strong>{school.open_risks}</strong><span>待处理风险</span></div></div><div className="school-card__footer"><span>数据范围：本校汇总</span><Link className="action-link" to={'/ops/schools/' + school.id}>查看运营详情 ↗</Link></div></article>)}</div></ManagementState></AppShell>
 }

@@ -11,6 +11,9 @@ async function admin(page: Page) {
   await page.goto('/admin/school');
 }
 async function upload(page: Page, noun: string, file: string) {
+  if (!await page.getByLabel(`上传${noun} Excel`).isVisible()) {
+    await page.goto(`/admin/school/${noun === '教师' ? 'teachers' : 'students'}/import`);
+  }
   await page.getByLabel(`上传${noun} Excel`).setInputFiles(fixture.roster_files[file]);
   await page.getByRole('button', { name: '上传并预校验', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入预览与结果' })).toBeVisible();
@@ -21,6 +24,7 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   await admin(page);
   await page.getByRole('button', { name: '教师档案', exact: true }).click();
   await expect(page.getByRole('button', { name: '新建教师档案', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: '导入教师', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '下载教师资料模板（24 列）' }).click();
   expect((await download).suggestedFilename()).toBe('教师资料模板.xlsx');
@@ -30,6 +34,9 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   await page.goto('/admin/papers');
   await page.goto('/admin/school');
   await expect(page.getByRole('button', { name: '教师档案', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('heading', { name: '导入预览与结果' })).toHaveCount(0);
+  await page.getByRole('link', { name: '导入教师', exact: true }).click();
+  await page.getByRole('link', { name: '继续查看上次批次' }).click();
   await expect(page.getByRole('heading', { name: '导入预览与结果' })).toBeVisible();
   await expect(page.getByText('teacher-invalid.xlsx', { exact: true }).first()).toBeVisible();
   await upload(page, '教师', 'teacher-old');
@@ -61,12 +68,13 @@ test('teacher Excel errors, duplicate choices, deletion and forced first-login p
   await kept.getByRole('button', { name: '删除原档案', exact: true }).click();
   await page.getByRole('button', { name: '确认删除原档案', exact: true }).click();
   await expect(kept).toHaveCount(0);
-  await page.getByText('教师删除记录与历史查询', { exact: true }).click();
+  await page.getByRole('link', { name: '教师删除记录', exact: true }).click();
   await page.getByLabel('删除记录姓名或账号').fill(fixture.roster_accounts.keep);
   const deleted = page.getByRole('row').filter({ hasText: fixture.roster_accounts.keep });
   await deleted.getByRole('button', { name: '查看删除快照' }).click();
   await expect(page.getByRole('region', { name: '教师删除快照' })).toContainText('QA 流程教师');
   await expect(page.getByRole('region', { name: '教师删除快照' }).locator('tbody').first().getByRole('row')).toHaveCount(24);
+  await page.getByRole('button', { name: '关闭快照', exact: true }).click();
   await page.getByRole('button', { name: '退出登录' }).click();
   await page.getByLabel('用户名').fill(fixture.roster_accounts.old);
   await page.getByLabel('密码', { exact: true }).fill(fixture.roster_accounts.old);
@@ -109,11 +117,13 @@ test('teacher with teaching history can be deleted and reimported under a new lo
   await select.selectOption({ index: 1 });
   await page.getByRole('button', { name: '确认导入并创建账号', exact: true }).click();
   await expect(page.getByText('其中教师信息变更 1 条', { exact: true })).toBeVisible();
-  await page.getByText('教师删除记录与历史查询', { exact: true }).click();
+  await page.getByRole('link', { name: '返回信息列表' }).click();
+  await page.getByRole('link', { name: '教师删除记录', exact: true }).click();
   await page.getByLabel('删除记录姓名或账号').fill(fixture.roster_accounts.change);
   await page.getByRole('button', { name: '查看删除快照', exact: true }).click();
   await expect(page.getByRole('region', { name: '教师删除快照' })).toContainText('高中一年级1班');
   await page.screenshot({ path: test.info().outputPath('teacher-reimport-history.png'), fullPage: true });
+  await page.getByRole('button', { name: '关闭快照', exact: true }).click();
   await page.getByRole('button', { name: '退出登录' }).click();
   await page.getByLabel('用户名').fill(fixture.roster_accounts.changed);
   await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!);
@@ -124,6 +134,7 @@ test('teacher with teaching history can be deleted and reimported under a new lo
 test('student XLS import and login automatically identify account type', async ({ page, request }) => {
   await admin(page);
   await page.getByRole('button', { name: '学生档案', exact: true }).click();
+  await page.getByRole('link', { name: '导入学生', exact: true }).click();
   await page.getByLabel('上传学生 Excel').setInputFiles(path.resolve(__dirname, '../../apps/api/tests/fixtures/student_roster.xls'));
   await page.getByRole('button', { name: '上传并预校验', exact: true }).click();
   await expect(page.getByText(/共 2 行 · 错误 0 行/)).toBeVisible();
@@ -182,7 +193,7 @@ test('student fixed template import creates account and graduation retains the a
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.app-sidebar')).toBeHidden();
   await page.locator('.workspace-main').evaluate(element => { element.scrollTop = 0; });
-  await expect(page.getByRole('heading', { name: '维护学生档案' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: '学生信息列表' })).toBeInViewport();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(overflow).toBe(false);
   await page.screenshot({ path: test.info().outputPath('student-roster-mobile.png'), fullPage: true });
@@ -191,6 +202,8 @@ test('student fixed template import creates account and graduation retains the a
 test('student import rejects every non-normal status without writing the valid row', async ({ page }) => {
   await admin(page);
   await page.getByRole('button', { name: '学生档案', exact: true }).click();
+  await page.getByRole('link', { name: '导入学生', exact: true }).click();
+  await page.locator('summary').filter({ hasText: '导入说明' }).click();
   await expect(page.getByText(/状态仅接受「正常」/)).toBeVisible();
   await upload(page, '学生', 'student-invalid-status');
   await expect(page.getByText(/共 5 行 · 错误 4 行/)).toBeVisible();

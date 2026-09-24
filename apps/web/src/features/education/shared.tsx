@@ -1,4 +1,8 @@
-import { useEffect, useState, type ReactNode, type FormEvent } from "react";
+import { Children, useEffect, useId, useState, type ReactNode, type FormEvent } from "react";
+import { HelpTip } from "../../components/HelpTip";
+import { ListView } from "../../components/ListControls";
+export { Pagination as Pager, usePagination, useClientPagination } from "../../components/ListControls";
+export { HelpTip } from "../../components/HelpTip";
 import { useApiMutation, useJsonQuery } from "../../hooks/useApi";
 import { apiFetch, apiError } from "../../services/api";
 import { getUserInfo } from "../../utils/auth";
@@ -88,32 +92,7 @@ export function QueryState({
 }
 export function ReadOnlyNote() {
   return canWrite() ? null : (
-    <p className="notice-banner">
-      当前角色只有读取权限，写入操作由学校管理员执行。
-    </p>
-  );
-}
-export function Pager({
-  page,
-  total,
-  onChange,
-}: {
-  page: number;
-  total: number;
-  onChange: (page: number) => void;
-}) {
-  return (
-    <div className="wb-toolbar">
-      <span>
-        共 {total} 条 · 第 {page} 页
-      </span>
-      <button disabled={page <= 1} onClick={() => onChange(page - 1)}>
-        上一页
-      </button>
-      <button disabled={page * 30 >= total} onClick={() => onChange(page + 1)}>
-        下一页
-      </button>
-    </div>
+    <HelpTip label="只读权限">当前角色只有读取权限，写入操作由学校管理员执行。</HelpTip>
   );
 }
 export function useAction<T = Row>(method: "POST" | "PUT" | "PATCH" = "POST") {
@@ -140,10 +119,13 @@ export function ActionError({
 export function Table({
   headers,
   children,
+  paginate = false,
 }: {
   headers: string[];
   children: ReactNode;
+  paginate?: boolean;
 }) {
+  if (paginate) return <ListView items={Children.toArray(children)}>{rows => <Table headers={headers}>{rows}</Table>}</ListView>;
   return (
     <div className="data-table-wrap">
       <table className="data-table">
@@ -195,6 +177,7 @@ export function FormPanel({
   submit?: string;
   children?: ReactNode;
 }) {
+  const formId = useId();
   const [values, setValues] = useState<Record<string, any>>(() =>
     Object.fromEntries(
       fields
@@ -210,10 +193,11 @@ export function FormPanel({
     <form className="panel wb-form" onSubmit={send}>
       <h2>{title}</h2>
       {fields.map((field) => (
-        <label className="form-field" key={field.name}>
-          <span>{field.label}</span>
+        <div className="form-field" key={field.name}>
+          <div><label htmlFor={`${formId}-${field.name}`}>{field.label}</label> {field.hint && <HelpTip label={`${field.label}说明`}>{field.hint}</HelpTip>}</div>
           {field.type === "select" ? (
             <select
+              id={`${formId}-${field.name}`}
               aria-label={field.label}
               required={field.required !== false}
               value={values[field.name] ?? ""}
@@ -232,6 +216,7 @@ export function FormPanel({
             </select>
           ) : field.type === "textarea" ? (
             <textarea
+              id={`${formId}-${field.name}`}
               aria-label={field.label}
               maxLength={field.maxLength || 50000}
               required={field.required !== false}
@@ -242,6 +227,7 @@ export function FormPanel({
             />
           ) : (
             <input
+              id={`${formId}-${field.name}`}
               aria-label={field.label}
               type={field.type || "text"}
               maxLength={field.maxLength || 200}
@@ -262,9 +248,8 @@ export function FormPanel({
                 })
               }
             />
-          )}{" "}
-          {field.hint && <small>{field.hint}</small>}
-        </label>
+          )}
+        </div>
       ))}
       {children}
       <button className="primary-button" disabled={pending}>
@@ -329,7 +314,7 @@ export function AssetUpload({
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
       </label>
-      <p>PDF、PNG 或 JPEG；最大 15 MB、100 页。每次替换新增版本。</p>
+      <HelpTip label="文件要求">PDF、PNG 或 JPEG；最大 15 MB、100 页。每次替换新增版本。</HelpTip>
       <button
         type="button"
         disabled={!file || reading || action.isPending}
@@ -409,7 +394,7 @@ export function AssetButton({
             <button onClick={close}>关闭预览</button>
           </div>
           <iframe title="原件预览" src={url} sandbox="allow-same-origin" />
-          <p>每次打开重新校验权限，链接不携带访问凭据。</p>
+
         </div>
       )}
     </>
