@@ -79,8 +79,9 @@ async def errors(identifier: UUID, actor=Depends(reader), db: AsyncSession = Dep
 
 
 @router.post("/imports/{identifier}/confirm")
-async def confirm(identifier: UUID, body: RosterConfirm, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
-    return await write(db, roster.confirm(db, actor, identifier, body))
+async def confirm(identifier: UUID, body: RosterConfirm, compact: bool = False, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    result = await write(db, roster.confirm(db, actor, identifier, body))
+    return {field: result[field] for field in ("id", "kind", "status", "revision")} if compact else result
 
 
 @router.post("/{kind}/records/{identifier}/actions")

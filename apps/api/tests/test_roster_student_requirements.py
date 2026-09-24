@@ -41,6 +41,29 @@ async def test_compact_roster_upload_returns_batch_reference_only(client, actors
     assert detail.json()["rows"][0]["values"]["账号" if kind == "students" else "教师账号"] == f"compact-{kind}-0"
 
 
+@pytest.mark.asyncio
+async def test_compact_student_confirmation_keeps_full_detail_readback(client, actors):
+    columns = STUDENT_COLUMNS
+    row = student("compact-confirm-student")
+    content = workbook_bytes(columns, [[row.get(field, "") for field in columns]])
+    uploaded = await client.post(
+        P + "/roster/students/imports?compact=true",
+        json={"filename": "合成资料.xlsx", "content_base64": base64.b64encode(content).decode()},
+    )
+    assert uploaded.status_code == 200
+    batch = uploaded.json()
+    confirmed = await client.post(
+        P + f"/roster/imports/{batch['id']}/confirm?compact=true",
+        json={"expected_revision": batch["revision"]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert set(confirmed.json()) == {"id", "kind", "status", "revision"}
+    assert confirmed.json()["status"] == "succeeded"
+    detail = (await client.get(P + f"/roster/imports/{batch['id']}")).json()
+    assert detail["report"]["success_count"] == 1
+    assert len(detail["rows"]) == 1
+
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["", "休学", "退学", "毕业", "未知", " 正常 "])
