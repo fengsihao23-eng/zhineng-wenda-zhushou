@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
@@ -125,10 +125,18 @@ function RosterImport({ kind }: { kind: Kind }) {
   const teacher = kind === "teachers", noun = teacher ? "教师" : "学生";
   const navigate = useNavigate();
   const upload = useAction();
+  const history = useJsonQuery<Row[]>(`${BASE}/roster/${kind}/imports`);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<Error | null>(null);
   const [reading, setReading] = useState(false);
+  const [slow, setSlow] = useState(false);
   const busy = reading || upload.isPending;
+  const recent = history.data?.find(row => row.status === "ready" && (!file || row.filename === file.name));
+  useEffect(() => {
+    if (!busy) { setSlow(false); return; }
+    const timer = window.setTimeout(() => setSlow(true), 15000);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
   const previous = savedBatch(activeBatchKey(kind));
   return <section className="panel">
     <div className="wb-toolbar"><h2>上传{noun}资料</h2><HelpTip label="导入说明">
@@ -140,21 +148,24 @@ function RosterImport({ kind }: { kind: Kind }) {
     <div className="wb-toolbar"><Download path={`/roster/${kind}/template`} filename={`${noun}资料模板.xlsx`}>下载{noun}资料模板（{teacher ? 24 : 30} 列）</Download>
       {previous && <Link to={`/admin/school/${kind}/imports/${previous}`}>继续查看上次批次</Link>}
     </div>
+    {recent && <p className="wb-status">{file ? "该文件已有待确认批次" : "有待确认的导入批次"} · <Link to={`/admin/school/${kind}/imports/${recent.id}`}>查看预检结果</Link></p>}
     {canWrite() && <form className="wb-toolbar" onSubmit={async event => {
       event.preventDefault(); if (!file || busy) return;
       setReading(true); setFileError(null); upload.reset();
       try {
         if (file.size > 5_000_000) throw new Error("Excel 最大 5 MB、5000 行，请拆分文件。");
         const content = await fileBase64(file);
-        upload.mutate({ path: `/roster/${kind}/imports`, body: { filename: file.name, content_base64: content } }, { onSuccess: row => {
+        upload.mutate({ path: `/roster/${kind}/imports?compact=true`, body: { filename: file.name, content_base64: content } }, { onSuccess: row => {
           rememberBatch(activeBatchKey(kind), row.id);
           navigate(`/admin/school/${kind}/imports/${row.id}`);
-        } });
+        }, onError: () => { void history.refetch(); } });
       } catch (e) { setFileError(e as Error); } finally { setReading(false); }
     }}>
       <label>上传{noun} Excel <input aria-label={`上传${noun} Excel`} type="file" accept={teacher ? ".xlsx" : ".xls,.xlsx"} disabled={busy} onChange={e => { setFile(e.target.files?.[0] || null); setFileError(null); }} /></label>
       <button className="primary-button" disabled={!file || busy}>{busy ? "正在预校验…" : "上传并预校验"}</button>
     </form>}
+    {slow && <p role="status">正在等待服务器回执。可先到 <Link to={`/admin/school/${kind}/imports`}>导入记录</Link> 查看是否已完成预检，请勿重复上传。</p>}
+    {upload.error && <p>如果页面没有跳转，请先查看 <Link to={`/admin/school/${kind}/imports`}>导入记录</Link>，避免重复上传。</p>}
     <ErrorDisplay error={fileError} /><ActionError action={upload} />
   </section>;
 }

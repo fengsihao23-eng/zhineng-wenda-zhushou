@@ -80,6 +80,20 @@ test('roster focuses on records, help opens on click, and history has its own re
   await page.getByLabel('上传学生 Excel').setInputFiles({ name: 'test.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('synthetic fixture') })
   await page.getByRole('button', { name: '上传并预校验' }).click()
   await expect(page).toHaveURL(new RegExp(`/imports/${batchId}$`))
+  expect(requests.some(path => path.includes('/roster/students/imports?compact=true'))).toBe(true)
+})
+
+test('an existing ready student batch remains reachable when the upload response is lost', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/roster/students/imports', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ id: batchId, filename: '资料-1.xlsx', status: 'ready' }]) }))
+  await page.goto('/admin/school/students/import')
+  await expect(page.getByRole('link', { name: '查看预检结果' })).toBeVisible()
+  await page.getByLabel('上传学生 Excel').setInputFiles({ name: '资料-1.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.alloc(200000, 1) })
+  await page.route('**/roster/students/imports?compact=true', route => route.abort('failed'))
+  await page.getByRole('button', { name: '上传并预校验' }).click()
+  await expect(page.getByText('网络连接失败，请检查网络后重试')).toBeVisible()
+  await page.getByRole('link', { name: '查看预检结果' }).click()
+  await expect(page).toHaveURL(new RegExp(`/imports/${batchId}$`))
 })
 
 test('server pagination changes request size, resets filters and handles the last or empty page', async ({ page }) => {

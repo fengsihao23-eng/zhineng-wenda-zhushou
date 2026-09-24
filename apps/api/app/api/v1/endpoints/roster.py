@@ -63,8 +63,9 @@ async def batches(kind: RosterKind, actor=Depends(reader), db: AsyncSession = De
 
 
 @router.post("/{kind}/imports")
-async def upload(kind: RosterKind, body: RosterUpload, key: UUID | None = Header(None, alias="Idempotency-Key"), actor=Depends(writer), db: AsyncSession = Depends(get_db)):
-    return await write(db, roster.upload(db, actor, kind, body, key))
+async def upload(kind: RosterKind, body: RosterUpload, compact: bool = False, key: UUID | None = Header(None, alias="Idempotency-Key"), actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    result = await write(db, roster.upload(db, actor, kind, body, key))
+    return {field: result[field] for field in ("id", "kind", "status", "revision")} if compact else result
 
 
 @router.get("/imports/{identifier}")

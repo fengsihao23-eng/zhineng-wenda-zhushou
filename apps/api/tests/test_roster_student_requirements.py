@@ -1,5 +1,6 @@
 """Acceptance for the student additions required by the supplied 0922 HTML."""
 import io
+import base64
 from copy import deepcopy
 from uuid import UUID
 
@@ -14,7 +15,31 @@ from app.db.models.roster import RosterImport
 from app.main import app
 from app.services.roster_excel import STUDENT_COLUMNS, STUDENT_ERROR_COLUMNS
 from test_education_workbench import actors, add_scores, post, setup_exam, P  # noqa: F401
-from test_roster_workflows import confirm, lifecycle, student, teacher, upload
+from test_roster_workflows import confirm, lifecycle, student, teacher, upload, workbook_bytes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind, row_factory, columns", [("students", student, STUDENT_COLUMNS), ("teachers", teacher, None)])
+async def test_compact_roster_upload_returns_batch_reference_only(client, actors, kind, row_factory, columns):
+    from app.services.roster_excel import TEACHER_COLUMNS
+
+    columns = columns or TEACHER_COLUMNS
+    rows = [row_factory(f"compact-{kind}-{index}") for index in range(120)]
+    content = workbook_bytes(columns, [[row.get(field, "") for field in columns] for row in rows])
+    response = await client.post(
+        P + f"/roster/{kind}/imports?compact=true",
+        json={"filename": "合成资料.xlsx", "content_base64": base64.b64encode(content).decode()},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert set(result) == {"id", "kind", "status", "revision"}
+    assert result["kind"] == kind and result["status"] == "ready"
+    detail = await client.get(P + f"/roster/imports/{result['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["report"]["total_rows"] == 120
+    assert len(detail.content) > len(response.content) * 100
+    assert detail.json()["rows"][0]["values"]["账号" if kind == "students" else "教师账号"] == f"compact-{kind}-0"
+
 
 
 @pytest.mark.asyncio
