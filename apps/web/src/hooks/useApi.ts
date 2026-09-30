@@ -6,6 +6,7 @@ import { useRef, useSyncExternalStore } from 'react'
 import { useQuery, useMutation, useQueryClient, type UseQueryOptions, type UseMutationOptions } from '@tanstack/react-query'
 import { apiFetch, apiError } from '../services/api'
 import { getAuthScope, subscribeAuth } from '../utils/auth'
+import { randomKey } from '../utils/id'
 
 // 类型定义
 export interface DashboardData {
@@ -152,7 +153,7 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
       const url = typeof path === 'function' ? path(variables) : path
       const body = method !== 'DELETE' ? JSON.stringify(serialize ? serialize(variables) : variables) : undefined
       const fingerprint = `${url}:${body}`
-      if (!submission.current || submission.current.body !== fingerprint) submission.current = { body: fingerprint, key: crypto.randomUUID() }
+      if (!submission.current || submission.current.body !== fingerprint) submission.current = { body: fingerprint, key: randomKey() }
       const response = await apiFetch(url, {
         method,
         body,

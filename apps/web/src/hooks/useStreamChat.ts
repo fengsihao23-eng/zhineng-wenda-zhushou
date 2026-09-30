@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiError, apiFetch } from '../services/api';
 import { errorMessage, isAbortError } from '../services/http';
 import { getAuthScope } from '../utils/auth';
+import { randomKey } from '../utils/id';
 import { queryKeys, scopedQueryKey, useApiQuery, useAuthScope } from './useApi';
 
 export interface Message {
@@ -255,6 +256,5 @@ export function useStreamChat({ sessionId }: UseStreamChatOptions): UseStreamCha
 }
 
 function generateId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, '0')}`;
+  return randomKey();
 }

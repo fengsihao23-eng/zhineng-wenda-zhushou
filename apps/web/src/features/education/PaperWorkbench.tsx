@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { randomKey } from "../../utils/id";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
@@ -315,7 +316,7 @@ export function PaperSplitPage() {
       edit({ regions: [...current.regions, region] });
       return;
     }
-    const key = crypto.randomUUID();
+    const key = randomKey();
     updateEntries([
       ...entries,
       {
