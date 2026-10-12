@@ -64,6 +64,10 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   await page.getByLabel('学生关键词').fill('r79-student-old')
   await expect(page.locator('.student-table tbody tr')).toHaveCount(1)
   const record = (await records(request, headers, 'r79-student-old')).items[0]
+  expect(record.platform_id).toMatch(/^[1-9][0-9]{7,9}$/)
+  await page.getByLabel('学生关键词').fill(record.platform_id)
+  await expect(page.locator('.student-table tbody tr')).toHaveCount(1)
+  await expect(page.locator('.student-id-cell')).toHaveText(record.platform_id)
   const id = record.id
   await page.screenshot({ path: test.info().outputPath('student-r79-list.png'), fullPage: true })
   const login = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-old', password: 'r79-student-old' } })
@@ -111,7 +115,7 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   await page.getByRole('button', { name: '升级/换班', exact: true }).click()
   dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: '下一步：上传文件' }).click()
-  await dialog.getByLabel('上传学生升级换班名单').setInputFiles({ name: 'r79当前学年换班.xlsx', mimeType: mime, buffer: workbook('promotion', [{ 学生ID: id, 姓名: renamed.name, 账号: renamed.username, 目标年级: '高中一年级', 目标班级号: '2班' }]) })
+  await dialog.getByLabel('上传学生升级换班名单').setInputFiles({ name: 'r79当前学年换班.xlsx', mimeType: mime, buffer: workbook('promotion', [{ 学生ID: record.platform_id, 姓名: renamed.name, 账号: renamed.username, 目标年级: '高中一年级', 目标班级号: '2班' }]) })
   await dialog.getByRole('button', { name: '开始校验与预览' }).click()
   await dialog.getByRole('checkbox', { name: /我已逐人核对本批名单/ }).check()
   await dialog.getByRole('button', { name: '保存核验，继续预览' }).click()
@@ -190,7 +194,7 @@ test('r79 real next-year switch checks full-school completeness and requires ind
   const headers = await admin(page, request)
   const all = (await records(request, headers)).items.filter((row: RecordRow) => row.status === 'active')
   const context = await (await request.get(base + '/students/context', { headers })).json()
-  const values = all.map((row: RecordRow) => ({ 学生ID: row.id, 姓名: row.name, 账号: row.username, 目标年级: '高中一年级', 目标班级号: '8班' }))
+  const values = all.map((row: RecordRow) => ({ 学生ID: row.platform_id, 姓名: row.name, 账号: row.username, 目标年级: '高中一年级', 目标班级号: '8班' }))
   await page.getByRole('button', { name: '升级/换班', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('radio', { name: /下一学年切换/ }).check()

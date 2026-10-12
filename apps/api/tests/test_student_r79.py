@@ -58,7 +58,7 @@ async def test_student_r79_export_has_31_exact_headers_and_eight_locked_columns(
     book = load_workbook(io.BytesIO(response.content))
     sheet = book.active
     assert [c.value for c in sheet[1]] == STUDENT_CHANGE_COLUMNS
-    assert sheet.cell(2, 31).value == str(sid)
+    assert sheet.cell(2, 31).value == (await existing_fields(client, sid))["学生ID"]
     assert {STUDENT_CHANGE_COLUMNS[c.column - 1] for c in sheet[2] if c.protection.locked} == set(STUDENT_LOCKED_FIELDS)
     assert "mac地址 " not in STUDENT_COLUMNS and "SN码 " not in STUDENT_COLUMNS
     book.close()
@@ -257,7 +257,7 @@ async def test_next_year_requires_verified_graduation_and_complete_active_roster
     regular = await seed_student(client, "promote-regular", "升级学生", **{"年级（1-12）": "高中二年级"})
     graduate = await seed_student(client, "promote-graduate", "应届学生", **{"年级（1-12）": "高中三年级"})
     fields = [await existing_fields(client, sid) for sid in [fixture.id, regular]]
-    values = [{"学生ID": f["学生ID"], "姓名": f["姓名"], "账号": f["账号"], "目标年级": "高中二年级" if f["学生ID"] == str(fixture.id) else "高中三年级", "目标班级号": "2班"} for f in fields]
+    values = [{"学生ID": f["学生ID"], "姓名": f["姓名"], "账号": f["账号"], "目标年级": "高中二年级" if f["学生ID"] == str(fixture.platform_id) else "高中三年级", "目标班级号": "2班"} for f in fields]
     task = await task_create(client, "promotion", values=values, mode="next")
     assert len(task["report"]["missing"]) == 1
     task = await task_prepare(client, task, graduation_confirmed=True, graduation_student_ids=[str(graduate)])

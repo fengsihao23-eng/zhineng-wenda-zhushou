@@ -92,7 +92,7 @@ def fields31(student, user, school_item, classes):
     _, grade, number = _student_record_key(student, classes)
     fields["年级（1-12）"], fields["班级号"] = grade, number
     fields["状态"] = STATUS_LABELS.get(student.status, student.status)
-    fields["学生ID"] = str(student.id)
+    fields["学生ID"] = str(student.platform_id)
     return fields
 
 
@@ -100,6 +100,7 @@ def person_view(student, user, school_item, classes):
     fields = fields31(student, user, school_item, classes)
     normalized_status = "active" if student.status == "active" else "graduated" if student.status == "graduated" else "departed"
     return {**data(student, "id", "name", "student_no", "user_id", "source_system", "created_at", "archived_at"),
+            "platform_id": str(student.platform_id),
             "status": normalized_status, "original_status": student.status, "status_label": fields["状态"],
             "username": user.username if user else "", "account_enabled": bool(user and user.status == "active"),
             "fields": fields, "grade": fields["年级（1-12）"], "class_number": fields["班级号"],
@@ -111,6 +112,9 @@ def fingerprint(student, user, fields):
     archived = student.archived_at
     if archived is not None:
         archived = archived.replace(tzinfo=timezone.utc) if archived.tzinfo is None else archived.astimezone(timezone.utc)
+    # The short ID is an immutable alias of the original identity. Keep this
+    # canonical UUID input so tasks created before the migration can continue.
+    fields = {**fields, "学生ID": str(student.id)}
     return digest([fields, str(student.class_id or ""), str(student.external_class_id or ""), student.status,
                    str(student.user_id or ""), user.status if user else None, user.password_version if user else None,
                    archived.isoformat() if archived else ""])
@@ -136,7 +140,7 @@ async def listing(db, actor, search="", class_name="", status="", page=1, page_s
         code = f"{rank}.{number[1]}" if rank and number else ""
         return not class_keyword or class_keyword in f"{row['grade']} {row['class_number']} {row['class_name']} {row['external_class_id'] or ''} {code}".casefold()
     filtered = [row for row in reversed(rows) if
-                (not keyword or keyword in f"{row['name']} {row['username']} {row['student_no'] or ''}".casefold()) and
+                (not keyword or keyword in f"{row['platform_id']} {row['name']} {row['username']} {row['student_no'] or ''}".casefold()) and
                 class_matches(row) and
                 (not status or row["status"] == status)]
     return {"items": filtered[(page - 1) * page_size:page * page_size], "total": len(filtered), "page": page,
@@ -144,6 +148,8 @@ async def listing(db, actor, search="", class_name="", status="", page=1, page_s
 
 
 async def detail(db, actor, identifier):
+    from app.services.person_ids import resolve
+    identifier = (await resolve(db, actor.school_id, "student", [identifier])).get(str(identifier))
     rows = await people(db, actor.school_id, [identifier])
     if not rows:
         raise ApiError(404, "RESOURCE_NOT_AVAILABLE", "档案不存在或不在授权范围内。")
@@ -156,6 +162,11 @@ async def detail(db, actor, identifier):
 
 
 async def archive_template(db, actor, identifiers):
+    from app.services.person_ids import resolve
+    resolved = await resolve(db, actor.school_id, "student", identifiers)
+    if any(str(identifier) not in resolved for identifier in identifiers):
+        raise ApiError(422, "ACTIVE_STUDENTS_REQUIRED", "待变更名单仅可包含本校学籍状态为正常的学生。")
+    identifiers = [resolved[str(identifier)] for identifier in identifiers]
     if not identifiers or len(set(identifiers)) != len(identifiers):
         raise ApiError(422, "STUDENT_SELECTION_REQUIRED", "请选择待变更的正常学生，学生ID不可重复。")
     rows = await people(db, actor.school_id, identifiers)
@@ -230,9 +241,13 @@ async def freeze_history(db, student, fields, fallback_year, exam_ids=None):
 
 
 def task_view(item, full=True):
+    numbers = {row["id"]: row.get("platform_id") or row.get("fields", {}).get("学生ID") for row in item.snapshots}
+    report = {key: [{**row, "platform_id": row.get("platform_id") or numbers.get(row.get("student_id", row.get("id")))}
+                    if isinstance(row, dict) and ("student_id" in row or "id" in row) else row for row in value]
+              if isinstance(value, list) else value for key, value in item.report.items()}
     result = {**data(item, "id", "kind", "status", "revision", "filename", "operator_name", "created_at", "confirmed_at", "reviewed_at"),
               "kind_label": KINDS.get(item.kind, item.kind), "has_original": item.original_content is not None,
-              "report": item.report, "request_payload": item.request_payload, "preparation": item.preparation,
+              "report": report, "request_payload": item.request_payload, "preparation": item.preparation,
               "reviews": item.reviews, "confirmation": item.confirmation}
     if full:
         result.update(rows=item.rows, snapshots=item.snapshots)
@@ -246,5 +261,5 @@ async def task_listing(db, actor, search="", kind="", page=1, page_size=20):
     rows = (await db.scalars(query.order_by(StudentWorkflowTask.created_at.desc(), StudentWorkflowTask.id))).all()
     if search.strip():
         keyword = search.strip().casefold()
-        rows = [r for r in rows if keyword in f"{r.id} {r.filename or ''} {r.operator_name} {r.request_payload} {[(s.get('fields', {}).get('姓名'), s.get('fields', {}).get('账号'), s.get('id')) for s in r.snapshots]}".casefold()]
+        rows = [r for r in rows if keyword in f"{r.id} {r.filename or ''} {r.operator_name} {r.request_payload} {[(s.get('fields', {}).get('姓名'), s.get('fields', {}).get('账号'), s.get('platform_id') or s.get('fields', {}).get('学生ID')) for s in r.snapshots]}".casefold()]
     return {"items": [task_view(r, False) for r in rows[(page - 1) * page_size:page * page_size]], "total": len(rows), "page": page, "page_size": page_size}

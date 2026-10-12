@@ -22,6 +22,7 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   const confirmed = await request.post(base + `/imports/${batch.id}/confirm`, { headers, data: { expected_revision: batch.revision } })
   expect(confirmed.ok()).toBeTruthy()
   const originals = (await confirmed.json()).report.imported
+  for (const row of originals) expect(row.platform_id).toMatch(/^[1-9][0-9]{7,9}$/)
   await page.goto('/login')
   await page.getByLabel('用户名').fill(fixture.users.admin)
   await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)

@@ -1,7 +1,7 @@
 """
 学生模型
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, String, BigInteger, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint, Index
 from app.db.types import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -14,6 +14,7 @@ class Student(Base):
     __tablename__ = "students"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform_id = Column(BigInteger, nullable=False, unique=True, comment="平台学生ID，独立于账号、学号、考号")
     school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True, comment="关联用户ID")
     external_student_id = Column(String(100), comment="外部系统学生ID")
@@ -32,6 +33,7 @@ class Student(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
+        ForeignKeyConstraint(["school_id", "id", "platform_id"], ["platform_person_ids.school_id", "platform_person_ids.entity_id", "platform_person_ids.id"], name="fk_student_platform_identity"),
         Index("uq_students_bound_user", "school_id", "user_id", unique=True, postgresql_where=user_id.is_not(None), sqlite_where=user_id.is_not(None)),
         UniqueConstraint("school_id", "external_student_id", name="uq_school_external_student"),
         UniqueConstraint("school_id", "id", name="uq_students_school_id_id"),

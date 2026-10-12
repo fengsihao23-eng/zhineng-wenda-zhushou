@@ -1,6 +1,6 @@
 """Excel roster intake for teacher/student maintenance (2026-09-22 flow)."""
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, ForeignKeyConstraint, LargeBinary
+from sqlalchemy import Column, String, Integer, BigInteger, DateTime, ForeignKey, ForeignKeyConstraint, LargeBinary
 from sqlalchemy.sql import func
 from app.db.base import Base
 from app.db.types import UUID, JSONB
@@ -36,6 +36,7 @@ class TeacherDeletion(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    platform_id = Column(BigInteger, nullable=False)
     teacher_name = Column(String(100), nullable=False)
     account = Column(String(100), nullable=False, index=True)
     fields = Column(JSONB, nullable=False)
@@ -52,6 +53,7 @@ class TeacherDeletion(Base):
     updated_fields = Column(JSONB)
     __table_args__ = (
         ForeignKeyConstraint(["school_id", "user_id"], ["users.school_id", "users.id"], name="fk_teacher_deletion_user"),
+        ForeignKeyConstraint(["school_id", "user_id", "platform_id"], ["platform_person_ids.school_id", "platform_person_ids.entity_id", "platform_person_ids.id"], name="fk_teacher_snapshot_platform_identity"),
         ForeignKeyConstraint(["school_id", "reimported_user_id"], ["users.school_id", "users.id"], name="fk_teacher_deletion_reimport"),
         ForeignKeyConstraint(["task_id"], ["teacher_change_tasks.id"], name="fk_teacher_deletion_task"),
     )

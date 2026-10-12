@@ -106,6 +106,7 @@ async def preflight(db, school_id, kind, rows):
             if key[0]:
                 student_matches.setdefault(key, []).append({
                     "id": str(existing_student.id),
+                    "platform_id": str(existing_student.platform_id),
                     "name": existing_student.name,
                     "account": existing_user.username if existing_user else "",
                     "grade_class": f"{key[1]} · {key[2]}",
@@ -157,7 +158,7 @@ async def preflight(db, school_id, kind, rows):
                 for profile in profiles:
                     user = staff.get(profile.id)
                     if user and values[name_field] == profile.fields.get("教师姓名", user.display_name or "") and teaching == profile.fields.get("任课年级班级", ""):
-                        matches.append({"id": str(user.id), "name": user.display_name, "account": user.username, "teaching": teaching, "subjects_grades": [teaching]})
+                        matches.append({"id": str(user.id), "platform_id": str(user.platform_id), "name": user.display_name, "account": user.username, "teaching": teaching, "subjects_grades": [teaching]})
                 if matches:
                     grouped = {}
                     for match in matches:
@@ -275,7 +276,7 @@ async def confirm(db, actor, identifier, body):
         audit(db, actor, "roster.preflight", item, {"kind": item.kind, "error_rows": len(checked["issues"])})
         await db.commit()
         raise ApiError(409, "ROSTER_CHANGED", "确认前复校验未通过，本批次未写入任何档案；请下载错误清单，全部修正后整表重新上传。")
-    if checked["suspicious"] != item.report["suspicious"]:
+    if comparable_suspects(checked["suspicious"]) != comparable_suspects(item.report["suspicious"]):
         raise ApiError(409, "DUPLICATES_CHANGED", "疑似重复名单已变化，请重新上传并逐条确认。")
     suspects = {r["row_number"] for r in checked["suspicious"]}
     if set(body.duplicate_decisions) != suspects:
@@ -331,13 +332,22 @@ async def confirm(db, actor, identifier, body):
                 school.current_academic_year = student_roster.current_year(school)
             await student_roster.year_record(db, student, student_roster.current_year(school), values)
             record_id = student.id
-        imported.append({"row_number": number, "id": str(record_id), "account": username})
+        imported.append({"row_number": number, "id": str(record_id), "platform_id": str(user.platform_id if teacher else student.platform_id), "account": username})
     item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload
     operator = await db.get(User, actor.user_id)
     item.report = {**checked, "success_count": len(imported), "skipped_count": len(skipped), "skipped_rows": skipped, "imported": imported, "changed_count": changed, "unresolved_teaching": unresolved, "confirmed_by": str(actor.user_id), "confirmed_by_name": operator.display_name or operator.username, "confirmed_at": item.confirmed_at.isoformat()}
     audit(db, actor, "roster.import", item, {"kind": item.kind, "success_count": len(imported), "skipped_rows": skipped, "changed_count": changed})
     await db.commit()
     return view(item)
+
+
+def comparable_suspects(value):
+    """Adding immutable ID display metadata does not invalidate an old preview."""
+    if isinstance(value, list):
+        return [comparable_suspects(item) for item in value]
+    if isinstance(value, dict):
+        return {key: comparable_suspects(item) for key, item in value.items() if key != "platform_id"}
+    return value
 
 
 def errors_excel(item):
@@ -360,7 +370,7 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
             # Imported profiles show the workbook cell. Leadership grants can cover
             # an entire grade and must not be presented as classes taught in Excel.
             display_class = fields.get("任课年级班级", "") if profile else "、".join(sorted(grants_by_teacher.get(user.id, ())))
-            items.append({**data(user, "id", "username", "status", "display_name"), "name": user.display_name, "phone": fields.get("手机号码", user.phone or ""), "class_name": display_class, "fields": fields, "duties": profile.duties if profile else ["TEACHER"]})
+            items.append({**data(user, "id", "username", "status", "display_name"), "platform_id": str(user.platform_id), "name": user.display_name, "phone": fields.get("手机号码", user.phone or ""), "class_name": display_class, "fields": fields, "duties": profile.duties if profile else ["TEACHER"]})
     else:
         rows = (await db.execute(select(Student, User).outerjoin(User, User.id == Student.user_id).where(Student.school_id == actor.school_id).order_by(Student.created_at.desc(), Student.id))).all()
         for student, user in rows:
@@ -368,12 +378,12 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
             fields = student.profile_fields or {}
             saved_class_name = f"{_student_text(fields.get('年级（1-12）'))}{_student_text(fields.get('班级号'))}"
             items.append({**data(student, "id", "name", "status", "user_id", "student_no", "source_system"), "username": user.username if user else "", "phone": fields.get("手机号", ""), "class_name": classroom.name if classroom else saved_class_name, "fields": fields})
-    filtered = [i for i in items if (not search or search in (i["name"] or "") or search in i["username"] or (kind == "teachers" and search in i["phone"])) and (not phone or phone in i["phone"]) and (not class_name or class_name in i["class_name"] or class_name in i["fields"].get("任课年级班级", ""))]
+    filtered = [i for i in items if (not search or search in (i["name"] or "") or search in i["username"] or search in i.get("platform_id", "") or (kind == "teachers" and search in i["phone"])) and (not phone or phone in i["phone"]) and (not class_name or class_name in i["class_name"] or class_name in i["fields"].get("任课年级班级", ""))]
     return {"items": filtered[(page - 1) * page_size:page * page_size], "total": len(filtered), "page": page, "page_size": page_size}
 
 
 def deletion_view(snapshot):
-    return {**data(snapshot, "id", "user_id", "teacher_name", "account", "fields", "duties", "deleted_by", "operator_name", "deleted_at", "reimported_user_id", "reimported_at", "reason", "reason_note", "operation_id", "task_id", "updated_fields"), "task_status": ("succeeded" if snapshot.reimported_at else "pending") if snapshot.task_id else None}
+    return {**data(snapshot, "id", "user_id", "teacher_name", "account", "fields", "duties", "deleted_by", "operator_name", "deleted_at", "reimported_user_id", "reimported_at", "reason", "reason_note", "operation_id", "task_id", "updated_fields"), "platform_id": str(snapshot.platform_id), "task_status": ("succeeded" if snapshot.reimported_at else "pending") if snapshot.task_id else None}
 
 
 async def deletion_history(db, actor, search="", available=False, page=1, page_size=30, reason=""):
@@ -384,7 +394,7 @@ async def deletion_history(db, actor, search="", available=False, page=1, page_s
             identifier = UUID(search)
         except ValueError:
             identifier = None
-        query = query.where(or_(TeacherDeletion.teacher_name.contains(search, autoescape=True), TeacherDeletion.account.contains(search, autoescape=True), TeacherDeletion.operation_id == identifier if identifier else cast(TeacherDeletion.operation_id, String).contains(search, autoescape=True), TeacherDeletion.task_id == identifier if identifier else cast(TeacherDeletion.task_id, String).contains(search, autoescape=True), TeacherDeletion.task_id.in_(select(RosterImport.change_task_id).where(RosterImport.school_id == actor.school_id, or_(RosterImport.filename.contains(search, autoescape=True), RosterImport.id == identifier if identifier else cast(RosterImport.id, String).contains(search, autoescape=True))))))
+        query = query.where(or_(cast(TeacherDeletion.platform_id, String).contains(search, autoescape=True), TeacherDeletion.teacher_name.contains(search, autoescape=True), TeacherDeletion.account.contains(search, autoescape=True), TeacherDeletion.operation_id == identifier if identifier else cast(TeacherDeletion.operation_id, String).contains(search, autoescape=True), TeacherDeletion.task_id == identifier if identifier else cast(TeacherDeletion.task_id, String).contains(search, autoescape=True), TeacherDeletion.task_id.in_(select(RosterImport.change_task_id).where(RosterImport.school_id == actor.school_id, or_(RosterImport.filename.contains(search, autoescape=True), RosterImport.id == identifier if identifier else cast(RosterImport.id, String).contains(search, autoescape=True))))))
     if reason:
         query = query.where(TeacherDeletion.reason == reason)
     if available:

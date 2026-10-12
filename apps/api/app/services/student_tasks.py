@@ -23,14 +23,9 @@ def issue(row, message, fields="学生ID", type_="字段错误"):
             "suggestion": "核对原档案与名单，修正后重新办理；身份存疑请提交审核"}
 
 
-def identifiers(rows):
-    result = set()
-    for row in rows:
-        try:
-            result.add(UUID(row["values"].get("学生ID", "")))
-        except (ValueError, TypeError, AttributeError):
-            pass
-    return result
+async def identifiers(db, school_id, rows):
+    from app.services.person_ids import resolve
+    return await resolve(db, school_id, "student", [row["values"].get("学生ID", "") for row in rows])
 
 
 def editable(task, revision):
@@ -41,6 +36,8 @@ def editable(task, revision):
 
 
 async def create(db, actor, body, key):
+    from app.services.person_ids import normalize_body
+    body = await normalize_body(db, actor.school_id, "student", body)
     school = await roster.school(db, actor.school_id, lock=True)
     payload = body.model_dump(mode="json")
     file_issues, original = [], None
@@ -67,7 +64,7 @@ async def create(db, actor, body, key):
     identifier, fresh = await claim(db, actor, "student.workflow.create", key, payload)
     if not fresh:
         return roster.task_view(await owned(db, StudentWorkflowTask, identifier, actor))
-    scoped_rows = await roster.people(db, actor.school_id, identifiers(rows))
+    scoped_rows = await roster.people(db, actor.school_id, (await identifiers(db, actor.school_id, rows)).values())
     classes = await roster.class_map(db, actor.school_id)
     snapshots = []
     imported = (await db.execute(select(RosterImport.id, RosterImport.report, RosterImport.original_content.is_not(None)).where(
@@ -75,7 +72,7 @@ async def create(db, actor, body, key):
     sources = {row["id"]: (str(batch_id), has_original) for batch_id, report, has_original in imported for row in report.get("imported", [])}
     for student, user in scoped_rows:
         fields = roster.fields31(student, user, school, classes)
-        snapshots.append({"id": str(student.id), "fields": fields, "fingerprint": roster.fingerprint(student, user, fields),
+        snapshots.append({"id": str(student.id), "platform_id": str(student.platform_id), "fields": fields, "fingerprint": roster.fingerprint(student, user, fields),
                           "source_import_id": sources.get(str(student.id), (None, False))[0],
                           "source_import_has_original": sources.get(str(student.id), (None, False))[1],
                           "created_at": student.created_at.isoformat(),
@@ -108,23 +105,25 @@ async def evaluate(db, actor, task):
     school = await roster.school(db, actor.school_id)
     classes = await roster.class_map(db, actor.school_id)
     current, payload, prepared = roster.current_year(school), task.request_payload, task.preparation or {}
-    people = {str(s.id): (s, u) for s, u in await roster.people(db, actor.school_id, identifiers(task.rows))}
+    resolved = await identifiers(db, actor.school_id, task.rows)
+    people = {str(s.id): (s, u) for s, u in await roster.people(db, actor.school_id, resolved.values())}
     snapshots = {row["id"]: row for row in task.snapshots}
     report = {"file_issues": task.report.get("file_issues", []), "issues": list(task.report.get("file_issues", [])),
               "changes": [], "placements": [], "anomalies": [], "duplicates": [], "missing": [],
               "graduation_candidates": [], "pending_graduations": [], "pending_review_ids": [],
               "affected": [], "affected_exams": [], "identity_rows": [], "total_rows": len(task.rows),
               "current_year": current, "target_year": payload.get("target_year"), "ready_to_confirm": False}
-    counts = Counter(row["values"].get("学生ID", "") for row in task.rows)
+    canonical = lambda row: str(resolved.get(row["values"].get("学生ID", ""), row["values"].get("学生ID", "")))
+    counts = Counter(canonical(row) for row in task.rows)
     confirmed = set(prepared.get("identity_confirmed_ids", []))
     uncertain = set(prepared.get("identity_uncertain_ids", []))
     approvals = prepared.get("anomaly_approvals", {})
     seen = set()
     for row in task.rows:
         values = row["values"]
-        sid = values.get("学生ID", "")
+        sid = canonical(row)
         if counts[sid] > 1:
-            lines = [str(item["row_number"]) for item in task.rows if item["values"].get("学生ID", "") == sid]
+            lines = [str(item["row_number"]) for item in task.rows if canonical(item) == sid]
             report["issues"].append(issue(row, "学生ID在第 " + "、".join(lines) + " 行重复；全部重复行须修正", type_="ID重复"))
         if sid not in people:
             report["issues"].append(issue(row, "学生ID必填，须存在且属于本校；不得手工编造或使用其他学校的ID", type_="ID缺失或不存在"))
@@ -132,7 +131,7 @@ async def evaluate(db, actor, task):
         student, user = people[sid]
         original = roster.fields31(student, user, school, classes)
         if sid not in seen:
-            report["identity_rows"].append({"id": sid, "name": student.name, "account": original["账号"],
+            report["identity_rows"].append({"id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                                             "student_no": student.student_no, "registration_no": original["学籍号"],
                                             "grade": original["年级（1-12）"], "class_number": original["班级号"],
                                             "source_import_id": snapshots.get(sid, {}).get("source_import_id"),
@@ -147,11 +146,11 @@ async def evaluate(db, actor, task):
             if student.status != "active":
                 report["issues"].append(issue(row, "档案变更仅限状态为正常的学生", "状态", "状态非法"))
             for field in STUDENT_LOCKED_FIELDS:
-                if values.get(field) != original[field]:
+                if field != "学生ID" and values.get(field) != original[field]:
                     report["issues"].append(issue(row, f"锁定字段【{field}】与原记录不一致；请使用对应办理入口", field, "锁定字段不一致"))
             for field in STUDENT_COLUMNS:
                 if field not in STUDENT_LOCKED_FIELDS and values.get(field, "") != original[field]:
-                    report["changes"].append({"student_id": sid, "name": student.name, "account": original["账号"],
+                    report["changes"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                                               "field": field, "before": original[field], "after": values.get(field, ""),
                                               "clear": not values.get(field, ""), "row_number": row["row_number"]})
         elif task.kind == "identity":
@@ -222,9 +221,9 @@ async def evaluate_identity(db, actor, task, report, row, student, user, origina
         for other, other_user in all_people:
             values = roster.fields31(other, other_user, school, classes)
             if other.id != student.id and other.name == new_value and values["年级（1-12）"] == original["年级（1-12）"] and values["班级号"] == original["班级号"]:
-                report["duplicates"].append({"student_id": str(other.id), "name": other.name, "account": values["账号"],
+                report["duplicates"].append({"student_id": str(other.id), "platform_id": str(other.platform_id), "name": other.name, "account": values["账号"],
                                               "grade": values["年级（1-12）"], "class_number": values["班级号"]})
-    report["changes"].append({"student_id": str(student.id), "name": student.name, "account": original["账号"],
+    report["changes"].append({"student_id": str(student.id), "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                               "field": field, "before": original[field], "after": new_value, "clear": False})
 
 
@@ -272,12 +271,12 @@ async def evaluate_placement(db, actor, task, report, row, student, user, origin
         old_rank, new_rank = roster.grade_rank(old_grade), roster.grade_rank(target_grade)
         normal = old_rank is not None and new_rank == old_rank + (1 if year != current else 0)
         if not normal:
-            report["anomalies"].append({"student_id": sid, "name": student.name, "account": original["账号"],
+            report["anomalies"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                                         "before": old_grade, "after": target_grade,
                                         "message": "缺少年级依据，须核实" if old_rank is None else "非顺升一级" if year != current else "当前学年年级改变",
                                         "approval": approvals.get(sid, "")})
     target_status = "active" if is_move else "graduated" if payload["action"] == "graduate" else "departed"
-    report["placements"].append({"student_id": sid, "name": student.name, "account": original["账号"],
+    report["placements"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                                  "target_year": year, "old_grade": original["年级（1-12）"], "old_class": original["班级号"],
                                  "grade": target_grade, "class_number": target_class, "operation": "更新" if record else "新增",
                                  "before_status": student.status, "target_status": target_status,
@@ -297,7 +296,7 @@ async def evaluate_switch(db, actor, task, report, ids):
         values = roster.fields31(student, user, school, classes)
         sid = str(student.id)
         if roster.graduating(values["年级（1-12）"]) and (student.status == "active" or sid in actual_graduates):
-            entry = {"student_id": sid, "name": student.name, "account": values["账号"], "grade": values["年级（1-12）"],
+            entry = {"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": values["账号"], "grade": values["年级（1-12）"],
                      "class_number": values["班级号"], "status": student.status}
             report["graduation_candidates"].append(entry)
             valid_grad_ids.add(sid)
@@ -311,11 +310,13 @@ async def evaluate_switch(db, actor, task, report, ids):
         sid = str(student.id)
         if sid in active_ids and sid not in ids and sid not in actual_graduates:
             values = roster.fields31(student, user, school, classes)
-            report["missing"].append({"student_id": sid, "name": student.name, "account": values["账号"],
+            report["missing"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": values["账号"],
                                       "grade": values["年级（1-12）"], "class_number": values["班级号"]})
 
 
 async def prepare(db, actor, identifier, body):
+    from app.services.person_ids import normalize_body
+    body = await normalize_body(db, actor.school_id, "student", body)
     task = await owned(db, StudentWorkflowTask, identifier, actor, lock=True)
     editable(task, body.expected_revision)
     ids = {snapshot["id"] for snapshot in task.snapshots}
@@ -345,6 +346,8 @@ async def prepare(db, actor, identifier, body):
 
 
 async def review(db, actor, identifier, body):
+    from app.services.person_ids import normalize_body
+    body = await normalize_body(db, actor.school_id, "student", body)
     task = await owned(db, StudentWorkflowTask, identifier, actor, lock=True)
     editable(task, body.expected_revision)
     reviews = dict(task.reviews or {})
@@ -383,7 +386,8 @@ async def confirm(db, actor, identifier, body):
         return roster.task_view(task)
     editable(task, body.expected_revision)
     school = await roster.school(db, actor.school_id, lock=True)
-    locked_people = await roster.people(db, actor.school_id, identifiers(task.rows), lock=True)
+    resolved = await identifiers(db, actor.school_id, task.rows)
+    locked_people = await roster.people(db, actor.school_id, resolved.values(), lock=True)
     user_ids = [s.user_id for s, _ in locked_people if s.user_id]
     if user_ids:
         await db.execute(select(User).where(User.id.in_(user_ids)).order_by(User.id).with_for_update().execution_options(populate_existing=True))
@@ -401,7 +405,7 @@ async def confirm(db, actor, identifier, body):
         task.report["disposition"] = await delete_student_data(db, actor, [s for s, _ in locked_people], task.report)
     elif task.kind == "archive":
         for row in task.rows:
-            student, user = people[row["values"]["学生ID"]]
+            student, user = people[str(resolved[row["values"]["学生ID"]])]
             values = dict(row["values"])
             values.pop("学生ID", None)
             student.profile_fields = values

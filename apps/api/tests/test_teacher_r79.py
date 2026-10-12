@@ -28,7 +28,7 @@ async def upload_task(client, task_id, rows, columns=None):
 
 async def task_rows(client, identifier):
     task = (await client.get(P + f"/roster/teachers/change-tasks/{identifier}")).json()
-    return [{**row["fields"], "教师ID": row["user_id"]} for row in task["snapshots"]]
+    return [{**row["fields"], "教师ID": row["platform_id"]} for row in task["snapshots"]]
 
 
 async def confirm_task(client, batch, status=200, **values):
@@ -130,7 +130,7 @@ async def test_single_task_reuses_identity_resets_password_and_preserves_version
     template = await client.get(P + f"/roster/teachers/change-tasks/{deletion['task_id']}/template")
     book = load_workbook(io.BytesIO(template.content))
     assert [cell.value for cell in book.active[1]] == TEACHER_CHANGE_COLUMNS
-    assert book.active["Y2"].value == identifier and book.active["Y2"].protection.locked
+    assert book.active["Y2"].value == str(user.platform_id) and book.active["Y2"].protection.locked
     assert not book.active["F2"].protection.locked
     book.close()
     rows = await task_rows(client, deletion["task_id"])

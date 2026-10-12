@@ -23,6 +23,7 @@ const run = (command, args, options = {}) => new Promise((resolve, reject) => {
   child.on('exit', code => code === 0 ? resolve(output) : reject(new Error(output.replaceAll(credential, '[redacted]'))))
   child.stdin.end(options.input || '')
 })
+await run(python, ['-m', 'alembic', 'upgrade', 'head'], { cwd: path.join(root, 'apps/api') })
 const fixture = await run(python, [path.join(root, 'tests/alignment/seed.py')], { input: credential })
 const fixturePath = path.join(scratch, 'fixtures.json')
 await writeFile(fixturePath, fixture)

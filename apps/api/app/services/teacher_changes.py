@@ -37,6 +37,8 @@ async def task_view(db, actor, task):
 
 
 async def delete_teachers(db, actor, body, key):
+    from app.services.person_ids import normalize_body
+    body = await normalize_body(db, actor.school_id, "teacher", body)
     if len(set(body.teacher_ids)) != len(body.teacher_ids):
         raise ApiError(422, "TEACHER_SELECTION_DUPLICATE", "所选教师不能重复。")
     note = body.reason_note.strip()
@@ -101,7 +103,7 @@ async def delete_teachers(db, actor, body, key):
 async def task_template(db, actor, identifier):
     await owned(db, TeacherChangeTask, identifier, actor)
     snapshots = await task_snapshots(db, actor, identifier)
-    rows = [[row.fields.get(c, "") for c in TEACHER_COLUMNS] + [str(row.user_id)] for row in snapshots]
+    rows = [[row.fields.get(c, "") for c in TEACHER_COLUMNS] + [str(row.platform_id)] for row in snapshots]
     return workbook_bytes(TEACHER_CHANGE_COLUMNS, rows, lock_teacher_id=True)
 
 
@@ -111,21 +113,24 @@ async def task_preflight(db, actor, task, rows, issues=()):
     report = await roster.preflight(db, actor.school_id, "teachers", rows)
     errors = list(report["issues"])
     snapshots = await task_snapshots(db, actor, task.id)
-    expected = {str(row.user_id) for row in snapshots}
+    from app.services.person_ids import resolve
+    expected = {row.user_id for row in snapshots}
+    resolved = await resolve(db, actor.school_id, "teacher", [row["values"].get("教师ID", "") for row in rows])
     if len(rows) != len(snapshots):
         errors.append({**file_issue(f"更新行数须恰好等于任务内原教师人数（{len(snapshots)} 行），当前 {len(rows)} 行。"),
                        "error_type": "任务行数不符"})
     seen = set()
     for row in rows:
         identifier = row["values"].get("教师ID", "")
+        identity = resolved.get(identifier)
         message = ""
         if not identifier:
             message = "教师ID缺失；请使用本任务下载的原档案。"
-        elif identifier in seen:
+        elif identity is not None and identity in seen:
             message = "教师ID重复；每名原教师只能对应一行。"
-        elif identifier not in expected:
+        elif identity not in expected:
             message = "教师ID被修改或不属于当前任务；教师ID是锁定字段。"
-        seen.add(identifier)
+        seen.add(identity)
         if message:
             errors.append(error_row(row, ["教师ID非法"], ["教师ID"], [message], ["重新下载任务原档案，保留教师ID后修改资料并整表重传"], "teachers"))
     return {**report, "ok": not errors, "issues": errors, "task_id": str(task.id)}
@@ -153,6 +158,8 @@ async def upload_task(db, actor, identifier, body, key):
 
 
 async def confirm_task_batch(db, actor, item, body):
+    from app.services.person_ids import normalize_body
+    body = await normalize_body(db, actor.school_id, "teacher", body)
     task = await owned(db, TeacherChangeTask, item.change_task_id, actor, lock=True)
     payload = body.model_dump(mode="json")
     if item.status == "succeeded":
@@ -167,7 +174,7 @@ async def confirm_task_batch(db, actor, item, body):
         item.revision += 1
         await db.commit()
         raise ApiError(409, "ROSTER_CHANGED", "确认前复校验失败，本次未写入资料。变更任务已保留，请修正后重传。")
-    if checked["suspicious"] != item.report["suspicious"]:
+    if roster.comparable_suspects(checked["suspicious"]) != roster.comparable_suspects(item.report["suspicious"]):
         raise ApiError(409, "DUPLICATES_CHANGED", "疑似重复提醒发生变化，请重新上传核对。任务已保留。")
     suspects = {r["row_number"] for r in checked["suspicious"]}
     if set(body.duplicate_decisions) != suspects or any(not keep for keep in body.duplicate_decisions.values()):
@@ -182,8 +189,10 @@ async def confirm_task_batch(db, actor, item, body):
         mapping = {item.rows[0]["row_number"]: snapshots[0].user_id}
     if set(mapping) != numbers or set(mapping.values()) != set(by_id) or len(set(mapping.values())) != len(mapping):
         raise ApiError(422, "TASK_MAPPING_INVALID", "每行须指定原教师，每名原教师须且只能关联一次。请核对行号与对应关系。")
+    from app.services.person_ids import resolve
+    resolved = await resolve(db, actor.school_id, "teacher", [row["values"]["教师ID"] for row in item.rows])
     for row in item.rows:
-        if str(mapping[row["row_number"]]) != row["values"]["教师ID"]:
+        if mapping[row["row_number"]] != resolved.get(row["values"]["教师ID"]):
             raise ApiError(422, "TASK_MAPPING_ID_MISMATCH", f"第 {row['row_number']} 行对应教师与锁定教师ID不一致，请重新核实对应关系。")
     originals = {}
     for identifier in sorted(by_id, key=str):
@@ -225,8 +234,8 @@ async def confirm_task_batch(db, actor, item, body):
             unresolved.append({"row_number": number, "references": refs})
         snapshot.reimported_user_id, snapshot.reimported_at, snapshot.updated_fields = identifier, now(), values
         changes = [{"field": c, "before": snapshot.fields.get(c, ""), "after": values[c]} for c in TEACHER_COLUMNS if snapshot.fields.get(c, "") != values[c]]
-        versions.append({"teacher_id": str(identifier), "row_number": number, "snapshot_id": str(snapshot.id), "changes": changes})
-        imported.append({"row_number": number, "id": str(identifier), "account": username})
+        versions.append({"teacher_id": str(identifier), "platform_id": str(user.platform_id), "row_number": number, "snapshot_id": str(snapshot.id), "changes": changes})
+        imported.append({"row_number": number, "id": str(identifier), "platform_id": str(user.platform_id), "account": username})
         audit(db, actor, "roster.teacher.change", user, {"task_id": str(task.id), "snapshot_id": str(snapshot.id), "changes": changes})
     operator = await db.get(User, actor.user_id)
     item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload

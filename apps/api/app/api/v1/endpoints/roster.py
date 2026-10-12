@@ -12,6 +12,7 @@ from app.api.v1.endpoints.education import writer, write
 from app.core.database import get_db
 from app.db.models.roster import RosterImport
 from app.schemas.roster import RosterKind, RosterUpload, RosterConfirm, RosterAction, TeacherDelete
+from app.schemas.person_id import PersonReference
 from app.services import roster_workbench as roster
 from app.services import teacher_changes
 from app.services import student_roster, student_tasks
@@ -145,12 +146,12 @@ async def student_context(actor=Depends(reader), db: AsyncSession = Depends(get_
 
 
 @router.get("/students/records/{identifier}")
-async def student_detail(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+async def student_detail(identifier: str, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
     return await student_roster.detail(db, actor, identifier)
 
 
 @router.get("/students/archive-template")
-async def student_archive_template(student_ids: list[UUID] = Query(default=[], max_length=5000), all_filtered: bool = False, search: str = Query("", max_length=100), class_name: str = Query("", max_length=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+async def student_archive_template(student_ids: list[PersonReference] = Query(default=[], max_length=5000), all_filtered: bool = False, search: str = Query("", max_length=100), class_name: str = Query("", max_length=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
     if all_filtered:
         result = await student_roster.listing(db, actor, search, class_name, "active", 1, 5000)
         if result["total"] > 5000:
