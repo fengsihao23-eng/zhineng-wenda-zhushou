@@ -1,0 +1,216 @@
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+
+const fixture = JSON.parse(readFileSync(process.env.QA_FIXTURE_PATH!, 'utf8'))
+const root = path.resolve(__dirname, '../..')
+const base = '/api/v1/platform/education/roster'
+type RecordRow = Record<string, any>
+const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+function workbook(kind: string, rows: RecordRow[]) {
+  return execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import json,sys;from app.services.roster_excel import STUDENT_COLUMNS,STUDENT_CHANGE_COLUMNS,STUDENT_PROMOTION_COLUMNS,workbook_bytes;k,rows=json.load(sys.stdin);cols={"import":STUDENT_COLUMNS,"archive":STUDENT_CHANGE_COLUMNS,"promotion":STUDENT_PROMOTION_COLUMNS}[k];sys.stdout.buffer.write(workbook_bytes(cols,[[r.get(c,"") for c in cols]for r in rows]))'], { input: JSON.stringify([kind, rows]), env: { ...process.env, PYTHONPATH: path.join(root, 'apps/api') } })
+}
+async function admin(page: Page, request: APIRequestContext) {
+  const response = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
+  expect(response.ok()).toBeTruthy()
+  const headers = { Authorization: `Bearer ${(await response.json()).access_token}` }
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(fixture.users.admin)
+  await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+  await page.goto('/admin/school?tab=students')
+  await expect(page.getByRole('heading', { name: '学生信息列表' })).toBeVisible()
+  return headers
+}
+async function records(request: APIRequestContext, headers: Record<string, string>, search = '') {
+  const response = await request.get(base + '/students/records?search=' + encodeURIComponent(search) + '&page_size=100', { headers })
+  expect(response.ok()).toBeTruthy()
+  return response.json()
+}
+async function confirmCurrent(page: Page, button = '确认生效') {
+  const dialog = page.getByRole('dialog')
+  const confirm = dialog.getByRole('button', { name: button, exact: true })
+  await expect(confirm).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: /二次确认|确认整批更新|我已核对原值、新值/ }).check()
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+  await expect(dialog.getByText('办理完成', { exact: true })).toBeVisible()
+}
+async function close(page: Page) { await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0) }
+
+test('r79 real student import, ordinary archive change, rename, account, class, departure, restore and erroneous deletion', async ({ page, request }) => {
+  test.setTimeout(120000)
+  const headers = await admin(page, request)
+  await page.setViewportSize({ width: 1920, height: 1000 })
+  await expect(page.getByRole('button', { name: '教师任教', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '导入学生', exact: true }).click()
+  let dialog = page.getByRole('dialog')
+  const values = [
+    { 姓名: 'r79 联动学生', 账号: 'r79-student-old', 学号: 'QA-R79-001', 状态: '正常', '年级（1-12）': '高中一年级', 班级号: '1班', 宿舍楼: 'A栋' },
+    { 姓名: 'r79 联动学生', 账号: 'r79-student-skip', 学号: 'QA-R79-002', 状态: '正常', '年级（1-12）': '高中一年级', 班级号: '1班' },
+  ]
+  await dialog.getByLabel('上传学生资料模板').setInputFiles({ name: 'r79学生新增.xlsx', mimeType: mime, buffer: workbook('import', values) })
+  await dialog.getByRole('button', { name: '开始预校验', exact: true }).click()
+  await expect(dialog.getByText(/预校验通过，共 2 行/)).toBeVisible()
+  await dialog.getByRole('button', { name: '下一步：同班同名确认' }).click()
+  await expect(dialog.getByRole('button', { name: '确认入库', exact: true })).toBeDisabled()
+  await dialog.getByLabel('第3行同名处理').selectOption('skip')
+  for (const checkbox of await dialog.getByRole('checkbox', { name: '已核实本行选择' }).all()) await checkbox.check()
+  await dialog.getByRole('button', { name: '确认入库', exact: true }).click()
+  await expect(dialog.getByText('导入完成', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByLabel('学生关键词').fill('r79-student-old')
+  await expect(page.locator('.student-table tbody tr')).toHaveCount(1)
+  const record = (await records(request, headers, 'r79-student-old')).items[0]
+  const id = record.id
+  await page.screenshot({ path: test.info().outputPath('student-r79-list.png'), fullPage: true })
+  const login = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-old', password: 'r79-student-old' } })
+  expect((await login.json()).user.must_change_password).toBe(true)
+
+  await page.getByLabel('选择本页全部学生').check()
+  await page.getByRole('button', { name: '档案变更', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: '导出《学生档案变更模板.xlsx》（31 列，含原值）' }).click()
+  expect((await downloadPromise).suggestedFilename()).toBe('学生档案变更模板.xlsx')
+  await dialog.getByRole('button', { name: '下一步：上传文件' }).click()
+  await dialog.getByLabel('上传学生档案变更模板').setInputFiles({ name: 'r79普通资料变更.xlsx', mimeType: mime, buffer: workbook('archive', [{ ...record.fields, 手机号: '无需格式校验', 宿舍楼: '' }]) })
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await expect(dialog.getByRole('heading', { name: '学生身份核验' })).toBeVisible()
+  await dialog.getByRole('checkbox', { name: /我已逐人核对本批名单/ }).check()
+  await dialog.getByRole('button', { name: '保存核验，继续预览' }).click()
+  await expect(dialog.getByText('将清空', { exact: true })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('student-r79-archive-preview.png'), fullPage: true })
+  await confirmCurrent(page, '确认整批更新')
+  await close(page)
+  expect((await records(request, headers, 'r79-student-old')).items[0].fields.宿舍楼).toBe('')
+
+  for (const [field, value] of [['姓名', 'r79 联动学生改名'], ['账号', 'r79-student-new']]) {
+    await page.getByRole('button', { name: '姓名·账号变更', exact: true }).click()
+    dialog = page.getByRole('dialog')
+    await dialog.getByRole('checkbox', { name: '我已核对学生身份，确认为本人。' }).check()
+    await dialog.getByRole('button', { name: '下一步：选择变更项' }).click()
+    if (field === '账号') await dialog.getByRole('radio', { name: '账号 → 新账号' }).check()
+    await dialog.getByLabel(`新${field}`, { exact: true }).fill(value)
+    await dialog.getByLabel('姓名账号变更原因').fill('r79合成验收，核对原始资料更正')
+    await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+    await expect(dialog.getByRole('heading', { name: '执行前预览' })).toBeVisible()
+    await confirmCurrent(page, '确认写入')
+    await close(page)
+  }
+  await page.getByLabel('学生关键词').fill('r79-student-new')
+  const renamed = (await records(request, headers, 'r79-student-new')).items[0]
+  expect(renamed.id).toBe(id)
+  const newLogin = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-new', password: 'r79-student-old' } })
+  expect(newLogin.ok()).toBeTruthy()
+  const oldLogin = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-old', password: 'r79-student-old' } })
+  expect(oldLogin.status()).toBe(401)
+
+  await page.getByRole('button', { name: '升级/换班', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: '下一步：上传文件' }).click()
+  await dialog.getByLabel('上传学生升级换班名单').setInputFiles({ name: 'r79当前学年换班.xlsx', mimeType: mime, buffer: workbook('promotion', [{ 学生ID: id, 姓名: renamed.name, 账号: renamed.username, 目标年级: '高中一年级', 目标班级号: '2班' }]) })
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await dialog.getByRole('checkbox', { name: /我已逐人核对本批名单/ }).check()
+  await dialog.getByRole('button', { name: '保存核验，继续预览' }).click()
+  await expect(dialog.getByText('本批无年级异常，无需复核审批。')).toBeVisible()
+  await dialog.getByRole('button', { name: '保存审批，下一步：预览' }).click()
+  await confirmCurrent(page)
+  await close(page)
+  expect((await records(request, headers, 'r79-student-new')).items[0].class_number).toBe('2班')
+
+  await page.getByRole('button', { name: '离校办理', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.getByRole('checkbox', { name: '我已逐人核对名单、学生ID、姓名和账号，身份确认无误。' }).check()
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await confirmCurrent(page)
+  await close(page)
+  await expect(page.getByRole('button', { name: '恢复在读', exact: true })).toBeVisible()
+  const disabled = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-new', password: 'r79-student-old' } })
+  expect(disabled.status()).toBe(403)
+  await page.getByRole('button', { name: '恢复在读', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.getByLabel('r79 联动学生改名返校班级').fill('3班')
+  await dialog.getByRole('checkbox', { name: '我已逐人核对名单、学生ID、姓名和账号，身份确认无误。' }).check()
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await confirmCurrent(page)
+  await close(page)
+  const restored = (await records(request, headers, 'r79-student-new')).items[0]
+  expect(restored.id).toBe(id); expect(restored.status).toBe('active'); expect(restored.class_number).toBe('3班')
+
+  await page.getByRole('button', { name: '误导入删除', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.getByLabel('误导入核实依据').fill('合成验收记录，已调取原导入文件核实为误导入')
+  await dialog.getByRole('checkbox', { name: '我已调取原文件并核实该记录确为误导入或多余记录。' }).check()
+  await dialog.getByRole('checkbox', { name: '我已逐人核对名单、学生ID、姓名和账号，身份确认无误。' }).check()
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await expect(dialog.getByText('无受影响考试，不重算无关统计。')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('student-r79-deletion-preview.png'), fullPage: true })
+  await confirmCurrent(page, '确认删除')
+  await close(page)
+  expect((await records(request, headers, 'r79-student-new')).total).toBe(0)
+  const history = await (await request.get(base + '/students/tasks?search=r79-student-old', { headers })).json()
+  expect(history.total).toBeGreaterThan(0)
+  await page.getByRole('button', { name: '操作记录', exact: true }).click()
+  await page.getByRole('button', { name: '办理记录 / 待审核任务' }).click()
+  await page.getByLabel('搜索学生操作记录').fill('r79-student-new')
+  await expect(page.getByRole('dialog').locator('.teacher-record strong').filter({ hasText: /^误导入删除$/ })).toBeVisible()
+})
+
+test('r79 real identity review resumes the same archive task and records reviewer basis', async ({ page, request }) => {
+  const headers = await admin(page, request)
+  const record = (await records(request, headers, fixture.users.basic)).items[0]
+  await page.getByLabel('学生关键词').fill(fixture.users.basic)
+  await page.getByRole('button', { name: '档案变更', exact: true }).click()
+  let dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: '下一步：上传文件' }).click()
+  await dialog.getByLabel('上传学生档案变更模板').setInputFiles({ name: 'r79身份待审.xlsx', mimeType: mime, buffer: workbook('archive', [{ ...record.fields, 床号: '42' }]) })
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await expect(page).toHaveURL(/student_task=/)
+  const taskId = new URL(page.url()).searchParams.get('student_task')!
+  await dialog.getByRole('checkbox', { name: '身份存疑', exact: true }).check()
+  await dialog.getByRole('button', { name: '保存核验并提交身份审核' }).click()
+  await expect(dialog.getByRole('heading', { name: '待审核任务 · 运营管理员身份审核' })).toBeVisible()
+  expect((await (await request.get(base + '/students/records/' + record.id, { headers })).json()).fields.床号).toBe('')
+  await dialog.getByLabel(`审核学生${record.name}`).check()
+  await dialog.getByLabel('身份审核依据').fill('已核对合成学生学号、原档案和本次变更文件，确认为本人')
+  await dialog.getByRole('button', { name: '审核通过，返回原流程' }).click()
+  await expect(dialog.getByText('审核已通过', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: '保存核验并提交身份审核' }).click()
+  await confirmCurrent(page, '确认整批更新')
+  expect(new URL(page.url()).searchParams.get('student_task')).toBe(taskId)
+  const completed = await (await request.get(base + '/students/tasks/' + taskId, { headers })).json()
+  expect(completed.reviews[record.id].status).toBe('approved')
+  await page.screenshot({ path: test.info().outputPath('student-r79-reviewed-complete.png'), fullPage: true })
+})
+
+test('r79 real next-year switch checks full-school completeness and requires individual grade approval', async ({ page, request }) => {
+  const headers = await admin(page, request)
+  const all = (await records(request, headers)).items.filter((row: RecordRow) => row.status === 'active')
+  const context = await (await request.get(base + '/students/context', { headers })).json()
+  const values = all.map((row: RecordRow) => ({ 学生ID: row.id, 姓名: row.name, 账号: row.username, 目标年级: '高中一年级', 目标班级号: '8班' }))
+  await page.getByRole('button', { name: '升级/换班', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('radio', { name: /下一学年切换/ }).check()
+  await dialog.getByRole('button', { name: '下一步：上传文件' }).click()
+  await dialog.getByLabel('上传学生升级换班名单').setInputFiles({ name: 'r79全校下一学年.xlsx', mimeType: mime, buffer: workbook('promotion', values) })
+  await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  await dialog.getByRole('checkbox', { name: /我已逐人核对本批名单/ }).check()
+  await dialog.getByRole('button', { name: '保存核验，继续预览' }).click()
+  await dialog.getByRole('checkbox', { name: /我已逐人核对实际毕业名单/ }).check()
+  await dialog.getByRole('button', { name: '重新核验毕业办结与名单完整性' }).click()
+  await expect(dialog.getByRole('heading', { name: '年级异常复核审批' })).toBeVisible()
+  for (const row of all) await dialog.getByLabel(`${row.name}年级异常依据`).fill('合成验收：已人工核对原年级依据并批准本次建档')
+  for (const checkbox of await dialog.getByRole('checkbox', { name: '已复核并审批通过' }).all()) await checkbox.check()
+  await dialog.getByRole('button', { name: '保存审批，下一步：预览' }).click()
+  await page.screenshot({ path: test.info().outputPath('student-r79-academic-switch.png'), fullPage: true })
+  await confirmCurrent(page)
+  expect((await (await request.get(base + '/students/context', { headers })).json()).current_year).toBe(context.next_year)
+  const subjects = await (await request.get('/api/v1/platform/education/school/subjects', { headers })).json()
+  const exams = await (await request.get('/api/v1/platform/education/school/exams', { headers })).json()
+  const historical = await request.get('/api/v1/platform/education/class-analysis', { headers, params: { class_id: all.find((row: RecordRow) => row.id === fixture.student_id)!.class_id, subject_id: subjects.items[0].id, exam_id: exams.items[0].id } })
+  expect(historical.ok()).toBeTruthy()
+  expect((await historical.json()).sample_size).toBe(1)
+})

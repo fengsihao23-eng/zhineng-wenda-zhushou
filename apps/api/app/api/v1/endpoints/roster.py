@@ -14,6 +14,9 @@ from app.db.models.roster import RosterImport
 from app.schemas.roster import RosterKind, RosterUpload, RosterConfirm, RosterAction, TeacherDelete
 from app.services import roster_workbench as roster
 from app.services import teacher_changes
+from app.services import student_roster, student_tasks
+from app.db.models.student_roster import StudentWorkflowTask
+from app.schemas.student_roster import StudentTaskCreate, StudentTaskPrepare, StudentTaskConfirm, StudentTaskReview, StudentTaskCancel
 from app.core.errors import ApiError
 from app.services.roster_excel import student_error_template_bytes, student_template_bytes, teacher_template_bytes
 from app.services.education_common import owned, data
@@ -46,7 +49,9 @@ async def student_error_template(actor=Depends(reader)):
 
 
 @router.get("/{kind}/records")
-async def records(kind: RosterKind, search: str = Query("", max_length=100), phone: str = Query("", max_length=100), class_name: str = Query("", max_length=100), page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+async def records(kind: RosterKind, search: str = Query("", max_length=100), phone: str = Query("", max_length=100), class_name: str = Query("", max_length=100), status: str = Query("", max_length=30), page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    if kind == "students":
+        return await student_roster.listing(db, actor, search, class_name, status, page, page_size)
     return await roster.listing(db, actor, kind, search, phone, class_name, page, page_size)
 
 
@@ -88,7 +93,7 @@ async def batches(kind: RosterKind, search: str = Query("", max_length=100), pag
         query = query.limit(100)
     rows = (await db.execute(query)).all()
     if search:
-        rows = [(row, original) for row, original in rows if search in f"{row.id} {row.filename} {row.change_task_id or ''}" or any(search in f"{r['values'].get('教师姓名', '')} {r['values'].get('教师账号', '')}" for r in row.rows)]
+        rows = [(row, original) for row, original in rows if search in f"{row.id} {row.filename} {row.change_task_id or ''}" or any(search in f"{r['values'].get('教师姓名', r['values'].get('姓名', ''))} {r['values'].get('教师账号', r['values'].get('账号', ''))}" for r in row.rows)]
     total = len(rows)
     if paginated:
         rows = rows[(page - 1) * page_size:page * page_size]
@@ -132,3 +137,80 @@ async def confirm(identifier: UUID, body: RosterConfirm, compact: bool = False, 
 @router.post("/{kind}/records/{identifier}/actions")
 async def lifecycle(kind: RosterKind, identifier: UUID, body: RosterAction, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
     return await write(db, roster.lifecycle(db, actor, kind, identifier, body))
+
+
+@router.get("/students/context")
+async def student_context(actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    return await student_roster.context(db, actor)
+
+
+@router.get("/students/records/{identifier}")
+async def student_detail(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    return await student_roster.detail(db, actor, identifier)
+
+
+@router.get("/students/archive-template")
+async def student_archive_template(student_ids: list[UUID] = Query(default=[], max_length=5000), all_filtered: bool = False, search: str = Query("", max_length=100), class_name: str = Query("", max_length=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    if all_filtered:
+        result = await student_roster.listing(db, actor, search, class_name, "active", 1, 5000)
+        if result["total"] > 5000:
+            raise ApiError(413, "ROSTER_TOO_LARGE", "当前范围超过5000名学生，请缩小筛选后分批导出。")
+        student_ids = [UUID(row["id"]) for row in result["items"]]
+    return excel(await student_roster.archive_template(db, actor, student_ids), "学生档案变更模板.xlsx")
+
+
+@router.get("/students/promotion-template")
+async def student_promotion_template(actor=Depends(reader)):
+    from app.services.roster_excel import STUDENT_PROMOTION_COLUMNS, workbook_bytes
+    return excel(workbook_bytes(STUDENT_PROMOTION_COLUMNS), "学生升级换班名单.xlsx")
+
+
+@router.get("/students/tasks")
+async def student_tasks_list(search: str = Query("", max_length=100), kind: str = Query("", max_length=20), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    return await student_roster.task_listing(db, actor, search, kind, page, page_size)
+
+
+@router.post("/students/tasks")
+async def student_task_create(body: StudentTaskCreate, key: UUID | None = Header(None, alias="Idempotency-Key"), actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, student_tasks.create(db, actor, body, key))
+
+
+@router.get("/students/tasks/{identifier}")
+async def student_task_detail(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    return student_roster.task_view(await owned(db, StudentWorkflowTask, identifier, actor))
+
+
+@router.get("/students/tasks/{identifier}/original")
+async def student_task_original(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    task = await owned(db, StudentWorkflowTask, identifier, actor)
+    if task.original_content is None:
+        raise ApiError(404, "ORIGINAL_FILE_UNAVAILABLE", "该办理事项未上传原文件，可查看办理明细。")
+    response = excel(task.original_content, task.filename)
+    if task.filename.lower().endswith(".xls"):
+        response.headers["content-type"] = "application/vnd.ms-excel"
+    return response
+
+
+@router.get("/students/tasks/{identifier}/errors")
+async def student_task_errors(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    return excel(student_tasks.errors_excel(await owned(db, StudentWorkflowTask, identifier, actor)), "学生办理错误清单.xlsx")
+
+
+@router.post("/students/tasks/{identifier}/prepare")
+async def student_task_prepare(identifier: UUID, body: StudentTaskPrepare, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, student_tasks.prepare(db, actor, identifier, body))
+
+
+@router.post("/students/tasks/{identifier}/review")
+async def student_task_review(identifier: UUID, body: StudentTaskReview, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, student_tasks.review(db, actor, identifier, body))
+
+
+@router.post("/students/tasks/{identifier}/confirm")
+async def student_task_confirm(identifier: UUID, body: StudentTaskConfirm, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, student_tasks.confirm(db, actor, identifier, body))
+
+
+@router.post("/students/tasks/{identifier}/cancel")
+async def student_task_cancel(identifier: UUID, body: StudentTaskCancel, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, student_tasks.cancel(db, actor, identifier, body))

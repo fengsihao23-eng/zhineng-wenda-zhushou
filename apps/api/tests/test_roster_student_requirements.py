@@ -1,4 +1,4 @@
-"""Acceptance for the student additions required by the supplied 0922 HTML."""
+"""Student intake contract, carried forward and updated for the r79 workflow."""
 import io
 import base64
 from copy import deepcopy
@@ -76,7 +76,7 @@ async def test_student_import_rejects_non_normal_status_without_partial_writes(c
     assert issue["row_number"] == 3
     assert issue["error_type"] == "状态非法" and issue["fields"] == "状态"
     assert "仅允许「正常」" in issue["message"]
-    assert all(action in issue["suggestion"] for action in ("休学", "退学", "毕业", "学生列表"))
+    assert all(action in issue["suggestion"] for action in ("离校", "恢复在读", "毕业", "学生列表"))
     await confirm(client, batch, status=409)
     assert await test_db.scalar(select(func.count()).select_from(User).where(User.username.in_(["valid-status-row", "invalid-status-row"]))) == 0
 
@@ -102,11 +102,12 @@ async def test_student_error_workbook_merges_all_errors_for_a_row_into_eight_col
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mutation", ["strip_template_spaces", "add_header_space", "swap_columns"])
+@pytest.mark.parametrize("mutation", ["legacy_device_header_spaces", "add_header_space", "swap_columns"])
 async def test_student_header_must_match_exact_names_and_order(client, test_db, actors, mutation):
     columns = STUDENT_COLUMNS.copy()
-    if mutation == "strip_template_spaces":
-        columns = [column.strip() for column in columns]
+    if mutation == "legacy_device_header_spaces":
+        columns[22] += " "
+        columns[23] += " "
     elif mutation == "add_header_space":
         columns[4] += " "
     else:
@@ -177,7 +178,7 @@ async def test_student_without_class_dictionary_is_displayed_and_filterable(clie
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("action", "target"), [("suspend", "suspended"), ("withdraw", "withdrawn")])
+@pytest.mark.parametrize(("action", "target"), [("depart", "departed")])
 async def test_student_status_actions_keep_history_and_revoke_all_login_paths(client, test_db, actors, action, target):
     exam = await setup_exam(client, actors)
     scores = await add_scores(test_db, actors, exam)
@@ -193,14 +194,17 @@ async def test_student_status_actions_keep_history_and_revoke_all_login_paths(cl
     assert login.status_code == 200, login.text
     tokens = login.json()
 
-    assert (await lifecycle(client, "students", identifier, action=action))["status"] == target
-    assert (await lifecycle(client, "students", identifier, action=action))["status"] == target
+    from test_student_r79 import task_create, task_prepare, task_confirm
+    task = await task_prepare(client, await task_create(client, "status", [item.id], action=action))
+    assert (await task_confirm(client, task))["status"] == "succeeded"
+    assert (await task_confirm(client, task))["status"] == "succeeded"
     assert item.status == user.status == target
     assert user.password_version == original_password_version + 1
-    assert item.profile_fields == original_fields
+    assert all(item.profile_fields[key] == value for key, value in original_fields.items() if key != "状态")
+    assert item.profile_fields["状态"] == "离校"
     for model, score in zip((StudentExamScore, StudentSubjectScore, QuestionScore), scores):
         assert (await test_db.get(model, score.id)).student_id == item.id
-    assert await test_db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == f"education.roster.{action}")) == 1
+    assert await test_db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "education.student.status.confirm")) == 1
     records = (await client.get(P + "/roster/students/records", params={"search": account})).json()
     assert records["total"] == 1 and records["items"][0]["status"] == target
     app.dependency_overrides.pop(get_current_user)

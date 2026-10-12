@@ -152,7 +152,7 @@ export function SchoolWorkbenchPage() {
       {!examOnly && <ReadOnlyNote />}
       {kind !== "teachers" && kind !== "students" && <HelpTip label="使用说明">{examOnly ? "考试管理员可维护本校考试及考试科目。" : "班级名称可填写「高中一年级1班」，外部班级标识可填写「10.1」。师生档案在对应标签中通过 Excel 导入。"}</HelpTip>}
       <div className="wb-tabs">
-        {Object.entries(examOnly ? { exams: tabs.exams } : tabs).filter(([key]) => kind !== "teachers" || key !== "teaching").map(([key, label]) => (
+        {Object.entries(examOnly ? { exams: tabs.exams } : tabs).filter(([key]) => !["teachers", "students"].includes(kind) || key !== "teaching").map(([key, label]) => (
           <button
             key={key}
             className={kind === key ? "active" : ""}

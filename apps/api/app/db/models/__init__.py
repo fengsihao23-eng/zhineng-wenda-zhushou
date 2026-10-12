@@ -7,6 +7,7 @@ from app.db.models.school import School
 from app.db.models.security import TokenRevocation
 from app.db.models.user import User, Role, UserRole
 from app.db.models.student import Student
+from app.db.models.student_roster import StudentYearClass, StudentExamPlacement, StudentWorkflowTask
 from app.db.models.teaching import TeachingAssignment
 from app.db.models.operation_receipt import OperationReceipt
 from app.db.models.exam import Exam, Subject, ExamSubject
@@ -40,6 +41,9 @@ __all__ = [
     "Role",
     "UserRole",
     "Student",
+    "StudentYearClass",
+    "StudentExamPlacement",
+    "StudentWorkflowTask",
     "TeachingAssignment",
     "OperationReceipt",
     "Exam",

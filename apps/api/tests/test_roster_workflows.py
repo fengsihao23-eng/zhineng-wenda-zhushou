@@ -202,32 +202,32 @@ async def test_student_suspected_duplicate_requires_row_confirmation(client, tes
 
 
 @pytest.mark.asyncio
-async def test_student_delete_with_scores_blocks_but_graduation_keeps_history(client, test_db, actors):
+async def test_student_legacy_shortcuts_are_blocked_without_changing_history(client, test_db, actors):
     exam = await setup_exam(client, actors)
     await add_scores(test_db, actors, exam)
     identifier = str(actors["student"].id)
-    await lifecycle(client, "students", identifier, status=409)
-    result = await lifecycle(client, "students", identifier, action="graduate")
-    assert result["status"] == "graduated"
+    await lifecycle(client, "students", identifier, status=422)
+    await lifecycle(client, "students", identifier, action="graduate", status=422)
     item = await test_db.get(Student, actors["student"].id)
-    assert item.status == "graduated"
-    assert (await test_db.get(User, item.user_id)).status == "graduated"
+    assert item.status == "active"
+    assert (await test_db.get(User, item.user_id)).status == "active"
     assert await test_db.scalar(select(func.count()).select_from(StudentExamScore).where(StudentExamScore.student_id == item.id)) == 1
-    assert (await lifecycle(client, "students", identifier, action="graduate"))["status"] == "graduated"
 
 
 @pytest.mark.asyncio
-async def test_student_change_delete_reimport(client, test_db, actors):
+async def test_student_class_change_retains_original_id_and_does_not_delete_reimport(client, test_db, actors):
     await classroom(client)
-    batch = await upload(client, [student("moved-student"), student("kept-student")], "students")
+    batch = await upload(client, [student("moved-student"), student("kept-student", "合成学生乙")], "students")
     done = await confirm(client, batch)
     identifier = done["report"]["imported"][0]["id"]
     assert "parent_binding_count" not in done["report"]
-    await lifecycle(client, "students", identifier)
-    assert await test_db.get(Student, UUID(identifier)) is None
+    await lifecycle(client, "students", identifier, status=422)
+    assert await test_db.get(Student, UUID(identifier)) is not None
     await post(client, "/school/classes", {"external_class_id": "10.2", "name": "高中一年级2班"})
-    changed = await confirm(client, await upload(client, [student("moved-student", 班级号="2班")], "students"))
-    item = await test_db.get(Student, UUID(changed["report"]["imported"][0]["id"]))
+    from test_student_r79 import task_create, task_prepare, task_confirm
+    change = await task_create(client, "promotion", values=[{"学生ID": identifier, "姓名": "合成学生甲", "账号": "moved-student", "目标年级": "高中一年级", "目标班级号": "2班"}])
+    await task_confirm(client, await task_prepare(client, change))
+    item = await test_db.get(Student, UUID(identifier))
     assert item.external_class_id == "10.2"
     assert (await client.get(P + "/roster/students/" + identifier + "/parents")).status_code == 404
     await post(client, "/roster/parents/" + identifier + "/unbind", {}, status=404)

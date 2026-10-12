@@ -33,6 +33,7 @@ from app.db.models.import_batch import ImportBatch, ImportRow, ImportedClass
 from app.db.models.school import School
 from app.db.models.score import QuestionScore, StudentExamScore, StudentSubjectScore
 from app.db.models.student import Student
+from app.db.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -480,6 +481,11 @@ class CsvImportService:
                     name=data["name"],
                 )
                 self.db.add(student)
+            elif student.external_class_id != (data.get("external_class_id") or None):
+                from app.services import student_roster
+                old_user = await self.db.get(User, student.user_id) if student.user_id else None
+                old_fields = student_roster.fields31(student, old_user, school, await student_roster.class_map(self.db, school.id))
+                await student_roster.freeze_history(self.db, student, old_fields, student_roster.current_year(school))
             student.student_no = data.get("student_no")
             student.name = data["name"]
             student.external_class_id = data.get("external_class_id") or None
@@ -629,4 +635,15 @@ class CsvImportService:
             score.knowledge_point_id = _uuid(data.get("knowledge_point_id"))
 
         await self.db.flush()
+        # Pin newly imported scores; previously captured historical placements
+        # are never overwritten by subsequent roster/score synchronisation.
+        from app.services import student_roster
+        classes_by_school = {}
+        for (school_code, _), student in student_by_key.items():
+            school = school_by_code[school_code]
+            if school.id not in classes_by_school:
+                classes_by_school[school.id] = await student_roster.class_map(self.db, school.id)
+            user = await self.db.get(User, student.user_id) if student.user_id else None
+            fields = student_roster.fields31(student, user, school, classes_by_school[school.id])
+            await student_roster.freeze_history(self.db, student, fields, student_roster.current_year(school))
         return len(plan.rows)

@@ -1,0 +1,37 @@
+.student-workbench { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+.workspace-main:has(.student-workbench) .page-heading h1 { font-size: 28px; font-weight: 600; color: #1f2430; letter-spacing: normal; }
+.workspace-main:has(.student-workbench) > .wb-tabs button.active { background: #5348d8; border-color: #5348d8; }
+.student-workbench .teacher-actions { gap: 8px; }
+.student-workbench .teacher-actions button { padding: 9px 14px; }
+.student-workbench .teacher-filters input:first-child { width: 280px; }
+.student-workbench .teacher-filters input:nth-child(2) { width: 190px; }
+.student-workbench .teacher-filters select { width: 145px; border: 1px solid #dcdfea; border-radius: 8px; padding: 8px 12px; background: #fff; color: #3a4150; font: inherit; }
+.student-workbench .student-table { min-width: 1140px; }
+.student-table th:nth-last-child(4), .student-table th:nth-last-child(3), .student-table th:nth-last-child(2) { width: auto; }
+.student-table th:nth-child(2) { width: 18%; }
+.student-table .student-id-cell { max-width: 170px; overflow-wrap: anywhere; color: #657a9e; font-size: 12px; }
+.student-table .teacher-row-actions { gap: 6px; }
+.student-workbench .student-row-inactive td { background: #fafbfe; }
+.student-workbench .student-identity-button { color: #6250da; border-color: #c9c4f5; }
+.student-workbench .student-restore-button { color: #198977; border-color: #b9e5d7; }
+.student-status { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
+.student-status--active { color: #139e82; background: #e6f5ef; }
+.student-status--departed { color: #b47d17; background: #fcf5e6; }
+.student-status--graduated { color: #6c7891; background: #eff0f4; }
+.student-locked { color: #c2483c !important; }
+.student-input-label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 13px; }
+.student-input-label input, .student-input-label select { width: 100%; }
+.student-cleared { color: #c2483c; font-weight: 600; }
+.teacher-dialog .data-table td.student-cleared { color: #c2483c; }
+.teacher-dialog .data-table td.teacher-changed { color: #6250da; }
+.student-review-box { padding: 12px; margin: 16px 0; border: 1px solid #e6dbb8; background: #fffcf4; border-radius: 8px; }
+.student-review-approved { color: #1d7a5c; font-size: 12px; }
+.teacher-dialog .student-delete-confirm { background: #c2483c; border-color: #c2483c; }
+.teacher-dialog .teacher-steps { flex-wrap: wrap; }
+.teacher-dialog:has(.student-review-box) .teacher-steps li { min-width: 90px; }
+@media (max-width: 767px) {
+  .student-workbench .teacher-filters input:first-child, .student-workbench .teacher-filters input:nth-child(2), .student-workbench .teacher-filters select { width: 100%; }
+  .student-workbench .teacher-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .student-workbench .teacher-actions button { padding: 8px 6px; font-size: 12px; }
+  .teacher-dialog .teacher-steps li { flex-basis: 30%; }
+}

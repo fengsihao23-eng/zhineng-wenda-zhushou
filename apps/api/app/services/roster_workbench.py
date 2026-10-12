@@ -55,6 +55,7 @@ def _student_record_key(student, classes_by_id):
             None,
         )
     if classroom is not None:
+        external_class_id = _student_text(classroom.external_class_id)
         compact_name = _student_text(classroom.name).replace(" ", "")
         for label in GRADE_NAMES.values():
             if compact_name.startswith(label):
@@ -102,7 +103,7 @@ async def preflight(db, school_id, kind, rows):
         classes_by_id = {item.id: item for item in classes}
         for existing_student, existing_user in student_rows:
             key = _student_record_key(existing_student, classes_by_id)
-            if all(key):
+            if key[0]:
                 student_matches.setdefault(key, []).append({
                     "id": str(existing_student.id),
                     "name": existing_student.name,
@@ -110,6 +111,14 @@ async def preflight(db, school_id, kind, rows):
                     "grade_class": f"{key[1]} · {key[2]}",
                 })
     seen, issues, suspicious = {}, [], []
+    file_student_matches = {}
+    if kind == "students":
+        for row in rows:
+            key = _student_key(row["values"])
+            if key[0]:
+                file_student_matches.setdefault(key, []).append({"row_number": row["row_number"],
+                    "name": row["values"]["姓名"].strip(), "account": row["values"]["账号"].strip(),
+                    "grade_class": f"{key[1]} · {key[2]}", "source": "file"})
     name_field, account_field = ("教师姓名", "教师账号") if kind == "teachers" else ("姓名", "账号")
     for row in rows:
         values, number = row["values"], row["row_number"]
@@ -125,13 +134,13 @@ async def preflight(db, school_id, kind, rows):
         for field in (name_field, account_field):
             if not values[field].strip():
                 issue("必填缺失", field, f"必填项「{field}」为空", "逐项补填后整表重新上传")
-            elif kind == "teachers" and len(values[field].strip()) > 100:
+            elif len(values[field].strip()) > 100:
                 issue("字段过长", field, f"「{field}」超过账号系统的 100 字限制", "缩短该字段后整表重新上传")
         if account:
             duplicate_type = "教师账号重复" if role == "TEACHER" else "账号重复"
             if account in accounts:
                 existing_message = "与系统已有同类账号重复" if role == "TEACHER" else "与系统已有学生账号重复（库内已存在，账号即登录账号）"
-                issue(duplicate_type, account_field, existing_message, "如需变更，请先在列表删除原记录，再重新导入")
+                issue(duplicate_type, account_field, existing_message, "如需变更，请在教师列表选择对应删除原因" if kind == "teachers" else "修正账号后整表重传；本人资料修改请走档案变更或姓名·账号变更")
             if account in seen:
                 issue(duplicate_type, account_field, f"与本次文件内第 {seen[account]} 行账号重复", "同一账号只保留一行，修正后整表重新上传")
             seen.setdefault(account, number)
@@ -158,18 +167,20 @@ async def preflight(db, school_id, kind, rows):
                     suspicious.append({"row_number": number, "name": name, "account": account, "teaching": teaching, "keep": True, "matches": matches})
         else:
             if values["状态"] != "正常":
-                issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；休学 / 退学 / 毕业停用请在学生列表操作")
+                issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；离校 / 毕业 / 恢复在读请在学生列表办理")
             # Grade and class are retained as student profile data only. The
             # new-student flow deliberately does not require a class dictionary
             # match; an optional match is resolved during the write step.
             key = _student_key(values)
-            if all(key) and student_matches.get(key):
+            same_file = [match for match in file_student_matches.get(key, []) if match["row_number"] != number]
+            matches = student_matches.get(key, []) + same_file
+            if key[0] and matches:
                 suspicious.append({
                     "row_number": number,
                     "name": name,
                     "account": account,
                     "keep": True,
-                    "matches": student_matches[key],
+                    "matches": matches,
                 })
         if messages:
             issues.append(error_row(row, types, fields, messages, suggestions, kind))
@@ -284,7 +295,8 @@ async def confirm(db, actor, identifier, body):
         password_hash = student_passwords.get(number)
         if password_hash is None:
             password_hash = await run_in_threadpool(get_password_hash, username)
-        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=must_change_password, phone=values["手机号码" if teacher else "手机号"] or None)
+        contact = values["手机号码" if teacher else "手机号"]
+        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=must_change_password, phone=(contact or None) if teacher or len(contact) <= 100 else None)
         db.add(user)
         await db.flush()
         if teacher:
@@ -313,6 +325,11 @@ async def confirm(db, actor, identifier, body):
             )
             db.add(student)
             await db.flush()
+            from app.services import student_roster
+            school = await student_roster.school(db, actor.school_id)
+            if not school.current_academic_year:
+                school.current_academic_year = student_roster.current_year(school)
+            await student_roster.year_record(db, student, student_roster.current_year(school), values)
             record_id = student.id
         imported.append({"row_number": number, "id": str(record_id), "account": username})
     item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload
@@ -398,35 +415,6 @@ async def references(db, table_name, identifier, skip=()):
 
 async def lifecycle(db, actor, kind, identifier, body):
     if kind == "teachers":
-        raise ApiError(422, "TEACHER_DELETE_REASON_REQUIRED", "请在教师列表「删除」或「批量删除」核对完整档案并选择删除原因。资料变更会建立专属任务。")
-    else:
-        item = await owned(db, Student, identifier, actor, lock=True)
-        user = await db.get(User, item.user_id) if item.user_id else None
-        allowed = {"delete", "graduate", "suspend", "withdraw"}
-    if body.action not in allowed:
-        raise ApiError(422, "ROSTER_ACTION_INVALID", "该档案不支持此操作。")
-    if user and user.id == actor.user_id:
-        raise ApiError(409, "SELF_ACCOUNT_ACTION", "不能删除或停用当前操作账号。")
-    if body.action == "delete":
-        related = await references(db, "students", item.id)
-        if kind == "students" and user:
-            related += await references(db, "users", user.id, ("students", "user_roles"))
-        if related:
-            raise ApiError(409, "ROSTER_REFERENCED", "删除被拦截：请先移交任教班级或清理成绩、错题等关联；系统不会自动删除历史数据。", details={"references": sorted(set(related))})
-        audit(db, actor, f"roster.{kind}.delete", item)
-        await db.delete(item)
-        await db.flush()
-        if user:
-            await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
-            await db.delete(user)
-        await db.commit()
-        return {"id": str(identifier), "status": "deleted", "message": "原档案已删除，请修改统一 Excel 模板后重新导入。"}
-    target = {"disable": "inactive", "depart": "departed", "graduate": "graduated", "suspend": "suspended", "withdraw": "withdrawn"}[body.action]
-    if item.status != target:
-        item.status = target
-        if user:
-            user.status = target
-            user.password_version += 1
-        audit(db, actor, f"roster.{body.action}", item)
-        await db.commit()
-    return {"id": str(identifier), "status": target, "message": "账号已停用，档案和历史成绩完整保留。"}
+        raise ApiError(422, "TEACHER_DELETE_REASON_REQUIRED", "请在教师列表核对完整档案并选择删除原因。资料变更会建立专属任务。")
+    await owned(db, Student, identifier, actor)
+    raise ApiError(422, "STUDENT_WORKFLOW_REQUIRED", "请在学生档案页通过离校办理或误导入删除核对身份、预览影响并整批确认；学生资料有误须走专用变更流程。")

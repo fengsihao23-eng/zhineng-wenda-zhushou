@@ -1,4 +1,4 @@
-"""Fixed roster contracts from 0922业务流程图_学生批量导入（新增）_V1.html."""
+"""Fixed teacher/student roster contracts from the r79 flow and prototypes."""
 import base64
 import io
 import re
@@ -9,7 +9,10 @@ from openpyxl.styles import Protection
 from app.core.errors import ApiError
 
 TEACHER_COLUMNS = ["学校编号", "学校名称", "部门名称", "教师姓名", "性别", "教师账号", "学工号", "mac地址", "SN码", "状态", "说明", "身份证", "手机号码", "短号", "座机号", "电子邮箱", "备注", "任课年级班级", "班主任年级班级", "教研组长负责年级科目", "年级长负责年级", "是否教务主任", "是否校长", "是否总务主任"]
-STUDENT_COLUMNS = ["学校编号", "学校名称", "年级（1-12）", "班级号", "姓名", "账号", "学号", "班级座号", "性别", "科类", "类别", "中/高考号", "学籍号", "全国学籍号", "准考证号", "身份证", "手机号", "email", "应往届", "状态", "考场号", "考场座位号", "mac地址 ", "SN码 ", "住宿类型", "宿舍类型", "宿舍楼", "楼层", "宿舍号", "床号"]
+STUDENT_COLUMNS = ["学校编号", "学校名称", "年级（1-12）", "班级号", "姓名", "账号", "学号", "班级座号", "性别", "科类", "类别", "中/高考号", "学籍号", "全国学籍号", "准考证号", "身份证", "手机号", "email", "应往届", "状态", "考场号", "考场座位号", "mac地址", "SN码", "住宿类型", "宿舍类型", "宿舍楼", "楼层", "宿舍号", "床号"]
+STUDENT_CHANGE_COLUMNS = STUDENT_COLUMNS + ["学生ID"]
+STUDENT_LOCKED_FIELDS = ["学校编号", "学校名称", "姓名", "账号", "年级（1-12）", "班级号", "状态", "学生ID"]
+STUDENT_PROMOTION_COLUMNS = ["学生ID", "账号", "姓名", "目标年级", "目标班级号"]
 ERROR_COLUMNS = ["行号", "错误类型", "错误字段", "教师姓名", "教师账号", "错误说明", "原始内容", "处理建议"]
 STUDENT_ERROR_COLUMNS = ["行号", "错误类型", "错误字段", "姓名", "账号", "错误说明", "原始内容", "处理建议"]
 COLUMNS = {"teachers": TEACHER_COLUMNS, "students": STUDENT_COLUMNS}
@@ -25,15 +28,15 @@ STUDENT_TEMPLATE_ROWS = [[
 STUDENT_ERROR_TEMPLATE_ROWS = [
     ["行3", "必填缺失", "姓名", "（空）", "YJYZG20259999", "必填项「姓名」为空", "（空）", "补填姓名后整表重新上传"],
     ["行4", "必填缺失", "账号", "李四", "（空）", "必填项「账号」为空", "（空）", "补填账号后整表重新上传"],
-    ["行5", "账号重复", "账号", "王五", "YJYZG20250002", "与系统已有学生账号重复（库内已存在，账号即登录账号）", "YJYZG20250002", "核实是否重复导入；如需修改该学生信息请走「变更（删旧 → 重导）」流程"],
+    ["行5", "账号重复", "账号", "王五", "YJYZG20250002", "与系统已有学生账号重复（库内已存在，账号即登录账号）", "YJYZG20250002", "修改错误账号后整表重传；本人资料修正请走「档案变更」或「姓名·账号变更」"],
     ["行6", "账号重复", "账号", "张六", "YJYZG20250003", "与本次文件内第 5 行的账号重复", "YJYZG20250003", "同一账号只能对应一名学生：保留一行，删除或更换另一行的账号"],
     ["行7", "必填缺失", "姓名、账号", "（空）", "（空）", "同一行存在多个错误：姓名与账号均为空", "（空）", "逐项补填后整表重新上传（同行多个错误合并为一条，错误字段列全部列出）"],
-    ["行8", "状态非法", "状态", "赵七", "YJYZG20250004", "「状态」列取值非法（仅允许「正常」）", "休学", "状态改回「正常」后整表重新上传；休学 / 退学 / 毕业停用不通过导入办理，请到学生列表页用操作按钮处理"],
+    ["行8", "状态非法", "状态", "赵七", "YJYZG20250004", "「状态」列取值非法（仅允许「正常」）", "离校", "状态改回「正常」后整表重新上传；离校 / 毕业 / 恢复在读请在学生列表办理"],
     ["文件", "列结构不符", "—", "—", "—", "列名或列顺序与《学生资料模板.xlsx》不一致（文件级错误，不做行级校验）", "缺列：全国学籍号", "对照现行模板修正表头后整份重新上传"],
 ]
 
 
-def workbook_bytes(headers, rows=(), lock_teacher_id=False):
+def workbook_bytes(headers, rows=(), lock_teacher_id=False, locked_fields=()):
     book = Workbook()
     sheet = book.active
     sheet.title = "资料"
@@ -44,10 +47,10 @@ def workbook_bytes(headers, rows=(), lock_teacher_id=False):
             cell.data_type = "s"
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    if lock_teacher_id:
+    if lock_teacher_id or locked_fields:
         for row in sheet.iter_rows(min_row=2):
             for cell in row:
-                cell.protection = Protection(locked=cell.column == len(headers))
+                cell.protection = Protection(locked=(cell.column == len(headers) if lock_teacher_id else headers[cell.column - 1] in locked_fields))
         sheet.protection.sheet = True
         sheet.protection.autoFilter = False
     for cells in sheet.columns:

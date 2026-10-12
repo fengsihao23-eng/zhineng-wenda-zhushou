@@ -21,9 +21,10 @@ from app.core.config import settings
 from app.db.models.school import School
 from app.db.models.security import TokenRevocation
 from app.db.models.user import User
+from app.db.models.student import Student
 
 # 密码加密上下文
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt", "bcrypt_sha256"], deprecated="auto")
 
 DEMO_USERNAMES = frozenset({
     "student_basic", "student_diagnosis", "student1", "student2",
@@ -45,16 +46,19 @@ async def ensure_account_environment(user: User, db: AsyncSession) -> None:
     """
     if settings.demo_accounts_allowed:
         return
-    is_demo = user.username.casefold() in DEMO_USERNAMES
-    if not is_demo:
-        school_code = await db.scalar(select(School.code).where(School.id == user.school_id))
-        is_demo = bool(school_code and school_code.casefold() == "demo_school")
+    # Typed student identities are issued by the reviewed roster workflows.
+    # Their account format is unrestricted; a legitimate account may happen to
+    # equal a fixture name/default password and still must reach forced reset.
+    formal_student = user.account_type == "student" and bool(await db.scalar(select(Student.id).where(
+        Student.school_id == user.school_id, Student.user_id == user.id)))
+    school_code = await db.scalar(select(School.code).where(School.id == user.school_id))
+    is_demo = bool(school_code and school_code.casefold() == "demo_school") or (user.username.casefold() in DEMO_USERNAMES and not formal_student)
     # Legacy fixtures can have been renamed or attached to another school.
     # Compare against the known development default without exposing hashes
     # or credentials; a migrated default credential must be reset first.
     if not is_demo:
         try:
-            is_demo = _has_default_password(user.password_hash)
+            is_demo = _has_default_password(user.password_hash) and not formal_student
         except (UnknownHashError, ValueError, TypeError):
             is_demo = True  # Unknown stored credentials must not authenticate.
     if is_demo:
@@ -75,6 +79,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """生成密码哈希"""
+    # Student accounts have no format restriction and become the initial
+    # password. Preserve every UTF-8 byte instead of bcrypt's 72-byte truncation.
+    if len(password.encode("utf-8")) > 72:
+        return pwd_context.hash(password, scheme="bcrypt_sha256")
     return pwd_context.hash(password)
 
 

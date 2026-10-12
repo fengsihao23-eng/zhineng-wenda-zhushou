@@ -20,7 +20,7 @@ const reasonName = (value: string) => reasons.find(row => row.value === value)?.
 const maskedPhone = (value: string) => /^1\d{10}$/.test(value) ? `${value.slice(0, 3)}****${value.slice(-4)}` : value || "—";
 const time = (value?: string) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "—";
 
-function TeacherDialog({ title, drawer = false, busy = false, onClose, children, footer }: { title: string; drawer?: boolean; busy?: boolean; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function TeacherDialog({ title, drawer = false, busy = false, onClose, children, footer }: { title: string; drawer?: boolean; busy?: boolean; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   const heading = useId();
   useLayoutEffect(() => { if (!ref.current?.open) ref.current?.showModal(); }, []);
@@ -36,7 +36,7 @@ function TeacherDialog({ title, drawer = false, busy = false, onClose, children,
   </dialog>;
 }
 
-function Download({ path, filename, children }: { path: string; filename: string; children: ReactNode }) {
+export function Download({ path, filename, children }: { path: string; filename: string; children: ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   return <><button type="button" disabled={busy} onClick={async () => {
@@ -57,7 +57,7 @@ function Snapshot({ fields, name, id }: { fields: Record<string, string>; name: 
   </div>;
 }
 
-function Steps({ labels, step }: { labels: string[]; step: number }) {
+export function Steps({ labels, step }: { labels: string[]; step: number }) {
   return <ol className="teacher-steps" aria-label="办理进度">{labels.map((label, index) => <li key={label} aria-current={index + 1 === step ? "step" : undefined} className={index + 1 === step ? "active" : index + 1 < step ? "done" : ""}>{index + 1}. {label}</li>)}</ol>;
 }
 

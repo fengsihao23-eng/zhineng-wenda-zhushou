@@ -19,6 +19,7 @@ class School(Base):
     external_school_id = Column(String(100), comment="外部系统学校ID")
     source_system = Column(String(100), comment="来源系统")
     status = Column(String(20), nullable=False, default="active", comment="状态")
+    current_academic_year = Column(String(20), comment="全校当前学年，仅成功的全校切换更新")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

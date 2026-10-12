@@ -2,7 +2,7 @@
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import load_only
 from app.core.errors import ApiError
-from app.core.access_scope import active_grants, is_teacher_only, scoped, scoped_scores
+from app.core.access_scope import active_grants, is_teacher_only, scoped, scoped_scores, placement_columns
 from app.db.models.import_batch import ImportedClass
 from app.db.models.teaching import TeachingAssignment
 from app.db.models.student import Student
@@ -195,6 +195,8 @@ async def create(db, actor, kind, body, key):
 
 async def update_record(db, actor, kind, identifier, body):
     item = await owned(db, MODELS[kind], identifier, actor, lock=True)
+    if kind == "students" and any(getattr(item, k) != v for k, v in body.model_dump().items()):
+        raise ApiError(422, "STUDENT_WORKFLOW_REQUIRED", "请在学生档案页通过档案变更、姓名·账号变更、升级换班或离校办理核对并确认；不可直接修改锁定字段。")
     if kind != "teaching":
         native_only(item)
     if kind == "teaching":
@@ -387,13 +389,11 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
         )
     ):
         raise ApiError(404, "CLASS_NOT_AVAILABLE", "该班级学科不在任教范围内。")
-    in_class = or_(
-        Student.class_id == class_id,
-        and_(
-            Student.class_id.is_(None),
-            Student.external_class_id == classroom.external_class_id,
-        ),
-    )
+    def exam_class(column):
+        historical_class, historical_external = placement_columns(column)
+        return or_(historical_class == class_id,
+                   and_(historical_class.is_(None), historical_external == classroom.external_class_id))
+    in_class = exam_class(StudentSubjectScore.exam_id)
     base = (
         select(StudentSubjectScore)
         .join(Student, Student.id == StudentSubjectScore.student_id)
@@ -485,7 +485,7 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
             .where(
                 QuestionScore.school_id == actor.school_id,
                 Student.school_id == actor.school_id,
-                in_class,
+                exam_class(QuestionScore.exam_id),
                 QuestionScore.exam_id == exam_id,
                 QuestionScore.subject_id == subject_id,
             )
@@ -551,5 +551,5 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
             for name, v in points.items()
         ],
         "unmapped_question_count": unknown,
-        "note": "按当前班级归属统计；知识点多标签按各标签完整计入，不能相加作为总丢分。掌握状态不由分数推断。",
+        "note": "按考试发生时的班级归属统计；知识点多标签按各标签完整计入，不能相加作为总丢分。掌握状态不由分数推断。",
     }

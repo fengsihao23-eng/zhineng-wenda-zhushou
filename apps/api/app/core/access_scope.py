@@ -1,12 +1,13 @@
 """Single management data-scope policy, including correlated teaching grants."""
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, or_, select, case
 
 from app.db.models.student import Student
 from app.db.models.teaching import TeachingAssignment
 from app.db.models.exam import Subject
 from app.db.models.import_batch import ImportedClass
+from app.db.models.student_roster import StudentExamPlacement
 
 
 def is_city(user):
@@ -38,18 +39,29 @@ def student_ids(user):
     )
 
 
-def assigned_class():
+def placement_columns(exam_id):
+    query = select(StudentExamPlacement.id).where(StudentExamPlacement.school_id == Student.school_id,
+                                                 StudentExamPlacement.student_id == Student.id,
+                                                 StudentExamPlacement.exam_id == exam_id).correlate_except(StudentExamPlacement)
+    historic = exists(query)
+    class_id = query.with_only_columns(StudentExamPlacement.class_id).scalar_subquery()
+    external = query.with_only_columns(StudentExamPlacement.external_class_id).scalar_subquery()
+    return case((historic, class_id), else_=Student.class_id), case((historic, external), else_=Student.external_class_id)
+
+
+def assigned_class(exam_id=None):
     """Support the existing CSV external-class mapping without rewriting it.
 
     An explicit class ID always wins. Only an unbound student can resolve its
     existing external ID through the same-school unique class mapping.
     """
-    return or_(TeachingAssignment.class_id == Student.class_id, and_(
-        Student.class_id.is_(None),
+    class_id, external = (Student.class_id, Student.external_class_id) if exam_id is None else placement_columns(exam_id)
+    return or_(TeachingAssignment.class_id == class_id, and_(
+        class_id.is_(None),
         exists(select(ImportedClass.id).where(
             ImportedClass.id == TeachingAssignment.class_id,
             ImportedClass.school_id == Student.school_id,
-            ImportedClass.external_class_id == Student.external_class_id,
+            ImportedClass.external_class_id == external,
         )),
     ))
 
@@ -65,6 +77,10 @@ def scoped(query, user, school_column):
     if table.name == "students":
         return query.where(table.c.id.in_(student_ids(user)))
     if "student_id" in table.c:
+        if "exam_id" in table.c:
+            historic_ids = select(Student.id).where(Student.school_id == user.school_id, Student.status == "active",
+                exists(select(TeachingAssignment.id).where(*active_grants(user), assigned_class(table.c.exam_id))))
+            return query.where(table.c.student_id.in_(historic_ids))
         return query.where(table.c.student_id.in_(student_ids(user)))
     if table.name == "knowledge_documents":
         return query.where(table.c.subject.in_(
@@ -80,7 +96,7 @@ def scoped_scores(query, user, model):
         # Correlate the subject grant with THIS student's class, never a union
         # of all subjects taught in unrelated classes.
         query = query.where(exists(select(TeachingAssignment.id).join(
-            Student, assigned_class(),
+            Student, assigned_class(model.exam_id),
         ).where(
             *active_grants(user), Student.school_id == user.school_id,
             Student.id == model.student_id,
