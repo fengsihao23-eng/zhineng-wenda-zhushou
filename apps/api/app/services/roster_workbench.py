@@ -1,11 +1,12 @@
 """All-or-nothing roster import, explicit duplicate choices and guarded lifecycle."""
 from uuid import UUID, uuid4
 import asyncio
+import base64
 import re
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select, delete, or_, func
 from app.core.errors import ApiError
-from app.core.security import get_password_hash, verify_password
+from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.models.user import User, Role, UserRole
 from app.db.models.student import Student
@@ -15,7 +16,7 @@ from app.db.models.teaching import TeachingAssignment
 from app.db.models.exam import Subject
 from app.services.education_common import audit, owned, claim, data, digest, now
 from app.services.roster_excel import (
-    COLUMNS, TEACHER_COLUMNS, ERROR_COLUMNS, GRADE_NAMES, parse_excel, error_row,
+    COLUMNS, TEACHER_COLUMNS, TEACHER_CHANGE_COLUMNS, ERROR_COLUMNS, GRADE_NAMES, parse_excel, error_row,
     workbook_bytes, teaching_pairs, class_matches, duty_codes, subject_leadership,
 )
 
@@ -135,32 +136,26 @@ async def preflight(db, school_id, kind, rows):
                 issue(duplicate_type, account_field, f"与本次文件内第 {seen[account]} 行账号重复", "同一账号只保留一行，修正后整表重新上传")
             seen.setdefault(account, number)
         if kind == "teachers":
+            if account and not re.fullmatch(r"1[3-9]\d{9}", account):
+                issue("格式错误", "教师账号", "教师账号须填写完整的 11 位手机号，作为登录账号", "补填完整手机号后整表重新上传")
+            if re.search(r"[*＊•●]", values.get("手机号码", "")):
+                issue("脱敏值不可回传", "手机号码", "手机号码含脱敏字符，不能作为真实联系电话写入", "填写完整联系电话或留空后整表重新上传")
             if values["状态"] != "正常":
                 issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；离职 / 停用请在教师列表操作")
-            pairs = {(s, g) for s, g, _ in teaching_pairs(values["任课年级班级"])}
+            teaching = values["任课年级班级"]
             matches = []
-            if pairs and name:
+            if teaching.strip() and name:
                 for profile in profiles:
                     user = staff.get(profile.id)
-                    shared = pairs & {(s, g) for s, g, _ in teaching_pairs(profile.fields.get("任课年级班级", ""))}
-                    if user and user.display_name == name and shared:
-                        matches.append({"id": str(user.id), "name": user.display_name, "account": user.username, "subjects_grades": [f"{GRADE_NAMES.get(g, g)} / {s}" for s, g in sorted(shared)]})
-                # Existing teachers without an Excel profile still participate.
-                legacy = [u.id for u in existing if u.display_name == name and u.id not in {p.id for p in profiles}]
-                if legacy:
-                    grants = (await db.execute(select(TeachingAssignment, ImportedClass, Subject).join(ImportedClass, ImportedClass.id == TeachingAssignment.class_id).join(Subject, Subject.id == TeachingAssignment.subject_id).where(TeachingAssignment.school_id == school_id, TeachingAssignment.teacher_user_id.in_(legacy)))).all()
-                    for grant, classroom, subject in grants:
-                        shared = [(s, g) for s, g in pairs if s == subject.name and (classroom.external_class_id.startswith(f"{g}.") or classroom.name.startswith(GRADE_NAMES.get(g, "!")))]
-                        if shared:
-                            user = staff[grant.teacher_user_id]
-                            matches.append({"id": str(user.id), "name": user.display_name, "account": user.username, "subjects_grades": [f"{GRADE_NAMES.get(g, g)} / {s}" for s, g in sorted(shared)]})
+                    if user and values[name_field] == profile.fields.get("教师姓名", user.display_name or "") and teaching == profile.fields.get("任课年级班级", ""):
+                        matches.append({"id": str(user.id), "name": user.display_name, "account": user.username, "teaching": teaching, "subjects_grades": [teaching]})
                 if matches:
                     grouped = {}
                     for match in matches:
                         previous = grouped.setdefault(match["id"], {**match, "subjects_grades": []})
                         previous["subjects_grades"] = sorted(set(previous["subjects_grades"] + match["subjects_grades"]))
                     matches = sorted(grouped.values(), key=lambda match: match["id"])
-                    suspicious.append({"row_number": number, "name": name, "account": account, "keep": True, "matches": matches})
+                    suspicious.append({"row_number": number, "name": name, "account": account, "teaching": teaching, "keep": True, "matches": matches})
         else:
             if values["状态"] != "正常":
                 issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；休学 / 退学 / 毕业停用请在学生列表操作")
@@ -179,20 +174,11 @@ async def preflight(db, school_id, kind, rows):
         if messages:
             issues.append(error_row(row, types, fields, messages, suggestions, kind))
     report = {"ok": not issues, "issues": issues, "suspicious": suspicious, "total_rows": len(rows)}
-    if kind == "teachers":
-        deleted = (await db.scalars(select(TeacherDeletion).where(TeacherDeletion.school_id == school_id, TeacherDeletion.reimported_user_id.is_(None)).order_by(TeacherDeletion.deleted_at.desc(), TeacherDeletion.id))).all()
-        by_account = {}
-        for snapshot in deleted:
-            by_account.setdefault(snapshot.account, snapshot)
-        report["reimports"] = [
-            {"row_number": row["row_number"], "snapshot_id": str(by_account[row["values"]["教师账号"].strip()].id), "account": row["values"]["教师账号"].strip()}
-            for row in rows if row["values"]["教师账号"].strip() in by_account
-        ]
     return report
 
 
 def view(item):
-    return {**data(item, "id", "kind", "filename", "content_hash", "status", "revision", "report", "operator_name", "created_at", "confirmed_at"), "columns": COLUMNS[item.kind], "rows": item.rows}
+    return {**data(item, "id", "kind", "filename", "content_hash", "status", "revision", "report", "operator_name", "created_at", "confirmed_at", "change_task_id", "confirmation"), "has_original": item.original_content is not None, "columns": TEACHER_CHANGE_COLUMNS if item.change_task_id else COLUMNS[item.kind], "rows": item.rows}
 
 
 async def upload(db, actor, kind, body, key):
@@ -201,7 +187,7 @@ async def upload(db, actor, kind, body, key):
     if fresh:
         report = {"ok": False, "issues": issues, "suspicious": [], "total_rows": 0} if issues else await preflight(db, actor.school_id, kind, rows)
         operator = await db.get(User, actor.user_id)
-        item = RosterImport(id=identifier, school_id=actor.school_id, kind=kind, filename=body.filename, content_hash=digest(body.content_base64), rows=rows, report=report, status="ready" if report["ok"] else "invalid", created_by=actor.user_id, operator_name=operator.display_name or operator.username)
+        item = RosterImport(id=identifier, school_id=actor.school_id, kind=kind, filename=body.filename, content_hash=digest(body.content_base64), original_content=base64.b64decode(body.content_base64), rows=rows, report=report, status="ready" if report["ok"] else "invalid", created_by=actor.user_id, operator_name=operator.display_name or operator.username)
         db.add(item)
         audit(db, actor, "roster.preflight", item, {"kind": kind, "error_rows": len(report["issues"])})
         await db.commit()
@@ -258,9 +244,14 @@ async def student_password_hashes(rows):
 
 async def confirm(db, actor, identifier, body):
     item = await owned(db, RosterImport, identifier, actor, lock=True)
+    if item.change_task_id:
+        from app.services.teacher_changes import confirm_task_batch
+        return await confirm_task_batch(db, actor, item, body)
+    if body.teacher_replacements:
+        raise ApiError(422, "TEACHER_TASK_REQUIRED", "资料变更须在绑定原教师ID的专属任务内导入；普通导入只新增教师。")
     payload = body.model_dump(mode="json")
     if item.status == "succeeded":
-        previous = {"teacher_replacements": {}, **item.confirmation}
+        previous = {"teacher_replacements": {}, "identity_confirmed": False, "changes_confirmed": False, **item.confirmation}
         if previous != payload:
             raise ApiError(409, "ROSTER_ALREADY_CONFIRMED", "该批次已完成，不能更改保留 / 放弃选择。")
         return view(item)
@@ -279,25 +270,6 @@ async def confirm(db, actor, identifier, body):
     if set(body.duplicate_decisions) != suspects:
         noun = "教师" if item.kind == "teachers" else "学生"
         raise ApiError(422, "DUPLICATE_CONFIRMATION_REQUIRED", f"请逐条确认全部疑似重复{noun}保留或放弃。")
-    row_numbers = {r["row_number"] for r in item.rows}
-    if item.kind == "teachers" and checked.get("reimports", []) != item.report.get("reimports", []):
-        raise ApiError(409, "REIMPORT_CHANGED", "删除记录在预校验后发生变化，请重新上传核对。")
-    replacement_ids = {row["row_number"]: UUID(row["snapshot_id"]) for row in checked.get("reimports", []) if body.duplicate_decisions.get(row["row_number"]) is not False}
-    if (body.teacher_replacements and item.kind != "teachers") or set(body.teacher_replacements) - row_numbers:
-        raise ApiError(422, "REIMPORT_ROWS_INVALID", "原教师记录只能关联本批次教师行。")
-    replacement_ids.update(body.teacher_replacements)
-    if len(set(replacement_ids.values())) != len(replacement_ids) or any(body.duplicate_decisions.get(n) is False for n in replacement_ids):
-        raise ApiError(422, "REIMPORT_ROWS_INVALID", "每条删除记录只能用于一名保留导入的教师。")
-    replacements = {}
-    # Stable lock order prevents two batches from consuming the same snapshot.
-    for number, snapshot_id in sorted(replacement_ids.items(), key=lambda pair: str(pair[1])):
-        snapshot = await owned(db, TeacherDeletion, snapshot_id, actor, lock=True)
-        if snapshot.reimported_user_id is not None:
-            raise ApiError(409, "TEACHER_ALREADY_REIMPORTED", "该原教师已重导，请重新核对删除记录。")
-        original = await owned(db, User, snapshot.user_id, actor, lock=True)
-        if original.status != "deleted":
-            raise ApiError(409, "TEACHER_NOT_DELETED", "请先删除原教师档案再重新导入。")
-        replacements[number] = (snapshot, original)
     classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == actor.school_id, ImportedClass.status == "active"))).all() if item.kind == "students" else []
     student_passwords = await student_password_hashes(item.rows) if item.kind == "students" else {}
     imported, skipped, unresolved, changed = [], [], [], 0
@@ -308,15 +280,8 @@ async def confirm(db, actor, identifier, body):
             continue
         teacher = item.kind == "teachers"
         username = values["教师账号" if teacher else "账号"].strip()
-        replacement = replacements.get(number)
         must_change_password = True
         password_hash = student_passwords.get(number)
-        if replacement:
-            snapshot, original = replacement
-            initial_password = await run_in_threadpool(verify_password, snapshot.account, original.password_hash)
-            must_change_password = original.must_change_password or initial_password
-            if not initial_password:
-                password_hash = original.password_hash
         if password_hash is None:
             password_hash = await run_in_threadpool(get_password_hash, username)
         user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=must_change_password, phone=values["手机号码" if teacher else "手机号"] or None)
@@ -331,10 +296,6 @@ async def confirm(db, actor, identifier, body):
             if refs:
                 unresolved.append({"row_number": number, "references": refs})
             record_id = user.id
-            if replacement:
-                snapshot.reimported_user_id, snapshot.reimported_at = user.id, now()
-                changed += 1
-                audit(db, actor, "roster.teacher.reimport", user, {"deletion_id": str(snapshot.id), "original_user_id": str(original.id), "password_preserved": not initial_password})
         else:
             await grant_roles(db, user, ["STUDENT"])
             classroom = await resolve_student_class(db, actor.school_id, values, classes)
@@ -378,7 +339,7 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
         for teacher_id, name in grants:
             grants_by_teacher.setdefault(teacher_id, set()).add(name)
         for user, profile in rows:
-            fields = (profile.fields or {}) if profile else {}
+            fields = (profile.fields or {}) if profile else {**dict.fromkeys(TEACHER_COLUMNS, ""), "教师姓名": user.display_name or user.username, "教师账号": user.username, "手机号码": user.phone or "", "状态": "正常"}
             # Imported profiles show the workbook cell. Leadership grants can cover
             # an entire grade and must not be presented as classes taught in Excel.
             display_class = fields.get("任课年级班级", "") if profile else "、".join(sorted(grants_by_teacher.get(user.id, ())))
@@ -390,20 +351,27 @@ async def listing(db, actor, kind, search="", phone="", class_name="", page=1, p
             fields = student.profile_fields or {}
             saved_class_name = f"{_student_text(fields.get('年级（1-12）'))}{_student_text(fields.get('班级号'))}"
             items.append({**data(student, "id", "name", "status", "user_id", "student_no", "source_system"), "username": user.username if user else "", "phone": fields.get("手机号", ""), "class_name": classroom.name if classroom else saved_class_name, "fields": fields})
-    filtered = [i for i in items if (not search or search in (i["name"] or "") or search in i["username"]) and (not phone or phone in i["phone"]) and (not class_name or class_name in i["class_name"] or class_name in i["fields"].get("任课年级班级", ""))]
+    filtered = [i for i in items if (not search or search in (i["name"] or "") or search in i["username"] or (kind == "teachers" and search in i["phone"])) and (not phone or phone in i["phone"]) and (not class_name or class_name in i["class_name"] or class_name in i["fields"].get("任课年级班级", ""))]
     return {"items": filtered[(page - 1) * page_size:page * page_size], "total": len(filtered), "page": page, "page_size": page_size}
 
 
 def deletion_view(snapshot):
-    return data(snapshot, "id", "user_id", "teacher_name", "account", "fields", "duties", "deleted_by", "operator_name", "deleted_at", "reimported_user_id", "reimported_at")
+    return {**data(snapshot, "id", "user_id", "teacher_name", "account", "fields", "duties", "deleted_by", "operator_name", "deleted_at", "reimported_user_id", "reimported_at", "reason", "reason_note", "operation_id", "task_id", "updated_fields"), "task_status": ("succeeded" if snapshot.reimported_at else "pending") if snapshot.task_id else None}
 
 
-async def deletion_history(db, actor, search="", available=False, page=1, page_size=30):
+async def deletion_history(db, actor, search="", available=False, page=1, page_size=30, reason=""):
     query = select(TeacherDeletion).where(TeacherDeletion.school_id == actor.school_id)
     if search:
-        query = query.where(or_(TeacherDeletion.teacher_name.contains(search, autoescape=True), TeacherDeletion.account.contains(search, autoescape=True)))
+        from sqlalchemy import cast, String
+        try:
+            identifier = UUID(search)
+        except ValueError:
+            identifier = None
+        query = query.where(or_(TeacherDeletion.teacher_name.contains(search, autoescape=True), TeacherDeletion.account.contains(search, autoescape=True), TeacherDeletion.operation_id == identifier if identifier else cast(TeacherDeletion.operation_id, String).contains(search, autoescape=True), TeacherDeletion.task_id == identifier if identifier else cast(TeacherDeletion.task_id, String).contains(search, autoescape=True), TeacherDeletion.task_id.in_(select(RosterImport.change_task_id).where(RosterImport.school_id == actor.school_id, or_(RosterImport.filename.contains(search, autoescape=True), RosterImport.id == identifier if identifier else cast(RosterImport.id, String).contains(search, autoescape=True))))))
+    if reason:
+        query = query.where(TeacherDeletion.reason == reason)
     if available:
-        query = query.where(TeacherDeletion.reimported_user_id.is_(None))
+        query = query.where(TeacherDeletion.task_id.is_not(None), TeacherDeletion.reimported_user_id.is_(None))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (await db.scalars(query.order_by(TeacherDeletion.deleted_at.desc(), TeacherDeletion.id).offset((page - 1) * page_size).limit(page_size))).all()
     return {"items": [deletion_view(row) for row in rows], "total": total, "page": page, "page_size": page_size}
@@ -430,11 +398,7 @@ async def references(db, table_name, identifier, skip=()):
 
 async def lifecycle(db, actor, kind, identifier, body):
     if kind == "teachers":
-        item = await owned(db, User, identifier, actor, lock=True)
-        if not await db.scalar(select(UserRole.user_id).where(UserRole.user_id == identifier, UserRole.school_id == actor.school_id, UserRole.user_id.in_(role_users(actor.school_id, "TEACHER")))):
-            raise ApiError(404, "TEACHER_NOT_AVAILABLE", "教师档案不存在。")
-        user = item
-        allowed = {"delete", "disable", "depart"}
+        raise ApiError(422, "TEACHER_DELETE_REASON_REQUIRED", "请在教师列表「删除」或「批量删除」核对完整档案并选择删除原因。资料变更会建立专属任务。")
     else:
         item = await owned(db, Student, identifier, actor, lock=True)
         user = await db.get(User, item.user_id) if item.user_id else None
@@ -443,37 +407,15 @@ async def lifecycle(db, actor, kind, identifier, body):
         raise ApiError(422, "ROSTER_ACTION_INVALID", "该档案不支持此操作。")
     if user and user.id == actor.user_id:
         raise ApiError(409, "SELF_ACCOUNT_ACTION", "不能删除或停用当前操作账号。")
-    if kind == "teachers" and user.status == "deleted":
-        if body.action != "delete":
-            raise ApiError(409, "TEACHER_DELETED", "该教师已删除，请通过 Excel 重新导入。")
-        return {"id": str(identifier), "status": "deleted", "message": "原档案已删除，删除快照和历史数据已保留。"}
-    if body.action == "delete" and kind == "teachers":
-        profile = await db.get(TeacherProfile, user.id)
-        fields = {column: (profile.fields.get(column, "") if profile else "") for column in TEACHER_COLUMNS}
-        if not profile:
-            fields["教师姓名"], fields["教师账号"] = user.display_name or user.username, user.username
-            fields["手机号码"] = user.phone or ""
-        operator = await db.get(User, actor.user_id)
-        snapshot = TeacherDeletion(id=uuid4(), school_id=actor.school_id, user_id=user.id, teacher_name=user.display_name or user.username, account=user.username, fields=fields, duties=profile.duties if profile else ["TEACHER"], deleted_by=actor.user_id, operator_name=operator.display_name or operator.username)
-        db.add(snapshot)
-        audit(db, actor, "roster.teachers.delete", user, {"deletion_id": str(snapshot.id), "account": user.username})
-        # Keep every historical FK and teaching row intact, but release the login.
-        user.username, user.status = f"__deleted_teacher_{user.id.hex}", "deleted"
-        user.password_version += 1
-        await db.commit()
-        return {"id": str(identifier), "status": "deleted", "deletion_id": str(snapshot.id), "message": "原档案已删除，账号已释放；完整删除快照、历史任教和成绩均保留。请更新 Excel 后重导。"}
     if body.action == "delete":
-        related = await references(db, "users" if kind == "teachers" else "students", item.id, ("user_roles", "teacher_profiles") if kind == "teachers" else ())
+        related = await references(db, "students", item.id)
         if kind == "students" and user:
             related += await references(db, "users", user.id, ("students", "user_roles"))
         if related:
             raise ApiError(409, "ROSTER_REFERENCED", "删除被拦截：请先移交任教班级或清理成绩、错题等关联；系统不会自动删除历史数据。", details={"references": sorted(set(related))})
         audit(db, actor, f"roster.{kind}.delete", item)
-        if kind == "teachers":
-            await db.execute(delete(TeacherProfile).where(TeacherProfile.id == item.id))
-        else:
-            await db.delete(item)
-            await db.flush()
+        await db.delete(item)
+        await db.flush()
         if user:
             await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
             await db.delete(user)

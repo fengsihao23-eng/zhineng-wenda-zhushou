@@ -1,0 +1,98 @@
+import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+
+const fixture = JSON.parse(readFileSync(process.env.QA_FIXTURE_PATH!, 'utf8'))
+const root = path.resolve(__dirname, '../..')
+const base = '/api/v1/platform/education/roster'
+const workbook = (rows: Record<string, string>[]) => execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import json,sys,base64; from app.services.roster_excel import TEACHER_COLUMNS,workbook_bytes; rows=json.load(sys.stdin); print(base64.b64encode(workbook_bytes(TEACHER_COLUMNS,[[r.get(c, "") for c in TEACHER_COLUMNS] for r in rows])).decode())'], { input: JSON.stringify(rows), env: { ...process.env, PYTHONPATH: path.join(root, 'apps/api') } }).toString().trim()
+
+test('supplied r79: real bulk change keeps original IDs, restores accounts and persists versions', async ({ page, request }) => {
+  const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
+  expect(login.ok()).toBeTruthy()
+  const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
+  const initial = [
+    { 教师姓名: 'r79 联动教师甲', 教师账号: '18810000001', 手机号码: '18810000001', 状态: '正常', 任课年级班级: '数学:10.1;' },
+    { 教师姓名: 'r79 联动教师乙', 教师账号: '18810000002', 手机号码: '', 状态: '正常', 说明: '学校管理员;考试管理员;班主任' },
+  ]
+  const upload = await request.post(base + '/teachers/imports', { headers, data: { filename: 'r79联动新增.xlsx', content_base64: workbook(initial) } })
+  expect(upload.ok()).toBeTruthy()
+  const batch = await upload.json()
+  const confirmed = await request.post(base + `/imports/${batch.id}/confirm`, { headers, data: { expected_revision: batch.revision } })
+  expect(confirmed.ok()).toBeTruthy()
+  const originals = (await confirmed.json()).report.imported
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(fixture.users.admin)
+  await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+  await page.goto('/admin/school?tab=teachers')
+  await page.getByLabel('教师关键词').fill('r79 联动教师')
+  await expect(page.locator('.teacher-table tbody tr')).toHaveCount(2)
+  await page.getByLabel('选择本页全部教师').check()
+  await page.getByRole('button', { name: '批量删除（2）' }).click()
+  const drawer = page.getByRole('dialog', { name: '删除教师档案' })
+  await drawer.getByRole('radio', { name: /变更前删除/ }).check()
+  await drawer.getByRole('checkbox').check()
+  await drawer.getByRole('button', { name: '确认删除' }).click()
+  await drawer.getByRole('button', { name: '立即上传更新文件' }).click()
+  const modal = page.getByRole('dialog', { name: '教师专属变更任务' })
+  await expect(modal.getByText('任务内原教师 2 名', { exact: true })).toBeVisible()
+  const taskId = new URL(page.url()).searchParams.get('teacher_task')!
+  const template = await request.get(base + `/teachers/change-tasks/${taskId}/template`, { headers })
+  expect(template.ok()).toBeTruthy()
+  const updated = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook; b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));s=b.active;s.cell(2,4).value += "更新";s.cell(2,6).value="18810000003";s.cell(2,13).value="020-12345678";b.save(sys.stdout.buffer)'], { input: await template.body() })
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79联动变更.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: updated })
+  await modal.getByRole('button', { name: '开始预校验' }).click()
+  await expect(modal.getByText(/预校验通过，共 2 行/)).toBeVisible()
+  await modal.getByRole('button', { name: '下一步：指定对应关系' }).click()
+  const task = await (await request.get(base + `/teachers/change-tasks/${taskId}`, { headers })).json()
+  for (const row of task.batches[0].rows) await modal.getByLabel(`第${row.row_number}行原教师`).selectOption(row.values.教师ID)
+  await modal.getByRole('checkbox', { name: '我已逐行核实对应关系身份真实、准确。' }).check()
+  await modal.getByRole('button', { name: '下一步：预览变更' }).click()
+  await expect(modal.getByRole('button', { name: '确认整批提交' })).toBeDisabled()
+  await modal.getByRole('checkbox', { name: '我已核对对应关系及全部变更内容，确认整批提交。' }).check()
+  await modal.getByRole('button', { name: '确认整批提交' }).click()
+  await expect(modal.getByRole('heading', { name: '变更任务已完成' })).toBeVisible()
+  await expect(modal).toContainText('成功 2 条')
+  const completed = await (await request.get(base + `/teachers/change-tasks/${taskId}`, { headers })).json()
+  expect(completed.status).toBe('succeeded')
+  expect(new Set(completed.batches[0].report.imported.map((row: any) => row.id))).toEqual(new Set(originals.map((row: any) => row.id)))
+  expect(completed.snapshots.every((row: any) => row.updated_fields && row.reimported_user_id === row.user_id)).toBeTruthy()
+  const newLogin = await request.post('/api/v1/auth/login', { data: { username: '18810000003', password: '18810000003', identity_id: completed.batches[0].report.imported.find((row: any) => row.account === '18810000003').id } })
+  expect(newLogin.ok()).toBeTruthy()
+  expect((await newLogin.json()).user.must_change_password).toBe(true)
+  await page.screenshot({ path: test.info().outputPath('teacher-r79-real-task-complete.png'), fullPage: true })
+  await modal.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '操作记录', exact: true }).click()
+  await page.getByRole('tab', { name: '删除快照（含变更任务）' }).click()
+  await expect(page.getByRole('dialog').getByText(/任务已完成/).first()).toBeVisible()
+})
+
+test('supplied r79: real import blocks wrong headers and rejects returning masked contact values', async ({ page, request }) => {
+  const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
+  const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
+  const content = Buffer.from(workbook([{ 教师姓名: 'r79 校验教师', 教师账号: '18810000004', 手机号码: '188****0004', 状态: '正常' }]), 'base64')
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(fixture.users.admin)
+  await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+  await page.goto('/admin/school?tab=teachers')
+  await page.getByRole('button', { name: '导入教师', exact: true }).click()
+  const modal = page.getByRole('dialog', { name: '导入教师（Excel 批量新增）' })
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79脱敏值错误.xlsx', mimeType: 'application/octet-stream', buffer: content })
+  await modal.getByRole('button', { name: '开始预校验' }).click()
+  await expect(modal.getByText('校验失败，整批退回', { exact: true })).toBeVisible()
+  await expect(modal.getByText(/手机号码含脱敏字符/)).toBeVisible()
+  await expect(modal.getByRole('button', { name: '下一步：疑似重复确认' })).toHaveCount(0)
+  await modal.getByRole('button', { name: '重新上传', exact: true }).click()
+  const wrongHeaders = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook;b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));b.active.cell(1,4).value="姓名";b.save(sys.stdout.buffer)'], { input: content })
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79表头错误.xlsx', mimeType: 'application/octet-stream', buffer: wrongHeaders })
+  await modal.getByRole('button', { name: '开始预校验' }).click()
+  await expect(modal.getByText('文件整体', { exact: true })).toBeVisible()
+  await expect(modal.getByText(/列名或列顺序与资料模板不一致/)).toBeVisible()
+  const records = await (await request.get(base + '/teachers/records?search=18810000004', { headers })).json()
+  expect(records.total).toBe(0)
+})

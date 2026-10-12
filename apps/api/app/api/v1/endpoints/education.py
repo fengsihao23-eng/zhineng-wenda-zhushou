@@ -171,7 +171,7 @@ async def teacher_update(
     actor=Depends(writer),
     db: AsyncSession = Depends(get_db),
 ):
-    raise ApiError(409, "ROSTER_REIMPORT_REQUIRED", "教师变更须先删除原档案，再修改 Excel 重新导入；离职 / 停用请使用列表操作。")
+    raise ApiError(409, "ROSTER_REIMPORT_REQUIRED", "教师资料变更须在列表选择「变更前删除」，再在专属任务内上传更新文件；离职 / 停用请选择相应删除原因。")
 
 
 @router.post("/school/subjects")

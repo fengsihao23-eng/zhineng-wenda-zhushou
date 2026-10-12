@@ -24,7 +24,7 @@ async def test_compact_roster_upload_returns_batch_reference_only(client, actors
     from app.services.roster_excel import TEACHER_COLUMNS
 
     columns = columns or TEACHER_COLUMNS
-    rows = [row_factory(f"compact-{kind}-{index}") for index in range(120)]
+    rows = [row_factory(f"1390000{index:04d}" if kind == "teachers" else f"compact-{kind}-{index}") for index in range(120)]
     content = workbook_bytes(columns, [[row.get(field, "") for field in columns] for row in rows])
     response = await client.post(
         P + f"/roster/{kind}/imports?compact=true",
@@ -38,7 +38,7 @@ async def test_compact_roster_upload_returns_batch_reference_only(client, actors
     assert detail.status_code == 200
     assert detail.json()["report"]["total_rows"] == 120
     assert len(detail.content) > len(response.content) * 100
-    assert detail.json()["rows"][0]["values"]["账号" if kind == "students" else "教师账号"] == f"compact-{kind}-0"
+    assert detail.json()["rows"][0]["values"]["账号" if kind == "students" else "教师账号"] == ("13900000000" if kind == "teachers" else f"compact-{kind}-0")
 
 
 @pytest.mark.asyncio
@@ -222,8 +222,8 @@ async def test_student_status_actions_are_school_admin_only_and_never_apply_to_t
     denied = await client.post(P + f"/roster/students/records/{identifier}/actions", json={"action": action, "confirmed": False})
     assert denied.status_code == 422
     assert (await test_db.get(Student, UUID(identifier))).status == "active"
-    done = await confirm(client, await upload(client, [teacher("teacher-student-action")]))
+    done = await confirm(client, await upload(client, [teacher("13800000034")]))
     teacher_id = done["report"]["imported"][0]["id"]
     result = await lifecycle(client, "teachers", teacher_id, action=action, status=422)
-    assert result["error"]["code"] == "ROSTER_ACTION_INVALID"
+    assert result["error"]["code"] == "TEACHER_DELETE_REASON_REQUIRED"
     assert (await test_db.get(User, UUID(teacher_id))).status == "active"

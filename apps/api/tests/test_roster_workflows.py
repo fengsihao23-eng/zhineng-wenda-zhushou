@@ -13,7 +13,7 @@ from app.services.roster_excel import TEACHER_COLUMNS, STUDENT_COLUMNS, workbook
 from test_education_workbench import actors, post, setup_exam, add_scores, P  # noqa: F401
 
 
-def teacher(account="teacher-a", name="合成教师甲", **values):
+def teacher(account="13800000033", name="合成教师甲", **values):
     return {"教师账号": account, "教师姓名": name, "状态": "正常", **values}
 
 
@@ -63,40 +63,40 @@ async def test_template_contract_and_file_level_rejection(client, test_db, actor
 
 
 @pytest.mark.asyncio
-async def test_light_preflight_merges_row_errors_and_keeps_masked_phone(client, test_db, actors):
-    batch = await upload(client, [teacher("", "", 状态="离职"), teacher("same"), teacher("same"), teacher("other", 手机号码="131****7000", 任课年级班级="体育:99.999;")])
+async def test_preflight_merges_errors_and_rejects_masked_phone(client, test_db, actors):
+    batch = await upload(client, [teacher("", "", 状态="离职"), teacher("13800000026"), teacher("13800000026"), teacher("13800000021", 手机号码="131****7000", 任课年级班级="体育:99.999;")])
     issues = batch["report"]["issues"]
-    assert len(issues) == 2
+    assert len(issues) == 3
     assert issues[0]["fields"] == "教师姓名、教师账号、状态"
     assert "第 3 行" in issues[1]["message"]
     download = await client.get(P + f"/roster/imports/{batch['id']}/errors")
     book = load_workbook(io.BytesIO(download.content))
-    assert book.active.max_row == 3 and book.active.max_column == 8
+    assert book.active.max_row == 4 and book.active.max_column == 8
     book.close()
     await confirm(client, batch, status=409)
-    assert await test_db.scalar(select(User).where(User.username == "other")) is None
-    good = await upload(client, [teacher("other", 手机号码="131****7000", 任课年级班级="体育:99.999;")])
+    assert await test_db.scalar(select(User).where(User.username == "13800000021")) is None
+    good = await upload(client, [teacher("13800000021", 手机号码="13100007000", 任课年级班级="体育:99.999;")])
     assert good["report"]["ok"]
     done = await confirm(client, good)
     assert done["report"]["success_count"] == 1
     assert done["report"]["unresolved_teaching"]
     profile = await test_db.get(TeacherProfile, UUID(done["report"]["imported"][0]["id"]))
-    assert profile.fields["手机号码"] == "131****7000" and profile.fields["学工号"] == ""
-    duplicate = await upload(client, [teacher("other")])
+    assert profile.fields["手机号码"] == "13100007000" and profile.fields["学工号"] == ""
+    duplicate = await upload(client, [teacher("13800000021")])
     assert duplicate["status"] == "invalid"
 
 
 @pytest.mark.asyncio
 async def test_teacher_uniqueness_only_within_teachers_and_login_type(client, test_db, actors):
     await classroom(client)
-    s = await confirm(client, await upload(client, [student("shared-account")], "students"))
-    t = await confirm(client, await upload(client, [teacher("shared-account")]))
+    s = await confirm(client, await upload(client, [student("13800000029")], "students"))
+    t = await confirm(client, await upload(client, [teacher("13800000029")]))
     assert s["report"]["success_count"] == t["report"]["success_count"] == 1
-    ambiguous = await client.post("/api/v1/auth/login", json={"username": "shared-account", "password": "shared-account"})
+    ambiguous = await client.post("/api/v1/auth/login", json={"username": "13800000029", "password": "13800000029"})
     assert ambiguous.status_code == 409
     assert {identity["account_type"] for identity in ambiguous.json()["error"]["details"]["identities"]} == {"teacher", "student"}
     for kind, role in [("teacher", "TEACHER"), ("student", "STUDENT")]:
-        response = await client.post("/api/v1/auth/login", json={"username": "shared-account", "password": "shared-account", "account_type": kind})
+        response = await client.post("/api/v1/auth/login", json={"username": "13800000029", "password": "13800000029", "account_type": kind})
         assert response.status_code == 200, response.text
         assert role in response.json()["user"]["roles"]
         assert response.json()["user"]["must_change_password"]
@@ -104,66 +104,41 @@ async def test_teacher_uniqueness_only_within_teachers_and_login_type(client, te
 
 @pytest.mark.asyncio
 async def test_suspects_require_each_choice_and_never_silently_disappear(client, test_db, actors):
-    await confirm(client, await upload(client, [teacher("old", 任课年级班级="数学:10.1;")]))
-    batch = await upload(client, [teacher("keep", 任课年级班级="数学:10.2;", 手机号码="different"), teacher("skip", 任课年级班级="数学:10.3;"), teacher("blank"), teacher("other-grade", 任课年级班级="数学:11.1;")])
+    await confirm(client, await upload(client, [teacher("13800000020", 任课年级班级="数学:10.1;")]))
+    batch = await upload(client, [teacher("13800000018", 任课年级班级="数学:10.1;", 手机号码="different"), teacher("13800000030", 任课年级班级="数学:10.1;"), teacher("13800000003"), teacher("13800000022", 任课年级班级="数学:11.1;")])
     assert [s["row_number"] for s in batch["report"]["suspicious"]] == [2, 3]
     assert all(s["keep"] for s in batch["report"]["suspicious"])
     await confirm(client, batch, status=422)
-    assert await test_db.scalar(select(User).where(User.username == "keep")) is None
+    assert await test_db.scalar(select(User).where(User.username == "13800000018")) is None
     result = await confirm(client, batch, duplicate_decisions={2: True, 3: False})
     assert result["report"]["success_count"] == 3 and result["report"]["skipped_rows"] == [3]
     replay = await confirm(client, batch, duplicate_decisions={2: True, 3: False})
     assert replay["report"] == result["report"]
     await confirm(client, batch, duplicate_decisions={2: False, 3: True}, status=409)
-    assert await test_db.scalar(select(User).where(User.username == "skip")) is None
+    assert await test_db.scalar(select(User).where(User.username == "13800000030")) is None
 
 
 @pytest.mark.asyncio
 async def test_confirm_revalidates_before_any_write(client, test_db, actors):
-    first = await upload(client, [teacher("raced"), teacher("unwritten", "另一教师")])
-    await confirm(client, await upload(client, [teacher("raced")]))
+    first = await upload(client, [teacher("13800000024"), teacher("13800000035", "另一教师")])
+    await confirm(client, await upload(client, [teacher("13800000024")]))
     await confirm(client, first, status=409)
-    assert await test_db.scalar(select(User).where(User.username == "unwritten")) is None
-
-
-@pytest.mark.asyncio
-async def test_roles_grants_and_delete_preserves_history_reimport(client, test_db, actors):
-    await classroom(client)
-    body = teacher("scoped-teacher", 说明="班主任(高中一年级1班)\n任课教师", 任课年级班级="数学:10.1;", 班主任年级班级="10.1")
-    result = await confirm(client, await upload(client, [body]))
-    identifier = result["report"]["imported"][0]["id"]
-    profile = await test_db.get(TeacherProfile, UUID(identifier))
-    assert "HOMEROOM_TEACHER" in profile.duties
-    grant = await test_db.scalar(select(TeachingAssignment).where(TeachingAssignment.teacher_user_id == UUID(identifier)))
-    assert grant is not None
-    deletion = await lifecycle(client, "teachers", identifier)
-    assert (await test_db.get(User, UUID(identifier))).status == "deleted"
-    assert grant.teacher_user_id == UUID(identifier)
-    snapshot = (await client.get(P + f"/roster/teachers/deletions/{deletion['deletion_id']}")).json()
-    assert snapshot["fields"] == profile.fields
-    assert snapshot["teaching_history"][0]["id"] == str(grant.id)
-    assert (await client.get(P + "/roster/teachers/records?search=scoped-teacher")).json()["total"] == 0
-    changed = await confirm(client, await upload(client, [teacher("scoped-teacher", "变更后的教师")]))
-    assert changed["report"]["success_count"] == changed["report"]["changed_count"] == 1
-    snapshot_after = (await client.get(P + f"/roster/teachers/deletions/{deletion['deletion_id']}")).json()
-    assert snapshot_after["fields"] == profile.fields
-    assert snapshot_after["reimported_user_id"] == changed["report"]["imported"][0]["id"]
-    assert await test_db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "education.roster.teachers.delete")) == 1
+    assert await test_db.scalar(select(User).where(User.username == "13800000035")) is None
 
 
 @pytest.mark.asyncio
 async def test_first_login_forced_change_and_password_revokes_old_tokens(client, actors):
-    result = await confirm(client, await upload(client, [teacher("first-login")]))
+    result = await confirm(client, await upload(client, [teacher("13800000014")]))
     app.dependency_overrides.pop(get_current_user)
-    response = await client.post("/api/v1/auth/login", json={"username": "first-login", "password": "first-login"})
+    response = await client.post("/api/v1/auth/login", json={"username": "13800000014", "password": "13800000014"})
     tokens = response.json()
     headers = {"Authorization": "Bearer " + tokens["access_token"]}
     assert (await client.get("/api/v1/auth/me", headers=headers)).json()["must_change_password"]
     blocked = await client.get(P + "/school/classes", headers=headers)
     assert blocked.status_code == 403 and blocked.headers["X-Error-Code"] == "PASSWORD_CHANGE_REQUIRED"
-    bad = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "first-login", "new_password": "first-login"})
+    bad = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "13800000014", "new_password": "13800000014"})
     assert bad.status_code == 422
-    changed = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "first-login", "new_password": "changed-secret-0922"})
+    changed = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "13800000014", "new_password": "changed-secret-0922"})
     assert changed.status_code == 200, changed.text
     new_headers = {"Authorization": "Bearer " + changed.json()["access_token"]}
     assert (await client.get(P + "/school/classes", headers=new_headers)).status_code == 200
@@ -175,12 +150,12 @@ async def test_first_login_forced_change_and_password_revokes_old_tokens(client,
 @pytest.mark.asyncio
 async def test_principal_no_class_import_gets_school_read_only(client, actors):
     await classroom(client)
-    result = await confirm(client, await upload(client, [teacher("principal-login", 是否校长="是")]))
+    result = await confirm(client, await upload(client, [teacher("13800000023", 是否校长="是")]))
     assert result["report"]["success_count"] == 1
     app.dependency_overrides.pop(get_current_user)
-    login = (await client.post("/api/v1/auth/login", json={"username": "principal-login", "password": "principal-login"})).json()
+    login = (await client.post("/api/v1/auth/login", json={"username": "13800000023", "password": "13800000023"})).json()
     headers = {"Authorization": "Bearer " + login["access_token"]}
-    changed = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "principal-login", "new_password": "principal-updated-0922"})
+    changed = await client.post("/api/v1/auth/change-password", headers=headers, json={"current_password": "13800000023", "new_password": "principal-updated-0922"})
     headers = {"Authorization": "Bearer " + changed.json()["access_token"]}
     assert (await client.get(P + "/school/classes", headers=headers)).json()["total"] == 1
     assert (await client.get(P + "/roster/teachers/records", headers=headers)).status_code == 200
@@ -260,30 +235,35 @@ async def test_student_change_delete_reimport(client, test_db, actors):
 
 @pytest.mark.asyncio
 async def test_departure_invalidates_login_and_scope_and_rejects_form_edit(client, test_db, actors):
-    done = await confirm(client, await upload(client, [teacher("depart-me")]))
+    done = await confirm(client, await upload(client, [teacher("13800000012")]))
     identifier = done["report"]["imported"][0]["id"]
     response = await client.put(P + f"/school/teachers/{identifier}", json={"display_name": "不可原地改名", "status": "active"})
     assert response.status_code == 409
-    await lifecycle(client, "teachers", identifier, action="depart")
-    assert (await test_db.get(User, UUID(identifier))).status == "departed"
+    await post(client, "/roster/teachers/delete", {"teacher_ids": [identifier], "reason": "depart", "confirmed": True})
+    assert (await test_db.get(User, UUID(identifier))).status == "deleted"
     assert (await test_db.get(TeacherProfile, UUID(identifier))) is not None
-    assert (await client.post("/api/v1/auth/login", json={"username": "depart-me", "password": "depart-me"})).status_code == 403
+    assert (await client.post("/api/v1/auth/login", json={"username": "13800000012", "password": "13800000012"})).status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_original_embedded_templates_preflight_all_sample_rows(client, actors):
+async def test_roster_templates_require_real_teacher_data_before_import(client, actors):
     await classroom(client)
     for kind, count in [("teachers", 4), ("students", 1)]:
         response = await client.get(P + f"/roster/{kind}/template")
         batch = await post(client, f"/roster/{kind}/imports", {"filename": "原始模板.xlsx", "content_base64": base64.b64encode(response.content).decode()})
-        assert batch["report"]["ok"] and batch["report"]["total_rows"] == count
+        if kind == "teachers":
+            assert batch["report"]["total_rows"] in {0, count}
+            assert not batch["report"]["ok"]  # Redacted sample phones must be replaced, never stored.
+        else:
+            assert batch["report"]["total_rows"] == count
+            assert batch["report"]["ok"]
 
 
 @pytest.mark.asyncio
 async def test_mid_batch_failure_rolls_back_accounts_profiles_and_grants(client, test_db, actors, monkeypatch):
     from app.services import roster_workbench
     from app.core.errors import ApiError
-    batch = await upload(client, [teacher("atomic-first"), teacher("atomic-second", "另一教师")])
+    batch = await upload(client, [teacher("13800000001"), teacher("13800000002", "另一教师")])
     original = roster_workbench.grant_roles
     calls = 0
 
@@ -296,7 +276,7 @@ async def test_mid_batch_failure_rolls_back_accounts_profiles_and_grants(client,
 
     monkeypatch.setattr(roster_workbench, "grant_roles", fail_second)
     await confirm(client, batch, status=422)
-    assert await test_db.scalar(select(func.count()).select_from(User).where(User.username.in_(["atomic-first", "atomic-second"]))) == 0
+    assert await test_db.scalar(select(func.count()).select_from(User).where(User.username.in_(["13800000001", "13800000002"]))) == 0
     assert await test_db.scalar(select(func.count()).select_from(TeacherProfile)) == 0
     assert (await client.get(P + f"/roster/imports/{batch['id']}")).json()["status"] == "ready"
 
@@ -305,7 +285,7 @@ async def test_mid_batch_failure_rolls_back_accounts_profiles_and_grants(client,
 async def test_subject_and_grade_leader_grants_use_distinct_column_formats(client, test_db, actors):
     first = await classroom(client)
     await post(client, "/school/classes", {"external_class_id": "11.1", "name": "高中二年级1班"})
-    imported = await confirm(client, await upload(client, [teacher("subject-leader", 教研组长负责年级科目="10.数学"), teacher("grade-leader", 年级长负责年级="10")]))
+    imported = await confirm(client, await upload(client, [teacher("13800000032", 教研组长负责年级科目="10.数学"), teacher("13800000016", 年级长负责年级="10")]))
     for row, role in zip(imported["report"]["imported"], ["SUBJECT_LEADER", "GRADE_LEADER"]):
         profile = await test_db.get(TeacherProfile, UUID(row["id"]))
         assert role in profile.duties
@@ -323,7 +303,7 @@ async def test_concurrent_confirmation_creates_one_batch(client, test_db, actors
     from app.db.models import School
     from app.schemas.roster import RosterConfirm
     from app.services.roster_workbench import confirm as confirm_service
-    batch = await upload(client, [teacher("concurrent-account")])
+    batch = await upload(client, [teacher("13800000008")])
     actor = AuthenticatedUser(actors["admin"].id, actors["school"].id, "qa-admin", ["SCHOOL_ADMIN"])
     factory = async_sessionmaker(test_db.bind, expire_on_commit=False)
     await test_db.commit()
@@ -335,12 +315,12 @@ async def test_concurrent_confirmation_creates_one_batch(client, test_db, actors
 
     first, second = await asyncio.gather(execute(), execute())
     assert first["report"] == second["report"]
-    assert await test_db.scalar(select(func.count()).select_from(User).where(User.username == "concurrent-account")) == 1
+    assert await test_db.scalar(select(func.count()).select_from(User).where(User.username == "13800000008")) == 1
 
 
 @pytest.mark.asyncio
 async def test_roster_permissions_tenancy_and_error_download(client, actors):
-    batch = await upload(client, [teacher("valid")])
+    batch = await upload(client, [teacher("13800000036")])
     for role in ("student", "teacher"):
         actors["switch"](role)
         assert (await client.get(P + "/roster/teachers/records")).status_code == 403

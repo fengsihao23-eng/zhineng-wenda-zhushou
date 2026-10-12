@@ -7,6 +7,7 @@ import { ErrorDisplay } from "../../components/ErrorDisplay";
 import { DetailDialog } from "../../components/DetailDialog";
 import { getUserInfo } from "../../utils/auth";
 import { BASE, Row, PageData, Table, Pager, Badge, QueryState, canWrite, useAction, ActionError, fileBase64, FormPanel, options, HelpTip, usePagination, useClientPagination } from "./shared";
+import { TeacherWorkbench } from "./TeacherWorkbench";
 
 type Kind = "teachers" | "students";
 const roleNames: Record<string, string> = { SCHOOL_ADMIN: "学校管理员", EXAM_ADMIN: "考试管理员", TEACHER: "任课教师", HOMEROOM_TEACHER: "班主任", SUBJECT_LEADER: "备课 / 教研组长", GRADE_LEADER: "年级长", PRINCIPAL: "校长", ACADEMIC_DIRECTOR: "教务主任", GENERAL_DIRECTOR: "总务主任", SCHOOL_VIEWER: "全校数据查看" };
@@ -47,6 +48,10 @@ function Download({ path, filename, children }: { path: string; filename: string
 }
 
 export function RosterWorkbench({ kind }: { kind: Kind }) {
+  return kind === "teachers" ? <TeacherWorkbench /> : <StudentRosterWorkbench kind={kind} />;
+}
+
+function StudentRosterWorkbench({ kind }: { kind: Kind }) {
   const teacher = kind === "teachers", noun = teacher ? "教师" : "学生";
   const [search, setSearch] = useState("");
   const [phone, setPhone] = useState("");
@@ -104,7 +109,8 @@ export function RosterTaskPage({ view }: { view: "import" | "history" | "batch" 
   const { kind = "teachers", batchId = "" } = useParams();
   if (kind !== "teachers" && kind !== "students") return <Navigate to="/admin/school" replace />;
   if (view === "deletions" && kind !== "teachers") return <Navigate to="/admin/school?tab=students" replace />;
-  const noun = kind === "teachers" ? "教师" : "学生";
+  if (kind === "teachers") return <Navigate to={`/admin/school?${new URLSearchParams({ tab: "teachers", teacher_view: view === "history" ? "records" : view, ...(batchId ? { teacher_batch: batchId } : {}) })}`} replace />;
+  const noun = "学生";
   const title = { import: `导入${noun}`, history: `${noun}导入记录及操作回执`, batch: "导入预览与结果", deletions: "教师删除记录" }[view];
   return <AppShell title={title} eyebrow={`师生班级与考试 / ${noun}档案`}>
     <div className="wb-toolbar">
@@ -115,7 +121,6 @@ export function RosterTaskPage({ view }: { view: "import" | "history" | "batch" 
     <section className="roster-workbench">
       {view === "import" && <RosterImport key={kind} kind={kind} />}
       {view === "history" && <RosterHistory key={kind} kind={kind} />}
-      {view === "deletions" && <TeacherDeletionHistory />}
       {view === "batch" && <RosterBatch key={batchId} id={batchId} kind={kind} />}
     </section>
   </AppShell>;
@@ -179,11 +184,13 @@ function RosterHistory({ kind }: { kind: Kind }) {
 
 function RosterBatch({ id, kind }: { id: string; kind: Kind }) {
   const navigate = useNavigate();
-  return <BatchDetail id={id} onClose={() => { rememberBatch(activeBatchKey(kind), ""); navigate(`/admin/school?tab=${kind}`); }} />;
+  return <BatchDetail id={id} kind={kind} onClose={() => { rememberBatch(activeBatchKey(kind), ""); navigate(`/admin/school?tab=${kind}`); }} />;
 }
 
-function BatchDetail({ id, onClose }: { id: string; onClose: () => void }) {
+function BatchDetail({ id, kind, onClose }: { id: string; kind: Kind; onClose: () => void }) {
   const query = useJsonQuery<Row>(`${BASE}/roster/imports/${id}`);
+  if (query.data?.kind === "teachers") return <Navigate to={`/admin/school?tab=teachers&teacher_view=batch&teacher_batch=${id}`} replace />;
+  if (query.data && query.data.kind !== kind) return <Navigate to={`/admin/school?tab=${kind}`} replace />;
   return <section className="panel"><div className="wb-toolbar"><h2>批次详情</h2><button onClick={onClose}>关闭批次</button></div><QueryState query={query}>{query.data && <BatchPreview key={`${id}-${query.data.status}`} batch={query.data} onRefresh={() => { void query.refetch(); }} />}</QueryState></section>;
 }
 
@@ -192,7 +199,6 @@ function BatchPreview({ batch, onRefresh }: { batch: Row; onRefresh: () => void 
   const [decisions, setDecisions] = useState<Record<number, boolean>>({});
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
   const preview = useClientPagination<Row>(batch.rows);
-  const [replacements, setReplacements] = useState<Record<number, string>>({});
   const report = batch.report, teacher = batch.kind === "teachers";
   const suspicious = report.suspicious || [];
   const ready = batch.status === "ready" && report.ok;
@@ -202,54 +208,10 @@ function BatchPreview({ batch, onRefresh }: { batch: Row; onRefresh: () => void 
     {report.issues.length > 0 && <><p role="alert">整批未写入。请下载错误清单，全部修正后整表重新上传。</p><Download path={`/roster/imports/${batch.id}/errors`} filename="导入错误清单.xlsx">下载本批次错误清单</Download><Table paginate headers={["Excel 行号", "错误类型", "错误字段", "姓名 / 账号", "说明 / 建议"]}>{report.issues.map((issue: Row, index: number) => <tr key={index}><td>{issue.row_number ? `行${issue.row_number}` : "文件"}</td><td>{issue.error_type}</td><td>{issue.fields}</td><td>{issue.name} / {issue.account}</td><td>{issue.message}<br />{issue.suggestion}</td></tr>)}</Table></>}
     {ready && suspicious.length > 0 && <section aria-label={`疑似重复${teacher ? "教师" : "学生"}确认`}><h3>{teacher ? "疑似重复：同姓名、同年级、同科目" : "疑似重复：同姓名、同年级、同班级"}</h3><p>命中行默认保留，请逐条选择保留 / 放弃并勾选「已核对」。其余行将一并入库。</p><Table paginate headers={["Excel 行号", `待导入${teacher ? "教师" : "学生"}`, `已有${teacher ? "教师" : "学生"} / 命中范围`, "保留 / 放弃", "核对"]}>{suspicious.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.name} / {row.account}</td><td>{row.matches.map((m: Row, i: number) => <p key={i}>{m.name} / {m.account} · {teacher ? m.subjects_grades.join("、") : m.grade_class}</p>)}</td><td><select aria-label={`第${row.row_number}行保留或放弃`} value={String(decisions[row.row_number] ?? true)} disabled={!canWrite()} onChange={e => setDecisions({ ...decisions, [row.row_number]: e.target.value === "true" })}><option value="true">保留（默认）</option><option value="false">放弃</option></select></td><td><label><input type="checkbox" disabled={!canWrite()} checked={!!reviewed[row.row_number]} onChange={e => setReviewed({ ...reviewed, [row.row_number]: e.target.checked })} />已核对第 {row.row_number} 行</label></td></tr>)}</Table></section>}
     {batch.rows.length > 0 && <details open={ready}><summary>原始资料预览（全部 {batch.columns.length} 列）</summary><Table headers={["Excel 行号", ...batch.columns]}>{preview.items.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td>{batch.columns.map((field: string) => <td className="roster-value" key={field}>{row.values[field] || "—"}</td>)}</tr>)}</Table><Pager {...preview} /></details>}
-    {ready && teacher && <TeacherReimports batch={batch} replacements={replacements} onChange={setReplacements} />}
     <ActionError action={action} />
-    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；变更重导沿用原密码，仍用初始密码的按新账号处理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm?compact=true`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])), teacher_replacements: Object.fromEntries(Object.entries(replacements).filter(([number, value]) => value && decisions[Number(number)] !== false)) } }, { onSuccess: onRefresh, onError: onRefresh })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
+    {ready && canWrite() && <><p>{teacher ? "新教师初始密码与账号一致，首次登录必须修改；资料变更请在专属变更任务内办理。角色和任教范围随最新资料生成。" : "确认后一次性创建学生档案和登录账号；初始密码与账号一致，首次登录修改。"}</p><button className="primary-button" disabled={action.isPending || suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm?compact=true`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(suspicious.map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: onRefresh, onError: onRefresh })}>{action.isPending ? "正在整批入库…" : "确认导入并创建账号"}</button></>}
     {confirmed && <section role="status" className="wb-status"><h3>导入完成</h3><p>成功 {report.success_count} 条 · 主动放弃 {report.skipped_count} 条</p>{teacher && <p>其中教师信息变更 {report.changed_count || 0} 条</p>}<p>操作人：{report.confirmed_by_name} · 时间：{report.confirmed_at}</p>{report.skipped_rows.length > 0 && <p>放弃的 Excel 行号：{report.skipped_rows.join("、")}</p>}{report.unresolved_teaching.length > 0 && <p>以下班级参考未匹配，教师已正常导入；可在「教师任教」维护授权：{report.unresolved_teaching.map((row: Row) => `第${row.row_number}行 ${row.references.join("、")}`).join("；")}</p>}</section>}
   </>;
-}
-
-function TeacherDeletionHistory() {
-  const [search, setSearch] = useState("");
-  const pagination = usePagination(search);
-  const [selected, setSelected] = useState("");
-  const query = useJsonQuery<PageData>(`${BASE}/roster/teachers/deletions?${new URLSearchParams({ search, page: String(pagination.page), page_size: String(pagination.pageSize) })}`);
-  return <section className="panel">
-    <div className="wb-toolbar"><input aria-label="删除记录姓名或账号" placeholder="教师姓名 / 原教师账号" value={search} onChange={e => setSearch(e.target.value)} /><HelpTip label="记录说明">按教师姓名或原账号查询删除快照；重新导入后仍可查阅。</HelpTip></div>
-    {query.data && !query.error && <Pager {...pagination} total={query.data.total} />}
-    <QueryState query={query} empty={!query.data?.items.length}><Table headers={["原教师 / 原账号", "删除人 / 时间", "重导情况", "操作"]}>{query.data?.items.map(row => <tr key={row.id}><td>{row.teacher_name}<small className="subtle">{row.account}</small></td><td>{row.operator_name}<br />{row.deleted_at}</td><td>{row.reimported_at ? `已重导 · ${row.reimported_at}` : "待重新导入"}</td><td><button onClick={() => setSelected(row.id)}>查看删除快照</button></td></tr>)}</Table></QueryState>
-    {selected && <DetailDialog title="教师删除快照" onClose={() => setSelected("")}><TeacherDeletionDetail key={selected} id={selected} onClose={() => setSelected("")} /></DetailDialog>}
-  </section>;
-}
-
-function TeacherDeletionDetail({ id, onClose }: { id: string; onClose: () => void }) {
-  const query = useJsonQuery<Row>(`${BASE}/roster/teachers/deletions/${id}`);
-  return <section aria-label="教师删除快照"><div className="wb-toolbar"><h3>教师删除快照</h3><button onClick={onClose}>关闭快照</button></div><QueryState query={query}>{query.data && <>
-    <p>{query.data.teacher_name} / {query.data.account} · 删除人：{query.data.operator_name} · {query.data.deleted_at}</p>
-    <Table headers={["模板字段", "删除时的原始内容"]}>{Object.entries(query.data.fields).map(([field, value]) => <tr key={field}><td>{field}</td><td className="roster-value">{String(value || "—")}</td></tr>)}</Table>
-    <h4>原教师历史任教记录</h4><Table paginate headers={["班级", "科目", "起止时间", "记录状态"]}>{query.data.teaching_history.map((row: Row) => <tr key={row.id}><td>{row.class_name}</td><td>{row.subject_name}</td><td>{row.starts_at} — {row.expires_at || "未设置截止时间"}</td><td><Badge value={row.status} /></td></tr>)}</Table>
-    {!query.data.teaching_history.length && <p>暂无历史任教记录。</p>}
-  </>}</QueryState></section>;
-}
-
-function TeacherReimports({ batch, replacements, onChange }: { batch: Row; replacements: Record<number, string>; onChange: (values: Record<number, string>) => void }) {
-  const [search, setSearch] = useState("");
-  const [labels, setLabels] = useState<Record<string, string>>({});
-  const query = useJsonQuery<PageData>(`${BASE}/roster/teachers/deletions?${new URLSearchParams({ available: "true", search, page_size: "100" })}`);
-  const automatic: Record<number, string> = Object.fromEntries((batch.report.reimports || []).map((row: Row) => [row.row_number, row.snapshot_id]));
-  return <details open={!!batch.report.reimports?.length}><summary>教师变更重导 · 对应原教师记录</summary>
-    <p>相同账号自动关联已删除的原教师；账号也变更时，请按姓名或原账号查找并指定记录。系统会沿用该教师原密码。新增教师无需选择。</p>
-    <input aria-label="查找待重导教师" placeholder="搜索原教师姓名 / 原账号" maxLength={100} value={search} onChange={e => setSearch(e.target.value)} />
-    <QueryState query={query}><Table paginate headers={["Excel 行号", "本次教师 / 账号", "对应的原教师"]}>{batch.rows.map((row: Row) => {
-      const value = replacements[row.row_number] || automatic[row.row_number] || "";
-      const choices = query.data?.items || [];
-      return <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values["教师姓名"]} / {row.values["教师账号"]}</td><td><select aria-label={`第${row.row_number}行原教师记录`} value={value} disabled={!canWrite()} onChange={e => {
-        const chosen = choices.find(item => item.id === e.target.value);
-        if (chosen) setLabels({ ...labels, [chosen.id]: `${chosen.teacher_name} / ${chosen.account}` });
-        onChange({ ...replacements, [row.row_number]: e.target.value });
-      }}><option value="">{automatic[row.row_number] ? "使用相同账号的原记录" : "新增教师（无需关联）"}</option>{value && !choices.some(item => item.id === value) && <option value={value}>{labels[value] || `原账号：${row.values["教师账号"]}`}</option>}{choices.map(item => <option key={item.id} value={item.id}>{item.teacher_name} / {item.account} · {item.deleted_at}</option>)}</select></td></tr>;
-    })}</Table>{(query.data?.total || 0) > 100 && <p>待重导记录较多，请输入姓名或原账号缩小查找范围。</p>}</QueryState>
-  </details>;
 }
 
 function LegacyAccountBinding({ id }: { id: string }) {

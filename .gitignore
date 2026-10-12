@@ -29,6 +29,7 @@ wheels/
 .env
 .env.local
 .env.*.local
+/1.pem
 .local/
 /阳江一中高中教师资料模板0511.xlsx
 /阳江一中高中一年级学生资料模板0511.xls

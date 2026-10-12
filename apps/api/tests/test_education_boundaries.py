@@ -291,13 +291,14 @@ async def test_teacher_account_status_and_name_readback_do_not_expose_credential
     )
     assert changed.status_code == 409
     assert changed.headers["X-Error-Code"] == "ROSTER_REIMPORT_REQUIRED"
-    # The 0922 flow replaces in-place edits with delete/reimport and explicit status actions.
-    updated = await post(client, f"/roster/teachers/records/{actors['teacher'].id}/actions", {"action": "disable", "confirmed": True})
-    assert updated["status"] == "inactive"
+    # r79 uses reasoned deletion; pure disabling creates no change task.
+    await post(client, f"/roster/teachers/records/{actors['teacher'].id}/actions", {"action": "disable", "confirmed": True}, status=422)
+    updated = await post(client, "/roster/teachers/delete", {"teacher_ids": [str(actors['teacher'].id)], "reason": "disable", "confirmed": True})
+    assert updated["task_id"] is None and updated["count"] == 1
     rows = (await client.get(P + "/school/teachers")).json()["items"]
-    assert rows[0]["display_name"] == "合成教师"
-    assert rows[0]["status"] == "inactive"
-    assert "password_hash" not in rows[0]
+    assert not rows
+    assert updated["snapshots"][0]["teacher_name"] == "合成教师"
+    assert "password_hash" not in str(updated)
 
 
 @pytest.mark.asyncio
