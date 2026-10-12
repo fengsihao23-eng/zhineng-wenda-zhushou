@@ -44,6 +44,10 @@ jobs:
           sed -i 's/your_secure_password_here/test_password_123/g' .env
           sed -i 's/your_jwt_secret_key_here_minimum_32_characters/test_jwt_secret_key_minimum_32_characters_here/g' .env
           sed -i 's/your_secret_key_here/test_secret_key_for_ci_testing_environment/g' .env
+          # These disposable fixtures require the explicit test environment;
+          # production correctly refuses demo accounts and example credentials.
+          echo "DEPLOY_APP_ENV=test" >> .env
+          echo "MODEL_PROVIDER=fake" >> .env
           # E2E 会快速发起大量请求；提高限流阈值，避免 429 造成随机失败。
           echo "RATE_LIMIT_PER_MINUTE=100000" >> .env
           echo "RATE_LIMIT_PER_HOUR=100000" >> .env
