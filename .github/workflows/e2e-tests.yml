@@ -65,7 +65,9 @@ jobs:
         run: docker compose exec -T api alembic upgrade head
 
       - name: Initialize test data
-        run: docker compose exec -T api python scripts/init_test_data.py
+        run: |
+          docker compose exec -T api python scripts/init_test_data.py
+          docker compose exec -T api python scripts/seed_platform.py
 
       - name: Run Playwright tests
         env:

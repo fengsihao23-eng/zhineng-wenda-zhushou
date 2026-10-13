@@ -11,15 +11,29 @@ test.describe('诊断报告真实数据与浏览器呈现', () => {
     await expect(page.locator('.report-card')).toHaveCount(reports.length);
     await expect(page.locator('.report-summary').first()).toHaveText(reports[0].content.summary);
     await expect(page.locator('.report-card__meta').first()).toContainText(reports[0].source);
-    await expect(page.locator('.notice-banner')).toContainText('诊断结论来自正式报告');
+    const help = page.locator('details.help-tip').filter({ has: page.locator('summary', { hasText: '报告说明' }) });
+    await help.locator('summary').click();
+    await expect(page.getByRole('note', { name: '报告说明', exact: true })).toBeVisible();
+    await expect(page.getByRole('note', { name: '报告说明', exact: true })).toContainText('诊断结论来自正式报告');
   });
 
-  test('BASIC 示例账号没有报告，页面显示明确空状态', async ({ studentBasicPage: page }) => {
-    const response = page.waitForResponse(res => res.url().endsWith('/platform/student/diagnosis') && res.ok());
+  test('BASIC 账号缺少诊断授权时，接口拒绝访问且页面显示授权提示', async ({ studentBasicPage: page }) => {
+    const response = page.waitForResponse(res => res.url().endsWith('/platform/student/diagnosis'));
     await page.goto('/diagnosis');
-    expect(await (await response).json()).toEqual([]);
+    const denied = await response;
+    expect(denied.status()).toBe(403);
+    expect((await denied.json()).error.code).toBe('ENTITLEMENT_REQUIRED');
+    await expect(page.getByRole('alert')).toContainText('当前没有有效的诊断报告授权，请联系学校确认。');
     await expect(page.locator('.report-card')).toHaveCount(0);
+    await expect(page.locator('.empty-state')).toHaveCount(0);
+  });
+
+  test('已授权账号没有报告时显示空状态（受控空列表）', async ({ studentDiagnosisPage: page }) => {
+    await page.route('**/platform/student/diagnosis', route => route.fulfill({ json: [] }));
+    await page.goto('/diagnosis');
     await expect(page.locator('.empty-state')).toBeVisible();
+    await expect(page.locator('.report-card')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
   for (const role of ['basic', 'diagnosis'] as const) {
@@ -29,7 +43,11 @@ test.describe('诊断报告真实数据与浏览器呈现', () => {
       await expect(value).toHaveText(role === 'basic' ? '0' : '1');
       const count = Number(await value.textContent());
       await page.locator('.side-nav a[href="/diagnosis"]').click();
-      await expect(page.locator(role === 'basic' ? '.empty-state' : '.report-card')).toBeVisible();
+      if (role === 'basic') {
+        await expect(page.getByRole('alert')).toContainText('当前没有有效的诊断报告授权');
+      } else {
+        await expect(page.locator('.report-card')).toBeVisible();
+      }
       await expect(page.locator('.report-card')).toHaveCount(count);
     });
   }

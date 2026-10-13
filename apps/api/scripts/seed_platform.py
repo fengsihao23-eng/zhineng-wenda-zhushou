@@ -16,9 +16,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.core.security import get_password_hash
+from app.db.models.exam import Subject
+from app.db.models.import_batch import ImportedClass
 from app.db.models.platform import HumanHandoff, KnowledgeDocument, ParentAuthorization, RiskEvent
 from app.db.models.school import School
 from app.db.models.student import Student
+from app.db.models.teaching import TeachingAssignment
 from app.db.models.user import Role, User, UserRole
 
 
@@ -68,8 +71,10 @@ async def seed() -> None:
         teacher = await ensure_user(db, school, roles["TEACHER"], "teacher_demo", "王老师")
         await ensure_user(db, school, roles["SCHOOL_ADMIN"], "school_admin_demo", "学校管理员")
         await ensure_user(db, school, roles["CITY_OPERATOR"], "city_operator_demo", "市级运营")
+        student_users = []
         for username, display_name in (("student_basic", "张三"), ("student_diagnosis", "李四")):
             student_user = await ensure_user(db, school, roles["STUDENT"], username, display_name)
+            student_users.append(student_user.id)
             linked_student = await db.scalar(select(Student).where(Student.user_id == student_user.id, Student.school_id == school.id))
             if linked_student is None:
                 db.add(Student(id=uuid4(), school_id=school.id, user_id=student_user.id, student_no=f"PLATFORM-{username}", name=display_name, status="active"))
@@ -77,6 +82,30 @@ async def seed() -> None:
         students = (await db.execute(select(Student).where(Student.school_id == school.id).order_by(Student.created_at.asc()))).scalars().all()
         if not students:
             raise RuntimeError("示范学校没有学生数据")
+        # Teachers can only read an explicitly assigned class/subject. Keep
+        # the fixture consistent with that policy instead of widening access.
+        classroom = await db.scalar(select(ImportedClass).where(
+            ImportedClass.school_id == school.id, ImportedClass.external_class_id == "DEMO_CLASS_1",
+        ))
+        if classroom is None:
+            classroom = ImportedClass(school_id=school.id, external_class_id="DEMO_CLASS_1", name="示范班级1班", source_system="demo")
+            db.add(classroom)
+            await db.flush()
+        for demo_student in students:
+            if demo_student.user_id in student_users:
+                demo_student.class_id = classroom.id
+                demo_student.external_class_id = classroom.external_class_id
+        subject = await db.scalar(select(Subject).where(Subject.school_id == school.id, Subject.code == "MATH"))
+        if subject is None:
+            raise RuntimeError("示范学校没有数学科目，请先初始化成绩测试数据")
+        assignment = await db.scalar(select(TeachingAssignment).where(
+            TeachingAssignment.school_id == school.id, TeachingAssignment.teacher_user_id == teacher.id,
+            TeachingAssignment.class_id == classroom.id, TeachingAssignment.subject_id == subject.id,
+        ))
+        if assignment is None:
+            db.add(TeachingAssignment(school_id=school.id, teacher_user_id=teacher.id,
+                                     class_id=classroom.id, subject_id=subject.id,
+                                     starts_at=datetime.now(timezone.utc) - timedelta(days=1)))
         student = students[0]
         if not await db.scalar(select(KnowledgeDocument).where(KnowledgeDocument.school_id == school.id)):
             db.add(KnowledgeDocument(
