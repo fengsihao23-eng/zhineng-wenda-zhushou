@@ -13,7 +13,7 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   expect(login.ok()).toBeTruthy()
   const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
   const initial = [
-    { 教师姓名: 'r79 联动教师甲', 教师账号: '18810000001', 手机号码: '18810000001', 状态: '正常', 任课年级班级: '数学:10.1;' },
+    { 教师姓名: 'r79 联动教师甲', 教师账号: '18810000001', 手机号码: '188****0001', 状态: '正常', 任课年级班级: '数学:10.1;' },
     { 教师姓名: 'r79 联动教师乙', 教师账号: '18810000002', 手机号码: '', 状态: '正常', 说明: '学校管理员;考试管理员;班主任' },
   ]
   const upload = await request.post(base + '/teachers/imports', { headers, data: { filename: 'r79联动新增.xlsx', content_base64: workbook(initial) } })
@@ -43,7 +43,7 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   const taskId = new URL(page.url()).searchParams.get('teacher_task')!
   const template = await request.get(base + `/teachers/change-tasks/${taskId}/template`, { headers })
   expect(template.ok()).toBeTruthy()
-  const updated = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook; b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));s=b.active;s.cell(2,4).value += "更新";s.cell(2,6).value="18810000003";s.cell(2,13).value="020-12345678";b.save(sys.stdout.buffer)'], { input: await template.body() })
+  const updated = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook; b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));s=b.active;s.cell(2,4).value += "更新";s.cell(2,6).value="18810000003";s.cell(2,13).value="188****0003";b.save(sys.stdout.buffer)'], { input: await template.body() })
   await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79联动变更.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: updated })
   await modal.getByRole('button', { name: '开始预校验' }).click()
   await expect(modal.getByText(/预校验通过，共 2 行/)).toBeVisible()
@@ -61,6 +61,9 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   expect(completed.status).toBe('succeeded')
   expect(new Set(completed.batches[0].report.imported.map((row: any) => row.id))).toEqual(new Set(originals.map((row: any) => row.id)))
   expect(completed.snapshots.every((row: any) => row.updated_fields && row.reimported_user_id === row.user_id)).toBeTruthy()
+  const changedRecords = await (await request.get(base + '/teachers/records?search=18810000003', { headers })).json()
+  expect(changedRecords.items[0].phone).toBe('188****0003')
+  expect(changedRecords.items[0].fields.手机号码).toBe('188****0003')
   const newLogin = await request.post('/api/v1/auth/login', { data: { username: '18810000003', password: '18810000003', identity_id: completed.batches[0].report.imported.find((row: any) => row.account === '18810000003').id } })
   expect(newLogin.ok()).toBeTruthy()
   expect((await newLogin.json()).user.must_change_password).toBe(true)
@@ -71,7 +74,7 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   await expect(page.getByRole('dialog').getByText(/任务已完成/).first()).toBeVisible()
 })
 
-test('supplied r79: real import blocks wrong headers and rejects returning masked contact values', async ({ page, request }) => {
+test('manager feedback: real import preserves masked contacts and blocks invalid accounts and headers', async ({ page, request }) => {
   const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
   const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
   const content = Buffer.from(workbook([{ 教师姓名: 'r79 校验教师', 教师账号: '18810000004', 手机号码: '188****0004', 状态: '正常' }]), 'base64')
@@ -83,10 +86,25 @@ test('supplied r79: real import blocks wrong headers and rejects returning maske
   await page.goto('/admin/school?tab=teachers')
   await page.getByRole('button', { name: '导入教师', exact: true }).click()
   const modal = page.getByRole('dialog', { name: '导入教师（Excel 批量新增）' })
-  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79脱敏值错误.xlsx', mimeType: 'application/octet-stream', buffer: content })
+  await expect(modal.getByText(/手机号码可留空或包含 \* 等脱敏字符/)).toBeVisible()
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79脱敏联系方式.xlsx', mimeType: 'application/octet-stream', buffer: content })
+  await modal.getByRole('button', { name: '开始预校验' }).click()
+  await expect(modal.getByText(/预校验通过，共 1 行/)).toBeVisible()
+  await modal.getByRole('button', { name: '下一步：疑似重复确认' }).click()
+  await modal.getByRole('button', { name: '确认入库', exact: true }).click()
+  await expect(modal.getByRole('heading', { name: '导入完成', exact: true })).toBeVisible()
+  const saved = await (await request.get(base + '/teachers/records?search=18810000004', { headers })).json()
+  expect(saved.total).toBe(1)
+  expect(saved.items[0].username).toBe('18810000004')
+  expect(saved.items[0].phone).toBe('188****0004')
+  expect(saved.items[0].fields.手机号码).toBe('188****0004')
+  await modal.getByRole('button', { name: '关闭导入教师（Excel 批量新增）', exact: true }).click()
+  await page.getByRole('button', { name: '导入教师', exact: true }).click()
+  const maskedAccount = Buffer.from(workbook([{ 教师姓名: 'r79 错误账号教师', 教师账号: '188****0005', 手机号码: '188****0005', 状态: '正常' }]), 'base64')
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: 'r79教师账号错误.xlsx', mimeType: 'application/octet-stream', buffer: maskedAccount })
   await modal.getByRole('button', { name: '开始预校验' }).click()
   await expect(modal.getByText('校验失败，整批退回', { exact: true })).toBeVisible()
-  await expect(modal.getByText(/手机号码含脱敏字符/)).toBeVisible()
+  await expect(modal.getByText(/教师账号须填写完整的 11 位手机号/)).toBeVisible()
   await expect(modal.getByRole('button', { name: '下一步：疑似重复确认' })).toHaveCount(0)
   await modal.getByRole('button', { name: '重新上传', exact: true }).click()
   const wrongHeaders = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook;b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));b.active.cell(1,4).value="姓名";b.save(sys.stdout.buffer)'], { input: content })
@@ -95,5 +113,7 @@ test('supplied r79: real import blocks wrong headers and rejects returning maske
   await expect(modal.getByText('文件整体', { exact: true })).toBeVisible()
   await expect(modal.getByText(/列名或列顺序与资料模板不一致/)).toBeVisible()
   const records = await (await request.get(base + '/teachers/records?search=18810000004', { headers })).json()
-  expect(records.total).toBe(0)
+  expect(records.total).toBe(1)
+  const rejected = await (await request.get(base + '/teachers/records?search=188****0005', { headers })).json()
+  expect(rejected.total).toBe(0)
 })

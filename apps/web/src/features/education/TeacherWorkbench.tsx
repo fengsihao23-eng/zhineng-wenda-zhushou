@@ -156,7 +156,7 @@ function FileUpload({ onUpload, taskId, onUploaded }: { onUpload?: ReactNode; ta
     <button type="button" className={`teacher-drop${dragging ? " is-dragging" : ""}`} disabled={busy || !canWrite()} onClick={() => input.current?.click()} onDragOver={e => { e.preventDefault(); if (!busy && canWrite()) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy && canWrite()) pick(e.dataTransfer.files[0] || null); }}><strong>点击或拖拽上传</strong><span>《{taskId ? "教师变更原档案（含教师ID）" : "教师资料模板"}.xlsx》</span><small>{taskId ? "25 列＝24 列模板＋系统教师ID，教师ID为锁定字段，不可修改" : "24 列，列名与列顺序须与模板完全一致；教师账号须填写完整手机号"}</small></button>
     <input ref={input} aria-label="上传教师 Excel" type="file" accept=".xlsx,.xls" disabled={busy || !canWrite()} onChange={e => { pick(e.target.files?.[0] || null); e.target.value = ""; }} />
     {file && <div className="teacher-file"><span><strong>{file.name}</strong> · {(file.size / 1024).toFixed(1)} KB</span><button type="button" disabled={busy} onClick={() => pick(null)}>移除重选</button></div>}
-    <p className="teacher-muted">支持 .xlsx / .xls，最大 5 MB、5000 行。手机号码可留空；脱敏值须补全或清空后上传。</p>
+    <p className="teacher-muted">支持 .xlsx / .xls，最大 5 MB、5000 行。手机号码可留空或包含 * 等脱敏字符，按原值保存；教师账号须填写完整的 11 位手机号。</p>
     <ErrorDisplay error={error} /><ActionError action={upload} />
     <div className="teacher-nav">{!taskId && <Download path="/roster/teachers/template" filename="教师资料模板.xlsx">下载《教师资料模板.xlsx》</Download>}<button type="button" className="teacher-primary" disabled={!file || busy || !canWrite()} onClick={async () => {
       if (!file || busy) return;

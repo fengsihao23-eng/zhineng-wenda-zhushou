@@ -37,9 +37,8 @@ test.describe('认证流程', () => {
 
     await loginPage.login(TEST_USERS.TEACHER.username, TEST_USERS.TEACHER.password);
 
-    // 教师登录后由 HomeRedirect 渲染工作台，URL 仍为 /
-    await expect(page).not.toHaveURL(/\/login/);
-    await expect(page.locator('body')).toContainText('教师工作台', { timeout: 10000 });
+    await expect(page).toHaveURL('/teacher');
+    await expect(page.getByRole('heading', { name: '教师总览', exact: true })).toBeVisible();
   });
 
   test('应该拒绝无效凭据', async ({ page }) => {

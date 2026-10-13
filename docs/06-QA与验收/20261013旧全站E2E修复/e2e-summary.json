@@ -1,0 +1,530 @@
+{
+  "date": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "environment": "isolated Docker Compose project; production web build; test API; synthetic demo data",
+  "base_url": "http://127.0.0.1:18810",
+  "started_at": "2026-10-13T14:47:53.593000+08:00",
+  "baseline_six_reproduction": {
+    "startTime": "2026-10-13T06:44:44.100Z",
+    "duration": 34134.119,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 6,
+    "flaky": 0
+  },
+  "full_e2e": {
+    "startTime": "2026-10-13T06:47:53.593Z",
+    "duration": 31727.291,
+    "expected": 71,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "fixture_counts_after_repeated_seeding": {
+    "users": 5,
+    "students": 2,
+    "classes": 1,
+    "teaching_assignments": 1,
+    "reports": 1,
+    "student_exam_scores": 4
+  },
+  "cases": [
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该成功登录 BASIC 学生账号",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1460
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该成功登录 DIAGNOSIS 学生账号",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1461
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该成功登录教师账号",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 657
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该拒绝无效凭据",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 365
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该在未登录时重定向到登录页",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 240
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该成功登出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 616
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts › 认证流程 › 应该在 token 过期后自动刷新",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1186
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 发送消息并显示流式助手回复",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 967
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 显示成绩回复及对应数据来源",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 873
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 科目回复不把用户问题误判为助手答案",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 849
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 同一会话两轮问答各显示用户消息和助手回复",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 910
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 新建真实会话后清空上一会话的消息",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 935
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 结束真实会话后从下拉列表移除该会话",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 740
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › 服务端超时显示错误并允许重试",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 978
+    },
+    {
+      "file": "chat.spec.ts",
+      "title": "chat.spec.ts › 智能问答浏览器流程（受控 SSE；真实会话 API） › SSE 未收到 done 时提示中断，重试保留客户端请求 ID",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 941
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › DIAGNOSIS 学生显示服务端返回的报告及来源",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 627
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › BASIC 账号缺少诊断授权时，接口拒绝访问且页面显示授权提示",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 566
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › 已授权账号没有报告时显示空状态（受控空列表）",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 676
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › basic 账号首页报告数量与列表一致",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1176
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › diagnosis 账号首页报告数量与列表一致",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1228
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › 报告关联服务端返回的考试与版本",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 598
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › 诊断加载失败时有中文提示和重试入口",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1911
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › 浏览器显示诊断解释回复（受控 SSE）",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 773
+    },
+    {
+      "file": "diagnosis.spec.ts",
+      "title": "diagnosis.spec.ts › 诊断报告真实数据与浏览器呈现 › 浏览器显示权益提示回复（受控 SSE）",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 819
+    },
+    {
+      "file": "errors.spec.ts",
+      "title": "errors.spec.ts › 统一错误处理 › 管理学生列表断网后显示统一错误并可重试",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 2067
+    },
+    {
+      "file": "errors.spec.ts",
+      "title": "errors.spec.ts › 统一错误处理 › 管理操作失败就地显示提示，保留表单且没有 alert 弹窗",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 800
+    },
+    {
+      "file": "errors.spec.ts",
+      "title": "errors.spec.ts › 统一错误处理 › 支持页提交失败显示错误，320px 下提示与重试按钮不溢出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1087
+    },
+    {
+      "file": "errors.spec.ts",
+      "title": "errors.spec.ts › 统一错误处理 › 渲染异常由 ErrorBoundary 显示可恢复提示",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1225
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 生产首页实际成绩在 2000ms 内首次可见",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 979
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 生产 /profile 禁用缓存完整导航 5 次，成绩与图表首次可见均小于 2000ms",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1574
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 聊天页在 5 秒内显示可用输入框",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 630
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 登录请求断网时显示中文提示并保留登录表单",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 413
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 流请求等待时阻止重复发送，并能主动停止",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 990
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 侧栏快速切换后支持页完整可用且没有未捕获错误",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 916
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "performance.spec.ts › 性能与稳定性 › 连续三轮请求各获得对应回复",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 987
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 真实登录 张三 显示本人总分与全部科目",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 807
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 真实登录 李四 显示本人总分与全部科目",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 829
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 同标签页退出并切换账号后，侧栏导航不复用上一个账号的成绩",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1165
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 雷达轴线透明，趋势图分别使用分数轴和百分比轴",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 672
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 满分为 null 时总分、科目、趋势不计算无效百分比",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 716
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 满分为 0 时总分、科目、趋势不计算无效百分比",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 730
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 满分为 -1 时总分、科目、趋势不计算无效百分比",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 722
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 断网显示中文错误，恢复后可通过重试加载成绩",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1997
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 概览样式加载后返回首页，五个进度条仍为 5px",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 662
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 320px 初始视口下内容与图表不横向溢出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 738
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 375px 初始视口下内容与图表不横向溢出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 647
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 390px 初始视口下内容与图表不横向溢出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 668
+    },
+    {
+      "file": "profile.spec.ts",
+      "title": "profile.spec.ts › 成绩概览页 /profile › 768px 初始视口下内容与图表不横向溢出",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 683
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › BASIC 学生应该能看到仪表盘数据",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1109
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 应该展示最近考试成绩",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1104
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 应该展示班级排名",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1079
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 应该展示科目成绩列表",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1080
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 应该能导航到成绩趋势页",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 534
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 应该能查看错题分析",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 523
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › BASIC 学生不应该看到其他学生数据",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1113
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 无考试响应显示等待接入和空状态",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 737
+    },
+    {
+      "file": "scores.spec.ts",
+      "title": "scores.spec.ts › 成绩查询功能 › 完整刷新后成绩数据保持正确",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1676
+    },
+    {
+      "file": "simple.spec.ts",
+      "title": "simple.spec.ts › 简单验证 - 访问登录页",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 250
+    },
+    {
+      "file": "simple.spec.ts",
+      "title": "simple.spec.ts › 简单验证 - 健康检查",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 7
+    },
+    {
+      "file": "simple.spec.ts",
+      "title": "simple.spec.ts › 简单验证 - 登录流程",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 577
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 健康检查端点应该正常响应",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 7
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 登录页应该正常加载",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 302
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 认证用户应该能访问首页",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 550
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 聊天页面应该正常加载",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 602
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › API 文档应该可访问",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 5
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 静态资源应该正常加载",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 760
+    },
+    {
+      "file": "smoke.spec.ts",
+      "title": "smoke.spec.ts › 冒烟测试 › 应该没有控制台错误",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 795
+    },
+    {
+      "file": "visualization.spec.ts",
+      "title": "visualization.spec.ts › 数据可视化 › 应该渲染成绩趋势图表",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1087
+    },
+    {
+      "file": "visualization.spec.ts",
+      "title": "visualization.spec.ts › 数据可视化 › 应该展示考试历史列表",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1095
+    },
+    {
+      "file": "visualization.spec.ts",
+      "title": "visualization.spec.ts › 数据可视化 › 应该展示科目趋势",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1080
+    },
+    {
+      "file": "visualization.spec.ts",
+      "title": "visualization.spec.ts › 数据可视化 › 图表应该在移动端正确渲染",
+      "status": "expected",
+      "attempts": 1,
+      "duration_ms": 1092
+    }
+  ]
+}

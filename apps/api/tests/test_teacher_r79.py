@@ -37,10 +37,12 @@ async def confirm_task(client, batch, status=200, **values):
 
 @pytest.mark.asyncio
 async def test_teacher_phone_contract_exact_text_duplicates_and_original_download(client, test_db, actors):
-    bad = await upload(client, [teacher("account-not-phone"), teacher("13900000001", 手机号码="139****0001")])
+    bad = await upload(client, [teacher("account-not-phone"), teacher("139****0001"), teacher("13900000001", 手机号码="139****0001")])
     assert bad["status"] == "invalid"
-    assert {issue["fields"] for issue in bad["report"]["issues"]} == {"教师账号", "手机号码"}
+    assert len(bad["report"]["issues"]) == 2
+    assert {issue["fields"] for issue in bad["report"]["issues"]} == {"教师账号"}
     await confirm(client, bad, status=409)
+    assert await test_db.scalar(select(User).where(User.username == "13900000001")) is None
     old = await confirm(client, await upload(client, [teacher("13900000001", "同名", 任课年级班级="数学:10.1,10.2;", 手机号码="020-12345678")]))
     candidate = await upload(client, [teacher("13900000002", "同名", 任课年级班级="数学:10.1,10.2;"), teacher("13900000003", "同名", 任课年级班级="数学:10.2,10.1;"), teacher("13900000004", "同名", 任课年级班级="数学:10.3;"), teacher("13900000005", "同名"), teacher("13900000006", " 同名 ", 任课年级班级="数学:10.1,10.2;")])
     assert [row["row_number"] for row in candidate["report"]["suspicious"]] == [2]
@@ -56,6 +58,47 @@ async def test_teacher_phone_contract_exact_text_duplicates_and_original_downloa
     assert found["total"] == 1
     receipts = (await client.get(P + "/roster/teachers/imports?paginated=true&search=13900000001")).json()
     assert receipts["total"] == 2 and old["id"] in {row["id"] for row in receipts["items"]}
+
+
+@pytest.mark.asyncio
+async def test_masked_contacts_survive_import_and_original_download(client, test_db, actors):
+    contacts = ["139****0001", "139＊＊＊＊0002", "139••••0003", "139●●●●0004", "", "13900000006"]
+    batch = await upload(client, [teacher(f"1390000000{index}", f"教师{index}", 手机号码=contact)
+                                 for index, contact in enumerate(contacts, 1)])
+    assert batch["status"] == "ready" and batch["report"]["issues"] == []
+    done = await confirm(client, batch)
+    assert done["report"]["success_count"] == len(contacts)
+    for imported, contact in zip(done["report"]["imported"], contacts):
+        identifier = UUID(imported["id"])
+        assert (await test_db.get(TeacherProfile, identifier)).fields["手机号码"] == contact
+        assert (await test_db.get(User, identifier)).phone == (contact or None)
+    original = await client.get(P + f"/roster/imports/{batch['id']}/original")
+    book = load_workbook(io.BytesIO(original.content))
+    assert [book.active.cell(index, 13).value or "" for index in range(2, 8)] == contacts
+    book.close()
+
+
+@pytest.mark.asyncio
+async def test_masked_contact_change_retains_teacher_identity_and_versions(client, test_db, actors):
+    original = await confirm(client, await upload(client, [teacher("13900000001", 手机号码="139****0001")]))
+    identifier = original["report"]["imported"][0]["id"]
+    deletion = await delete_teachers(client, [identifier])
+    template = await client.get(P + f"/roster/teachers/change-tasks/{deletion['task_id']}/template")
+    book = load_workbook(io.BytesIO(template.content))
+    assert book.active["M2"].value == "139****0001"
+    book.close()
+    rows = await task_rows(client, deletion["task_id"])
+    rows[0]["手机号码"] = "138****0002"
+    batch = await upload_task(client, deletion["task_id"], rows)
+    assert batch["status"] == "ready" and batch["report"]["issues"] == []
+    done = await confirm_task(client, batch)
+    assert done["report"]["imported"][0]["id"] == identifier
+    user = await test_db.get(User, UUID(identifier))
+    assert user.phone == "138****0002" and user.username == "13900000001"
+    assert (await test_db.get(TeacherProfile, user.id)).fields["手机号码"] == "138****0002"
+    snapshot = await test_db.get(TeacherDeletion, UUID(deletion["snapshots"][0]["id"]))
+    assert snapshot.fields["手机号码"] == "139****0001"
+    assert snapshot.updated_fields["手机号码"] == "138****0002"
 
 
 @pytest.mark.asyncio
