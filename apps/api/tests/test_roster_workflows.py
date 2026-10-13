@@ -63,25 +63,26 @@ async def test_template_contract_and_file_level_rejection(client, test_db, actor
 
 
 @pytest.mark.asyncio
-async def test_preflight_merges_errors_and_rejects_masked_phone(client, test_db, actors):
+async def test_preflight_merges_errors_and_allows_masked_contact_phone(client, test_db, actors):
     batch = await upload(client, [teacher("", "", 状态="离职"), teacher("13800000026"), teacher("13800000026"), teacher("13800000021", 手机号码="131****7000", 任课年级班级="体育:99.999;")])
     issues = batch["report"]["issues"]
-    assert len(issues) == 3
+    assert len(issues) == 2
     assert issues[0]["fields"] == "教师姓名、教师账号、状态"
     assert "第 3 行" in issues[1]["message"]
     download = await client.get(P + f"/roster/imports/{batch['id']}/errors")
     book = load_workbook(io.BytesIO(download.content))
-    assert book.active.max_row == 4 and book.active.max_column == 8
+    assert book.active.max_row == 3 and book.active.max_column == 8
     book.close()
     await confirm(client, batch, status=409)
     assert await test_db.scalar(select(User).where(User.username == "13800000021")) is None
-    good = await upload(client, [teacher("13800000021", 手机号码="13100007000", 任课年级班级="体育:99.999;")])
+    good = await upload(client, [teacher("13800000021", 手机号码="131****7000", 任课年级班级="体育:99.999;")])
     assert good["report"]["ok"]
     done = await confirm(client, good)
     assert done["report"]["success_count"] == 1
     assert done["report"]["unresolved_teaching"]
     profile = await test_db.get(TeacherProfile, UUID(done["report"]["imported"][0]["id"]))
-    assert profile.fields["手机号码"] == "13100007000" and profile.fields["学工号"] == ""
+    assert profile.fields["手机号码"] == "131****7000" and profile.fields["学工号"] == ""
+    assert (await test_db.get(User, profile.id)).phone == "131****7000"
     duplicate = await upload(client, [teacher("13800000021")])
     assert duplicate["status"] == "invalid"
 

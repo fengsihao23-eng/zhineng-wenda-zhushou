@@ -148,8 +148,8 @@ async def preflight(db, school_id, kind, rows):
         if kind == "teachers":
             if account and not re.fullmatch(r"1[3-9]\d{9}", account):
                 issue("格式错误", "教师账号", "教师账号须填写完整的 11 位手机号，作为登录账号", "补填完整手机号后整表重新上传")
-            if re.search(r"[*＊•●]", values.get("手机号码", "")):
-                issue("脱敏值不可回传", "手机号码", "手机号码含脱敏字符，不能作为真实联系电话写入", "填写完整联系电话或留空后整表重新上传")
+            # Contact values may be masked in source exports. Only the teacher
+            # account must be a complete mobile number; retain contact text as-is.
             if values["状态"] != "正常":
                 issue("状态非法", "状态", "「状态」仅允许「正常」", "改回「正常」；离职 / 停用请在教师列表操作")
             teaching = values["任课年级班级"]
