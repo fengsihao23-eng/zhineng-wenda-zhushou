@@ -41,6 +41,10 @@ const server = createServer(async (req, res) => {
       for await (const chunk of req) chunks.push(chunk)
       const result = await fetch('http://127.0.0.1:8039' + req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks) })
       const headers = { 'content-type': result.headers.get('content-type') || 'application/json' }
+      for (const name of ['content-disposition', 'cache-control', 'x-teacher-task-id']) {
+        const value = result.headers.get(name)
+        if (value) headers[name] = value
+      }
       const cookies = result.headers.getSetCookie()
       if (cookies.length) headers['set-cookie'] = cookies
       res.writeHead(result.status, headers); res.end(Buffer.from(await result.arrayBuffer())); return

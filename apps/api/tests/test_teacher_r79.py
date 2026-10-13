@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from openpyxl import load_workbook
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from app.db.models import User, TeacherProfile, TeacherDeletion, TeacherChangeTask, RosterImport, TeachingAssignment
 from app.core.security import get_password_hash, verify_password
 from app.api.deps import get_current_user
@@ -205,6 +206,62 @@ async def test_single_task_reuses_identity_resets_password_and_preserves_version
     next_deletion = await delete_teachers(client, [identifier])
     assert next_deletion["task_id"] != deletion["task_id"]
     assert await test_db.scalar(select(func.count()).select_from(TeacherDeletion).where(TeacherDeletion.user_id == user.id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_repeated_teacher_change_preserves_unchanged_teaching_history(client, test_db, actors):
+    await classroom(client)
+    original = await confirm(client, await upload(client, [teacher("13900000001", 任课年级班级="数学:10.1;")]))
+    identifier = original["report"]["imported"][0]["id"]
+    original_grant = await test_db.scalar(select(TeachingAssignment).where(TeachingAssignment.teacher_user_id == UUID(identifier)))
+    original_started = original_grant.starts_at
+    for version in range(1, 4):
+        deletion = await delete_teachers(client, [identifier])
+        rows = await task_rows(client, deletion["task_id"])
+        rows[0]["教师姓名"] = f"保留任课关系教师第{version}版"
+        batch = await upload_task(client, deletion["task_id"], rows)
+        assert batch["status"] == "ready" and batch["report"]["issues"] == []
+        done = await confirm_task(client, batch)
+        assert done["report"]["imported"][0]["id"] == identifier
+        grants = (await test_db.scalars(select(TeachingAssignment).where(TeachingAssignment.teacher_user_id == UUID(identifier)))).all()
+        assert len(grants) == version + 1
+        assert sum(grant.status == "active" for grant in grants) == 1
+        assert all(grant.expires_at is not None for grant in grants if grant.status == "inactive")
+        assert original_grant.status == "inactive" and original_grant.starts_at == original_started
+        replay = await confirm_task(client, batch)
+        assert replay["report"] == done["report"]
+        assert await test_db.scalar(select(func.count()).select_from(TeachingAssignment).where(TeachingAssignment.teacher_user_id == UUID(identifier))) == version + 1
+    active = next(grant for grant in grants if grant.status == "active")
+    with pytest.raises(IntegrityError):
+        async with test_db.begin_nested():
+            test_db.add(TeachingAssignment(school_id=active.school_id, teacher_user_id=active.teacher_user_id,
+                                          class_id=active.class_id, subject_id=active.subject_id, status="active"))
+            await test_db.flush()
+
+
+@pytest.mark.asyncio
+async def test_original_downloads_remain_task_bound_when_alternating_single_and_bulk_tasks(client, actors):
+    original = await confirm(client, await upload(client, [teacher("13900000001", "下载甲"), teacher("13900000002", "下载乙"), teacher("13900000003", "下载丙")]))
+    identifiers = [row["id"] for row in original["report"]["imported"]]
+    bulk = await delete_teachers(client, identifiers[:2])
+    single = await delete_teachers(client, identifiers[2:])
+    filenames = set()
+    for _ in range(5):
+        for deletion in (bulk, single):
+            response = await client.get(P + f"/roster/teachers/change-tasks/{deletion['task_id']}/template", headers={"Origin": "http://localhost"})
+            assert response.status_code == 200
+            assert response.headers["x-teacher-task-id"] == deletion["task_id"]
+            assert "X-Teacher-Task-ID" in response.headers["access-control-expose-headers"]
+            assert response.headers["cache-control"] == "no-store"
+            assert deletion["task_id"] in response.headers["content-disposition"]
+            filenames.add(response.headers["content-disposition"])
+            book = load_workbook(io.BytesIO(response.content))
+            assert book.active.max_row == deletion["count"] + 1
+            assert {(book.active.cell(row, 4).value, book.active.cell(row, 25).value)
+                    for row in range(2, book.active.max_row + 1)} == {
+                        (row["teacher_name"], row["platform_id"]) for row in deletion["snapshots"]}
+            book.close()
+    assert len(filenames) == 2
 
 
 @pytest.mark.asyncio

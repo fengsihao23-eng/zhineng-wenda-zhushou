@@ -12,6 +12,8 @@ test('supplied r79: real bulk change keeps original IDs, restores accounts and p
   const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
   expect(login.ok()).toBeTruthy()
   const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
+  const classroom = await request.post('/api/v1/platform/education/school/classes', { headers, data: { external_class_id: '10.1', name: '高中一年级1班' } })
+  expect(classroom.ok()).toBeTruthy()
   const initial = [
     { 教师姓名: 'r79 联动教师甲', 教师账号: '18810000001', 手机号码: '188****0001', 状态: '正常', 任课年级班级: '数学:10.1;' },
     { 教师姓名: 'r79 联动教师乙', 教师账号: '18810000002', 手机号码: '', 状态: '正常', 说明: '学校管理员;考试管理员;班主任' },
@@ -116,4 +118,93 @@ test('manager feedback: real import preserves masked contacts and blocks invalid
   expect(records.total).toBe(1)
   const rejected = await (await request.get(base + '/teachers/records?search=188****0005', { headers })).json()
   expect(rejected.total).toBe(0)
+})
+
+test('manager feedback: alternating task downloads never mix teachers and unchanged teaching submits successfully', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
+  const headers = { Authorization: `Bearer ${(await login.json()).access_token}` }
+  const classroom = await request.post('/api/v1/platform/education/school/classes', { headers, data: { external_class_id: '10.2', name: '高中一年级2班' } })
+  expect(classroom.ok()).toBeTruthy()
+  const rows = [
+    { 教师姓名: '下载验证教师甲', 教师账号: '18810000006', 状态: '正常', 任课年级班级: '数学:10.2;' },
+    { 教师姓名: '下载验证教师乙', 教师账号: '18810000007', 状态: '正常', 任课年级班级: '数学:10.2;' },
+    { 教师姓名: '单人变更验证教师', 教师账号: '18810000008', 状态: '正常', 任课年级班级: '数学:10.2;' },
+  ]
+  const upload = await request.post(base + '/teachers/imports', { headers, data: { filename: '下载交替验证.xlsx', content_base64: workbook(rows) } })
+  const batch = await upload.json()
+  const imported = await request.post(base + `/imports/${batch.id}/confirm`, { headers, data: { expected_revision: batch.revision } })
+  expect(imported.ok()).toBeTruthy()
+  const originals = (await imported.json()).report.imported
+  const tasks: any[] = []
+  for (const selected of [originals.slice(0, 2), originals.slice(2)]) {
+    const deletion = await request.post(base + '/teachers/delete', { headers, data: { teacher_ids: selected.map((row: any) => row.id), reason: 'change', confirmed: true } })
+    expect(deletion.ok()).toBeTruthy()
+    tasks.push(await deletion.json())
+  }
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(fixture.users.admin)
+  await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+  await page.goto('/admin/school?tab=teachers')
+  const filenames = new Set<string>()
+  let singleFile: Buffer | undefined
+  for (let repeat = 0; repeat < 5; repeat++) {
+    for (const task of tasks) {
+      await page.getByRole('button', { name: '操作记录', exact: true }).click()
+      await page.getByRole('tab', { name: '删除快照（含变更任务）' }).click()
+      const record = page.locator('.teacher-record').filter({ hasText: task.task_id }).first()
+      await record.getByRole('button', { name: '继续变更任务' }).click()
+      const modal = page.getByRole('dialog', { name: '教师专属变更任务' })
+      await expect(modal.getByText(`任务内原教师 ${task.count} 名`, { exact: true })).toBeVisible()
+      if (repeat === 0 && task.count === 2) {
+        const templateUrl = `**${base}/teachers/change-tasks/${task.task_id}/template`
+        await page.route(templateUrl, async route => {
+          const response = await route.fetch()
+          await route.fulfill({ response, headers: { ...response.headers(), 'x-teacher-task-id': tasks[1].task_id } })
+        })
+        let downloads = 0
+        const onDownload = () => { downloads++ }
+        page.on('download', onDownload)
+        await modal.getByRole('button', { name: '下载原档案（25 列）', exact: true }).click()
+        await expect(modal.getByText('下载内容与当前变更任务不一致，请关闭后重新打开任务再下载。')).toBeVisible()
+        expect(downloads).toBe(0)
+        page.off('download', onDownload)
+        await page.unroute(templateUrl)
+      }
+      const downloaded = page.waitForEvent('download')
+      await modal.getByRole('button', { name: '下载原档案（25 列）', exact: true }).click()
+      const file = await downloaded
+      expect(file.suggestedFilename()).toContain(task.task_id)
+      filenames.add(file.suggestedFilename())
+      const content = readFileSync((await file.path())!)
+      const actual = JSON.parse(execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io,json;from openpyxl import load_workbook;b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));s=b.active;print(json.dumps([[s.cell(r,4).value,s.cell(r,25).value] for r in range(2,s.max_row+1)]))'], { input: content }).toString())
+      expect(actual.sort()).toEqual(task.snapshots.map((row: any) => [row.teacher_name, row.platform_id]).sort())
+      if (task.count === 1) singleFile = content
+      if (repeat === 4) await page.screenshot({ path: test.info().outputPath(`teacher-task-download-${task.count}-teachers.png`), fullPage: true })
+      await modal.getByRole('button', { name: '取消（保留任务）', exact: true }).click()
+    }
+  }
+  expect(filenames.size).toBe(2)
+  const single = tasks[1]
+  await page.getByRole('button', { name: '操作记录', exact: true }).click()
+  await page.getByRole('tab', { name: '删除快照（含变更任务）' }).click()
+  await page.locator('.teacher-record').filter({ hasText: single.task_id }).getByRole('button', { name: '继续变更任务' }).click()
+  const modal = page.getByRole('dialog', { name: '教师专属变更任务' })
+  const updated = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys,io;from openpyxl import load_workbook;b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));b.active.cell(2,4).value+="更新";b.save(sys.stdout.buffer)'], { input: singleFile })
+  await modal.getByLabel('上传教师 Excel').setInputFiles({ name: '单人更新验证.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: updated })
+  await modal.getByRole('button', { name: '开始预校验' }).click()
+  await expect(modal.getByText(/预校验通过，共 1 行/)).toBeVisible()
+  await modal.getByRole('button', { name: '下一步：指定对应关系' }).click()
+  await modal.getByRole('checkbox', { name: '我已逐行核实对应关系身份真实、准确。' }).check()
+  await modal.getByRole('button', { name: '下一步：预览变更' }).click()
+  await modal.getByRole('checkbox', { name: '我已核对对应关系及全部变更内容，确认整批提交。' }).check()
+  await modal.getByRole('button', { name: '确认整批提交' }).click()
+  await expect(modal.getByRole('heading', { name: '变更任务已完成' })).toBeVisible()
+  await expect(modal).toContainText('成功 1 条')
+  await page.screenshot({ path: test.info().outputPath('teacher-single-change-complete.png'), fullPage: true })
+  const completed = await (await request.get(base + `/teachers/change-tasks/${single.task_id}`, { headers })).json()
+  expect(completed.status).toBe('succeeded')
+  expect(completed.snapshots[0].reimported_user_id).toBe(originals[2].id)
 })

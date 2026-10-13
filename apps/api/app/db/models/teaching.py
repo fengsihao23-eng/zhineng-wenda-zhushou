@@ -1,7 +1,7 @@
 """Explicit class/subject grants. Missing or expired assignments deny access."""
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKeyConstraint, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKeyConstraint, Index, String, text
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -22,7 +22,10 @@ class TeachingAssignment(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("school_id", "teacher_user_id", "class_id", "subject_id", name="uq_teaching_assignment"),
+        # Completed grants retain their original period. Only the current
+        # grant must be unique when a stable teacher ID is reconstructed.
+        Index("uq_active_teaching_assignment", "school_id", "teacher_user_id", "class_id", "subject_id",
+              unique=True, postgresql_where=text("status = 'active'"), sqlite_where=text("status = 'active'")),
         ForeignKeyConstraint(["school_id", "teacher_user_id"], ["users.school_id", "users.id"], name="fk_teaching_user"),
         ForeignKeyConstraint(["school_id", "class_id"], ["import_classes.school_id", "import_classes.id"], name="fk_teaching_class"),
         ForeignKeyConstraint(["school_id", "subject_id"], ["subjects.school_id", "subjects.id"], name="fk_teaching_subject"),

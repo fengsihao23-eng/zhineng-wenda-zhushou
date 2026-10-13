@@ -74,7 +74,9 @@ async def change_task(identifier: UUID, actor=Depends(reader), db: AsyncSession 
 
 @router.get("/teachers/change-tasks/{identifier}/template")
 async def change_template(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    return excel(await teacher_changes.task_template(db, actor, identifier), "教师变更原档案（含教师ID）.xlsx")
+    response = excel(await teacher_changes.task_template(db, actor, identifier), f"教师变更原档案_任务{identifier}.xlsx")
+    response.headers["X-Teacher-Task-ID"] = str(identifier)
+    return response
 
 
 @router.post("/teachers/change-tasks/{identifier}/imports")
