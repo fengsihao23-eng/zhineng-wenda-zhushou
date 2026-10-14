@@ -3,6 +3,7 @@ import base64
 import io
 import re
 import zipfile
+from itertools import zip_longest
 import xlrd
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Protection
@@ -10,6 +11,9 @@ from app.core.errors import ApiError
 
 TEACHER_COLUMNS = ["学校编号", "学校名称", "部门名称", "教师姓名", "性别", "教师账号", "学工号", "mac地址", "SN码", "状态", "说明", "身份证", "手机号码", "短号", "座机号", "电子邮箱", "备注", "任课年级班级", "班主任年级班级", "教研组长负责年级科目", "年级长负责年级", "是否教务主任", "是否校长", "是否总务主任"]
 STUDENT_COLUMNS = ["学校编号", "学校名称", "年级（1-12）", "班级号", "姓名", "账号", "学号", "班级座号", "性别", "科类", "类别", "中/高考号", "学籍号", "全国学籍号", "准考证号", "身份证", "手机号", "email", "应往届", "状态", "考场号", "考场座位号", "mac地址", "SN码", "住宿类型", "宿舍类型", "宿舍楼", "楼层", "宿舍号", "床号"]
+# The original school .xls template has one trailing space in these two headers.
+# Resolve only those historical names; retain strict names/order for other columns.
+STUDENT_HEADER_ALIASES = {"mac地址 ": "mac地址", "SN码 ": "SN码"}
 STUDENT_CHANGE_COLUMNS = STUDENT_COLUMNS + ["学生ID"]
 STUDENT_LOCKED_FIELDS = ["学校编号", "学校名称", "姓名", "账号", "年级（1-12）", "班级号", "状态", "学生ID"]
 STUDENT_PROMOTION_COLUMNS = ["学生ID", "账号", "姓名", "目标年级", "目标班级号"]
@@ -130,10 +134,23 @@ def validate_rows(kind, source, expected_columns=None):
     source = iter(source)
     columns = [text(value) for value in next(source, ())]
     expected = expected_columns or COLUMNS[kind]
-    # Preserve the template's exact column names, including its mac/SN spaces.
-    if columns != expected:
+    resolved = [STUDENT_HEADER_ALIASES.get(column, column) for column in columns] if kind == "students" else columns
+    if resolved != expected:
         message = "列名或列顺序与《学生资料模板.xlsx》不一致（文件级错误，不做行级校验）" if kind == "students" else "列名或列顺序与资料模板不一致（文件级错误，不做行级校验）"
-        return [], [file_issue(message, "、".join(columns))]
+        differences = []
+        for number, (actual, required) in enumerate(zip_longest(resolved, expected), 1):
+            if actual == required:
+                continue
+            if actual is None:
+                differences.append(f"第 {number} 列缺少「{required}」")
+            elif required is None:
+                differences.append(f"第 {number} 列多出「{actual}」")
+            else:
+                differences.append(f"第 {number} 列应为「{required}」，实际为「{actual}」")
+        detail = "；".join(differences[:8])
+        if len(differences) > 8:
+            detail += f"；另有 {len(differences) - 8} 处列结构错误"
+        return [], [file_issue(f"{message}：{detail}", "、".join(columns))]
     rows = []
     for number, cells in enumerate(source, 2):
         values = [text(value) for value in cells]

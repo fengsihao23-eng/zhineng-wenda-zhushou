@@ -61,6 +61,6 @@ try {
   if (!ready) throw new Error(apiOutput)
   await new Promise((resolve, reject) => { server.on('error', reject); server.listen(5221, '127.0.0.1', resolve) })
   process.stdout.write(`Artifacts: ${scratch}\n`)
-  process.stdout.write(await run(process.execPath, [path.join(root, 'node_modules/@playwright/test/cli.js'), 'test', '--config', path.join(root, 'tests/education/playwright.config.ts'), 'student-r79.spec.ts'], { env: { ...env, QA_PASSWORD: credential, QA_FIXTURE_PATH: fixturePath, QA_BASE_URL: 'http://127.0.0.1:5221', QA_OUTPUT_DIR: path.join(scratch, 'results') } }))
+  process.stdout.write(await run(process.execPath, [path.join(root, 'node_modules/@playwright/test/cli.js'), 'test', '--config', path.join(root, 'tests/education/playwright.config.ts'), process.env.QA_STUDENT_R79_SPEC || 'student-r79.spec.ts'], { env: { ...env, QA_PASSWORD: credential, QA_FIXTURE_PATH: fixturePath, QA_BASE_URL: 'http://127.0.0.1:5221', QA_OUTPUT_DIR: path.join(scratch, 'results') } }))
 } catch (error) { process.stdout.write(error.message.replaceAll(credential, '[redacted]') + '\n'); process.exitCode = 1 }
 finally { server.closeAllConnections(); server.close(); api.kill('SIGTERM') }

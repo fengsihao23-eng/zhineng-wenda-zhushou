@@ -102,16 +102,42 @@ async def test_student_error_workbook_merges_all_errors_for_a_row_into_eight_col
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mutation", ["legacy_device_header_spaces", "add_header_space", "swap_columns"])
+@pytest.mark.parametrize("legacy_fields", [("mac地址",), ("SN码",), ("mac地址", "SN码")])
+async def test_student_legacy_device_headers_keep_all_values_and_original_file(client, test_db, actors, legacy_fields):
+    original = {column: "" for column in STUDENT_COLUMNS}
+    original.update(student("legacy-device-student", mac地址="AA:BB:CC:DD:EE:FF ", SN码=" SN-001 "))
+    columns = [column + " " if column in legacy_fields else column for column in STUDENT_COLUMNS]
+    content = workbook_bytes(columns, [[original[column] for column in STUDENT_COLUMNS]])
+    batch = await post(client, "/roster/students/imports", {
+        "filename": "旧学生资料模板.xlsx", "content_base64": base64.b64encode(content).decode(),
+    })
+    assert batch["status"] == "ready" and batch["report"]["ok"]
+    assert batch["rows"][0]["values"] == original
+    assert await test_db.scalar(select(User).where(User.username == original["账号"])) is None
+    done = await confirm(client, batch)
+    assert done["report"]["success_count"] == 1
+    record = await test_db.get(Student, UUID(done["report"]["imported"][0]["id"]))
+    assert record.profile_fields == original
+    download = await client.get(P + f"/roster/imports/{batch['id']}/original")
+    assert download.status_code == 200 and download.content == content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["add_header_space", "swap_columns", "rename_column", "missing_column", "extra_column", "duplicate_column"])
 async def test_student_header_must_match_exact_names_and_order(client, test_db, actors, mutation):
     columns = STUDENT_COLUMNS.copy()
-    if mutation == "legacy_device_header_spaces":
-        columns[22] += " "
-        columns[23] += " "
-    elif mutation == "add_header_space":
+    if mutation == "add_header_space":
         columns[4] += " "
-    else:
+    elif mutation == "swap_columns":
         columns[4], columns[5] = columns[5], columns[4]
+    elif mutation == "rename_column":
+        columns[4] = "学生姓名"
+    elif mutation == "missing_column":
+        columns.pop()
+    elif mutation == "extra_column":
+        columns.append("备注")
+    else:
+        columns[23] = columns[22]
     before = await test_db.scalar(select(func.count()).select_from(User))
     # The invalid row would yield row errors if structure checking did not stop first.
     batch = await upload(client, [student("", "", 状态="休学")], "students", columns=columns)
@@ -120,6 +146,7 @@ async def test_student_header_must_match_exact_names_and_order(client, test_db, 
     assert len(batch["report"]["issues"]) == 1
     issue = batch["report"]["issues"][0]
     assert issue["row_number"] is None and issue["error_type"] == "列结构不符"
+    assert "第" in issue["message"] and "列" in issue["message"]
     await confirm(client, batch, status=409)
     assert await test_db.scalar(select(func.count()).select_from(User)) == before
 

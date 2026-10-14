@@ -78,14 +78,18 @@ async def test_student_preflight_keeps_batch_atomic_without_class_dictionary_mat
 
 
 @pytest.mark.asyncio
-async def test_student_xls_uses_same_contract_and_atomic_import(client, test_db, actors):
+@pytest.mark.parametrize("fixture_name", ["student_roster.xls", "student_roster_legacy_headers.xls"])
+async def test_student_xls_uses_same_contract_and_atomic_import(client, test_db, actors, fixture_name):
     await classroom(client)
-    content = (Path(__file__).parent / "fixtures/student_roster.xls").read_bytes()
+    content = (Path(__file__).parent / "fixtures" / fixture_name).read_bytes()
     rows, issues = parse_excel("students", "学生.xls", base64.b64encode(content).decode())
     assert not issues and len(rows) == 2
     assert list(rows[0]["values"]) == STUDENT_COLUMNS
     assert rows[0]["values"]["中/高考号"] == "20250101"
     assert rows[0]["values"]["手机号"] == "131****0000"
+    if fixture_name == "student_roster_legacy_headers.xls":
+        assert rows[0]["values"]["mac地址"] == "AA:BB:CC:DD:EE:FF "
+        assert rows[0]["values"]["SN码"] == " SN-001 "
     batch = await post(client, "/roster/students/imports", {"filename": "学生.xls", "content_base64": base64.b64encode(content).decode()})
     assert batch["report"]["ok"]
     done = await confirm(client, batch)
@@ -93,6 +97,9 @@ async def test_student_xls_uses_same_contract_and_atomic_import(client, test_db,
     for row in done["report"]["imported"]:
         item = await test_db.get(Student, UUID(row["id"]))
         assert item.student_no is None and len(item.profile_fields) == 30
+        assert item.profile_fields == next(source["values"] for source in rows if source["row_number"] == row["row_number"])
+    original = await client.get(P + f"/roster/imports/{batch['id']}/original")
+    assert original.status_code == 200 and original.content == content
     repeated = await post(client, "/roster/students/imports", {"filename": "学生.xls", "content_base64": base64.b64encode(content).decode()})
     assert repeated["status"] == "invalid"
     assert len(repeated["report"]["issues"]) == 2
