@@ -229,8 +229,19 @@ test('selected promotion download and graduation review precede identity verific
     { 学生ID: before.platform_id, 姓名: before.name, 账号: before.username, 目标年级: '复读班', 目标班级号: '7班' },
   ]) })
   await dialog.getByRole('button', { name: '开始校验与预览' }).click()
+  // Resume a saved identity-review task created before the graduation step was completed.
+  await expect(page).toHaveURL(/student_task=/)
+  const taskId = new URL(page.url()).searchParams.get('student_task')!
+  const created = await (await request.get(base + '/students/tasks/' + taskId, { headers })).json()
+  const pending = await request.post(base + `/students/tasks/${taskId}/prepare`, { headers, data: {
+    expected_revision: created.revision, identity_uncertain_ids: [before.platform_id],
+  } })
+  expect(pending.ok()).toBeTruthy()
+  await page.reload()
+  dialog = page.getByRole('dialog')
   await expect(dialog.locator('.teacher-steps li.active')).toHaveText('3. 毕业办结与完整性审核')
   await expect(dialog.getByRole('heading', { name: '学生身份核验' })).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: '待审核任务 · 运营管理员身份审核' })).toHaveCount(0)
   await expect(dialog.locator('table input[type="checkbox"]')).toHaveCount(0)
   await expect(dialog.getByRole('columnheader', { name: '学生ID', exact: true })).toBeVisible()
   await expect(dialog.getByRole('columnheader', { name: '原毕业年级 / 班级' })).toBeVisible()
@@ -243,8 +254,10 @@ test('selected promotion download and graduation review precede identity verific
   await next.click()
   await expect(dialog.locator('.teacher-steps li.active')).toHaveText('4. 校验与身份审核')
   expect((await records(request, headers, before.platform_id)).items[0].status).toBe('graduated')
-  await dialog.getByRole('checkbox', { name: /我已逐人核对本批名单/ }).check()
-  await dialog.getByRole('button', { name: '保存核验，继续预览' }).click()
+  await dialog.getByLabel(`审核学生${before.name}`).check()
+  await dialog.getByLabel('身份审核依据').fill('已核对毕业档案、原学生ID与账号，确认为本人')
+  await dialog.getByRole('button', { name: '审核通过，返回原流程' }).click()
+  await dialog.getByRole('button', { name: '保存核验并提交身份审核' }).click()
   await dialog.getByLabel(`${before.name}年级异常依据`).fill('已核对实际毕业记录，批准同学段复读')
   await dialog.getByRole('checkbox', { name: '已复核并审批通过' }).check()
   await dialog.getByRole('button', { name: '保存审批，下一步：预览' }).click()
