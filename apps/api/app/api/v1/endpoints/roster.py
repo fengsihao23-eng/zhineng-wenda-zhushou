@@ -163,9 +163,13 @@ async def student_archive_template(student_ids: list[PersonReference] = Query(de
 
 
 @router.get("/students/promotion-template")
-async def student_promotion_template(actor=Depends(reader)):
-    from app.services.roster_excel import STUDENT_PROMOTION_COLUMNS, workbook_bytes
-    return excel(workbook_bytes(STUDENT_PROMOTION_COLUMNS), "学生升级换班名单.xlsx")
+async def student_promotion_template(student_ids: list[PersonReference] = Query(default=[], max_length=5000), all_filtered: bool = False, search: str = Query("", max_length=100), class_name: str = Query("", max_length=100), status: str = Query("", max_length=20), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    if all_filtered:
+        result = await student_roster.listing(db, actor, search, class_name, status, 1, 5000)
+        if result["total"] > 5000:
+            raise ApiError(413, "ROSTER_TOO_LARGE", "当前范围超过5000名学生，请缩小筛选后分批导出。")
+        student_ids = [row["id"] for row in result["items"] if row["status"] in {"active", "graduated"}]
+    return excel(await student_roster.promotion_template(db, actor, student_ids), "学生升级换班名单.xlsx")
 
 
 @router.get("/students/tasks")
@@ -180,7 +184,13 @@ async def student_task_create(body: StudentTaskCreate, key: UUID | None = Header
 
 @router.get("/students/tasks/{identifier}")
 async def student_task_detail(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    return student_roster.task_view(await owned(db, StudentWorkflowTask, identifier, actor))
+    task = await owned(db, StudentWorkflowTask, identifier, actor)
+    result = student_roster.task_view(task)
+    if task.status not in student_tasks.TERMINAL:
+        result["report"] = await student_tasks.evaluate(db, actor, task)
+        report = result["report"]
+        result["status"] = "invalid" if report["issues"] else "pending_review" if report["pending_review_ids"] else "ready"
+    return result
 
 
 @router.get("/students/tasks/{identifier}/original")

@@ -65,6 +65,35 @@ async def test_student_r79_export_has_31_exact_headers_and_eight_locked_columns(
 
 
 @pytest.mark.asyncio
+async def test_promotion_download_contains_only_selected_students_with_five_prefilled_columns(client, test_db, actors):
+    first = await seed_student(client, "export-first", "名单甲", **{"年级（1-12）": "高中二年级", "班级号": "2班"})
+    graduate = await seed_student(client, "export-graduate", "名单乙", **{"年级（1-12）": "高中三年级", "班级号": "3班"})
+    await seed_student(client, "export-unselected", "未选中学生")
+    await task_confirm(client, await task_prepare(client, await task_create(client, "status", [graduate], action="graduate")))
+    fields = [await existing_fields(client, sid) for sid in [graduate, first]]
+    response = await client.get(P + "/roster/students/promotion-template", params=[("student_ids", fields[0]["学生ID"]), ("student_ids", str(first))])
+    assert response.status_code == 200
+    book = load_workbook(io.BytesIO(response.content))
+    assert list(book.active.values) == [tuple(STUDENT_PROMOTION_COLUMNS)] + [
+        (f["学生ID"], f["账号"], f["姓名"], f["年级（1-12）"], f["班级号"]) for f in fields]
+    book.close()
+    filtered = await client.get(P + "/roster/students/promotion-template", params={"all_filtered": True, "search": "export-graduate", "status": "graduated"})
+    assert filtered.status_code == 200
+    book = load_workbook(io.BytesIO(filtered.content))
+    assert book.active.max_row == 2 and book.active.cell(2, 3).value == "名单乙"
+    book.close()
+    assert (await client.get(P + "/roster/students/promotion-template")).status_code == 422
+    aliases = await client.get(P + "/roster/students/promotion-template", params=[("student_ids", str(first)), ("student_ids", fields[1]["学生ID"])])
+    assert aliases.status_code == 422
+    foreign = Student(id=uuid4(), school_id=actors["other_school"].id, name="跨校档案")
+    test_db.add(foreign)
+    await test_db.commit()
+    assert (await client.get(P + "/roster/students/promotion-template", params={"student_ids": str(foreign.id)})).status_code == 422
+    await task_confirm(client, await task_prepare(client, await task_create(client, "status", [first], action="depart")))
+    assert (await client.get(P + "/roster/students/promotion-template", params={"student_ids": str(first)})).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_student_file_duplicates_cover_all_rows_and_explicit_keep_skip(client, actors):
     batch = await upload(client, [student("same-file-1"), student("same-file-2")], "students")
     assert {row["row_number"] for row in batch["report"]["suspicious"]} == {2, 3}
@@ -266,12 +295,95 @@ async def test_next_year_requires_verified_graduation_and_complete_active_roster
     original_year = school.current_academic_year
     graduation = await task_prepare(client, await task_create(client, "status", [graduate], action="graduate"))
     await task_confirm(client, graduation)
+    refreshed = (await client.get(P + f"/roster/students/tasks/{task['id']}")).json()
+    assert refreshed["revision"] == task["revision"]
+    assert refreshed["report"]["graduation_completed"][0]["student_id"] == str(graduate)
+    assert not refreshed["report"]["graduation_reviewed"]
     task = await task_prepare(client, task)
+    assert not task["report"]["ready_to_confirm"]
+    task = await task_prepare(client, task, graduation_review_digest=task["report"]["graduation_review_digest"])
     assert task["report"]["ready_to_confirm"] and not task["report"]["missing"]
     done = await task_confirm(client, task)
     assert done["status"] == "succeeded" and school.current_academic_year != original_year
     assert (await test_db.get(Student, graduate)).status == "graduated"
     assert await test_db.scalar(select(func.count()).select_from(StudentYearClass).where(StudentYearClass.student_id == regular)) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["current", "next"])
+async def test_graduated_student_can_repeat_via_promotion_after_graduation_review_without_changing_identity_or_exam_class(client, test_db, actors, mode):
+    fixture = await test_db.get(Student, actors["student"].id)
+    fixture.profile_fields = {"年级（1-12）": "高中一年级", "班级号": "1班"}
+    await test_db.commit()
+    sid = await seed_student(client, "promotion-repeater", "毕业后复读学生", **{"年级（1-12）": "高中三年级", "班级号": "2班"})
+    record = await test_db.get(Student, sid)
+    user = await test_db.get(User, record.user_id)
+    user_id, password_hash = record.user_id, user.password_hash
+    original_actor = actors["student"]
+    actors["student"] = type(original_actor)(id=sid, user_id=user_id)
+    exam = await setup_exam(client, actors)
+    await add_scores(test_db, actors, exam)
+    actors["student"] = original_actor
+    await task_confirm(client, await task_prepare(client, await task_create(client, "status", [sid], action="graduate")))
+    school = await test_db.get(School, fixture.school_id)
+    current_year = school.current_academic_year
+    fields = await existing_fields(client, sid)
+    values = [{"学生ID": fields["学生ID"], "姓名": fields["姓名"], "账号": fields["账号"], "目标年级": "复读班", "目标班级号": "3班"}]
+    if mode == "next":
+        regular = await existing_fields(client, fixture.id)
+        values.append({"学生ID": regular["学生ID"], "姓名": regular["姓名"], "账号": regular["账号"], "目标年级": "高中二年级", "目标班级号": "1班"})
+    task = await task_create(client, "promotion", values=values, mode=mode)
+    assert not task["report"]["issues"] and not task["report"]["missing"]
+    completed = task["report"]["graduation_completed"]
+    assert len(completed) == 1
+    assert (completed[0]["platform_id"], completed[0]["graduation_grade"], completed[0]["graduation_class_number"], completed[0]["repeat_grade"], completed[0]["repeat_class_number"]) == (fields["学生ID"], "高中三年级", "2班", "复读班", "3班")
+    task = await task_prepare(client, task, identity_confirmed_ids=[], graduation_confirmed=True)
+    assert task["report"]["graduation_reviewed"] and not task["report"]["identity_confirmed"]
+    assert record.status == user.status == "graduated" and record.archived_at
+    task = await task_prepare(client, task, anomaly_approvals={str(sid): "已核实同学段毕业后复读安排，审批通过"})
+    assert task["report"]["ready_to_confirm"]
+    done = await task_confirm(client, task)
+    assert done["status"] == "succeeded"
+    assert record.id == sid and record.user_id == user_id and user.password_hash == password_hash
+    assert record.status == user.status == "active" and record.archived_at is None
+    assert (await existing_fields(client, sid))["学生ID"] == fields["学生ID"]
+    assert record.profile_fields["年级（1-12）"] == "复读班" and record.profile_fields["班级号"] == "3班"
+    placement = await test_db.scalar(select(StudentExamPlacement).where(StudentExamPlacement.student_id == sid))
+    assert placement.grade == "高中三年级" and placement.class_number == "2班"
+    assert await test_db.scalar(select(func.count()).select_from(StudentExamScore).where(StudentExamScore.student_id == sid)) == 1
+    if mode == "next":
+        year_record = await test_db.scalar(select(StudentYearClass).where(StudentYearClass.student_id == sid, StudentYearClass.academic_year == current_year))
+        assert year_record.status == "graduated" and year_record.grade == "高中三年级"
+    else:
+        repeat = {**values[0], "目标班级号": "4班"}
+        followup = await task_create(client, "promotion", values=[repeat], mode="current")
+        assert followup["report"]["graduation_completed"][0]["graduation_grade"] == "高中三年级"
+        assert followup["report"]["graduation_completed"][0]["graduation_class_number"] == "2班"
+
+
+@pytest.mark.asyncio
+async def test_promotion_does_not_restore_a_graduate_into_a_different_school_segment(client, test_db, actors):
+    sid = await seed_student(client, "promotion-cross-segment", "跨学段复读拦截", **{"年级（1-12）": "初中三年级"})
+    await task_confirm(client, await task_prepare(client, await task_create(client, "status", [sid], action="graduate")))
+    fields = await existing_fields(client, sid)
+    task = await task_create(client, "promotion", values=[{"学生ID": fields["学生ID"], "姓名": fields["姓名"], "账号": fields["账号"], "目标年级": "高中一年级", "目标班级号": "1班"}])
+    assert task["status"] == "invalid" and "同学段" in str(task["report"]["issues"])
+    await task_confirm(client, task, status=409)
+    assert (await test_db.get(Student, sid)).status == "graduated"
+
+
+@pytest.mark.asyncio
+async def test_next_year_retained_graduating_grade_student_needs_no_graduation_exclusion_selection(client, test_db, actors):
+    fixture = await test_db.get(Student, actors["student"].id)
+    fixture.profile_fields = {"年级（1-12）": "高中三年级", "班级号": "1班"}
+    await test_db.commit()
+    fields = await existing_fields(client, fixture.id)
+    task = await task_create(client, "promotion", values=[{"学生ID": fields["学生ID"], "姓名": fields["姓名"], "账号": fields["账号"], "目标年级": "高中三年级", "目标班级号": "2班"}], mode="next")
+    assert not task["report"]["graduation_completed"] and not task["report"]["pending_graduations"]
+    assert not task["report"]["graduation_exclusions_missing"]
+    task = await task_prepare(client, task, graduation_confirmed=True, anomaly_approvals={str(fixture.id): "已核实本学年不毕业，留级安排审批通过"})
+    assert task["report"]["ready_to_confirm"]
+    assert (await task_confirm(client, task))["status"] == "succeeded"
 
 
 @pytest.mark.asyncio

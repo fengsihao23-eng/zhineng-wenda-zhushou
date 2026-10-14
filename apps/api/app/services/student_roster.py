@@ -176,6 +176,30 @@ async def archive_template(db, actor, identifiers):
     return workbook_bytes(STUDENT_CHANGE_COLUMNS, [[fields31(s, u, item, classes)[column] for column in STUDENT_CHANGE_COLUMNS] for s, u in rows], locked_fields=STUDENT_LOCKED_FIELDS)
 
 
+async def promotion_template(db, actor, identifiers):
+    from app.services.person_ids import resolve
+    resolved = await resolve(db, actor.school_id, "student", identifiers)
+    if not identifiers or len(set(map(str, identifiers))) != len(identifiers):
+        raise ApiError(422, "STUDENT_SELECTION_REQUIRED", "请选择升级或换班的学生，学生ID不可重复。")
+    if any(str(identifier) not in resolved for identifier in identifiers):
+        raise ApiError(422, "PROMOTION_STUDENTS_REQUIRED", "名单仅可包含本校在读或已毕业、保留原账号的学生。")
+    ids = [resolved[str(identifier)] for identifier in identifiers]
+    if len(set(ids)) != len(ids):
+        raise ApiError(422, "STUDENT_SELECTION_REQUIRED", "学生ID不可重复。")
+    people_by_id = {s.id: (s, u) for s, u in await people(db, actor.school_id, ids)}
+    if len(people_by_id) != len(ids) or any(s.status not in {"active", "graduated"} or u is None or
+           (s.status == "active" and u.status != "active") or
+           (s.status == "graduated" and u.status not in {"active", "graduated"})
+           for s, u in people_by_id.values()):
+        raise ApiError(422, "PROMOTION_STUDENTS_REQUIRED", "名单仅可包含本校在读或已毕业、保留原账号的学生；在读学生账号须启用。")
+    item, classes = await school(db, actor.school_id), await class_map(db, actor.school_id)
+    values = []
+    for identifier in ids:
+        fields = fields31(*people_by_id[identifier], item, classes)
+        values.append([fields["学生ID"], fields["账号"], fields["姓名"], fields["年级（1-12）"], fields["班级号"]])
+    return workbook_bytes(STUDENT_PROMOTION_COLUMNS, values)
+
+
 async def resolve_class(db, school_id, grade, number):
     from app.services.roster_workbench import resolve_student_class
     classes = await class_map(db, school_id)

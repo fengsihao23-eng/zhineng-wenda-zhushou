@@ -34,6 +34,7 @@ class StudentTaskPrepare(BaseModel):
     identity_uncertain_ids: list[PersonReference] = Field(default_factory=list, max_length=5000)
     anomaly_approvals: dict[PersonReference, str] = Field(default_factory=dict)
     graduation_confirmed: bool = False
+    graduation_review_digest: str | None = Field(default=None, max_length=64)
     graduation_student_ids: list[PersonReference] = Field(default_factory=list, max_length=5000)
     graduation_exclusions: dict[PersonReference, str] = Field(default_factory=dict)
     duplicate_name_confirmed: bool = False

@@ -171,7 +171,7 @@ async def evaluate(db, actor, task):
                 retained = await db.scalar(select(Student).where(Student.school_id == actor.school_id, Student.id == kept_id)) if kept_id else None
                 if retained is None or str(retained.id) in counts or retained.created_at > student.created_at:
                     report["issues"].append(issue(row, "重复记录须指定最早创建且已核实有效的保留记录；保留记录不得在删除名单中"))
-    if task.kind == "promotion" and payload["mode"] == "next":
+    if task.kind == "promotion":
         await evaluate_switch(db, actor, task, report, counts)
     if task.kind == "deletion" and task.rows and not report["issues"]:
         from app.services.student_data import deletion_preview
@@ -186,7 +186,7 @@ async def evaluate(db, actor, task):
     identities_ready = bool(seen) and all(sid in confirmed or (task.reviews or {}).get(sid, {}).get("status") == "approved" for sid in seen)
     deletion_ready = task.kind != "deletion" or seen.issubset(set(prepared.get("records_verified_ids", [])))
     duplicate_ready = not report["duplicates"] or prepared.get("duplicate_name_confirmed", False)
-    switch_ready = task.kind != "promotion" or payload["mode"] != "next" or (prepared.get("graduation_confirmed", False) and not report["pending_graduations"] and not report["missing"] and not report.get("graduation_exclusions_missing"))
+    switch_ready = task.kind != "promotion" or (report["graduation_reviewed"] and not report["pending_graduations"] and not report["missing"])
     report["ready_to_confirm"] = bool(task.rows) and not report["issues"] and not report["pending_review_ids"] and identities_ready and deletion_ready and duplicate_ready and approvals_ready and switch_ready
     report["identity_confirmed"] = identities_ready
     report["anomalies_approved"] = approvals_ready
@@ -233,9 +233,10 @@ async def evaluate_placement(db, actor, task, report, row, student, user, origin
     current = report["current_year"]
     if year not in {current, roster.year_after(current)} or (task.kind == "promotion" and year != (current if payload["mode"] == "current" else roster.year_after(current))):
         report["issues"].append(issue(row, "仅可选择当前学年或紧接的下一学年，并与办理分支一致", "目标学年"))
-    is_restore = task.kind == "status" and payload["action"] == "restore"
+    is_graduate_return = task.kind == "promotion" and student.status == "graduated"
+    is_restore = (task.kind == "status" and payload["action"] == "restore") or is_graduate_return
     if is_restore:
-        if student.status not in {"departed", "graduated", "suspended", "withdrawn", "inactive"} or user is None:
+        if student.status not in {"departed", "graduated", "suspended", "withdrawn", "inactive"} or user is None or (is_graduate_return and user.status not in {"active", "graduated"}):
             report["issues"].append(issue(row, "恢复在读仅限已离校或毕业、保留原账号的学生", "状态"))
     elif student.status != "active" or (task.kind == "promotion" and (user is None or user.status != "active")):
         report["issues"].append(issue(row, "本次办理仅限学籍状态正常的学生；升级换班还须原账号已启用", "状态、账号"))
@@ -269,11 +270,11 @@ async def evaluate_placement(db, actor, task, report, row, student, user, origin
             report["issues"].append(issue(row, "恢复在读仅限同学段返校；原学段不明须人工核实，跨学段入学请走新增导入", "目标年级"))
     if is_move:
         old_rank, new_rank = roster.grade_rank(old_grade), roster.grade_rank(target_grade)
-        normal = old_rank is not None and new_rank == old_rank + (1 if year != current else 0)
+        normal = not is_graduate_return and old_rank is not None and new_rank == old_rank + (1 if year != current else 0)
         if not normal:
             report["anomalies"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
                                         "before": old_grade, "after": target_grade,
-                                        "message": "缺少年级依据，须核实" if old_rank is None else "非顺升一级" if year != current else "当前学年年级改变",
+                                        "message": "毕业后复读，须核实返校安排" if is_graduate_return else "缺少年级依据，须核实" if old_rank is None else "非顺升一级" if year != current else "当前学年年级改变",
                                         "approval": approvals.get(sid, "")})
     target_status = "active" if is_move else "graduated" if payload["action"] == "graduate" else "departed"
     report["placements"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": original["账号"],
@@ -287,31 +288,52 @@ async def evaluate_switch(db, actor, task, report, ids):
     prepared = task.preparation or {}
     school, classes = await roster.school(db, actor.school_id), await roster.class_map(db, actor.school_id)
     all_rows = await roster.people(db, actor.school_id)
-    active_ids = {str(s.id) for s, _ in all_rows if s.status == "active"}
-    actual_graduates = set(prepared.get("graduation_student_ids", []))
-    exclusions = prepared.get("graduation_exclusions", {})
+    current = roster.current_year(school)
+    next_year = task.request_payload["mode"] == "next"
+    placements = {row["student_id"]: row for row in report["placements"]}
+    # Completed tasks retain the original graduation class even if a separate
+    # same-year return has since updated the student's year/class record.
+    completed = {}
+    graduations = (await db.scalars(select(StudentWorkflowTask).where(
+        StudentWorkflowTask.school_id == actor.school_id, StudentWorkflowTask.kind == "status",
+        StudentWorkflowTask.status == "succeeded").order_by(StudentWorkflowTask.confirmed_at, StudentWorkflowTask.id))).all()
+    for graduation in graduations:
+        if graduation.request_payload.get("action") != "graduate":
+            continue
+        for row in graduation.report.get("placements", []):
+            if row.get("target_year") == current or row["student_id"] in ids:
+                completed[row["student_id"]] = row
+    records = (await db.scalars(select(StudentYearClass).where(
+        StudentYearClass.school_id == actor.school_id, StudentYearClass.status == "graduated")
+        .order_by(StudentYearClass.academic_year, StudentYearClass.id))).all()
+    for record in records:
+        sid = str(record.student_id)
+        if (record.academic_year == current or sid in ids) and sid not in completed:
+            completed[sid] = {"grade": record.grade, "class_number": record.class_number}
+    report["graduation_completed"] = []
     report["graduation_exclusions_missing"] = []
-    valid_grad_ids = set()
     for student, user in all_rows:
         values = roster.fields31(student, user, school, classes)
         sid = str(student.id)
-        if roster.graduating(values["年级（1-12）"]) and (student.status == "active" or sid in actual_graduates):
-            entry = {"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": values["账号"], "grade": values["年级（1-12）"],
-                     "class_number": values["班级号"], "status": student.status}
-            report["graduation_candidates"].append(entry)
-            valid_grad_ids.add(sid)
-            if sid in actual_graduates and student.status != "graduated":
+        entry = {"student_id": sid, "platform_id": str(student.platform_id), "name": student.name,
+                 "account": values["账号"], "grade": values["年级（1-12）"], "class_number": values["班级号"], "status": student.status}
+        if (next_year or sid in ids) and (sid in completed or student.status == "graduated"):
+            graduation = completed.get(sid, entry)
+            placement = placements.get(sid, {})
+            report["graduation_completed"].append({**entry, "graduation_grade": graduation["grade"],
+                "graduation_class_number": graduation["class_number"], "repeat_grade": placement.get("grade", ""),
+                "repeat_class_number": placement.get("class_number", ""), "repeat_year": placement.get("target_year", "")})
+        if next_year and student.status == "active" and sid not in ids:
+            report["missing"].append(entry)
+            if roster.graduating(values["年级（1-12）"]):
                 report["pending_graduations"].append(entry)
-            elif student.status == "active" and sid not in actual_graduates and not str(exclusions.get(sid, "")).strip():
-                report["graduation_exclusions_missing"].append(entry)
-    if not actual_graduates.issubset(valid_grad_ids):
-        report["issues"].append(file_issue("实际毕业名单包含不属于本校毕业候选范围的学生，请重新核实。"))
-    for student, user in all_rows:
-        sid = str(student.id)
-        if sid in active_ids and sid not in ids and sid not in actual_graduates:
-            values = roster.fields31(student, user, school, classes)
-            report["missing"].append({"student_id": sid, "platform_id": str(student.platform_id), "name": student.name, "account": values["账号"],
-                                      "grade": values["年级（1-12）"], "class_number": values["班级号"]})
+    # Legacy preparation fields are accepted for saved tasks, but cannot exclude
+    # active students from completeness or claim an uncompleted graduation.
+    report["graduation_candidates"] = report["graduation_completed"]
+    report["graduation_review_required"] = next_year or bool(report["graduation_completed"])
+    report["graduation_review_digest"] = digest([report["graduation_completed"], report["pending_graduations"], report["missing"]])
+    report["graduation_reviewed"] = not report["graduation_review_required"] or (
+        prepared.get("graduation_confirmed", False) and prepared.get("graduation_review_digest") == report["graduation_review_digest"])
 
 
 async def prepare(db, actor, identifier, body):
@@ -335,6 +357,9 @@ async def prepare(db, actor, identifier, body):
     task.preparation = {**body.model_dump(mode="json", exclude={"expected_revision"}),
                         "prepared_by": str(actor.user_id), "prepared_at": now().isoformat()}
     task.report = await evaluate(db, actor, task)
+    if task.kind == "promotion" and body.graduation_confirmed:
+        task.preparation = {**task.preparation, "graduation_review_digest": body.graduation_review_digest or task.report["graduation_review_digest"]}
+        task.report = await evaluate(db, actor, task)
     valid_anomalies = {row["student_id"] for row in task.report["anomalies"]}
     if not {str(s) for s in body.anomaly_approvals}.issubset(valid_anomalies):
         raise ApiError(422, "ANOMALY_SELECTION_INVALID", "审批记录不属于本次年级异常清单。")
