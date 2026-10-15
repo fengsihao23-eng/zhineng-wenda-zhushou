@@ -26,6 +26,12 @@
 .teacher-dialog .data-table td.teacher-changed { color: #6250da; }
 .student-review-box { padding: 12px; margin: 16px 0; border: 1px solid #e6dbb8; background: #fffcf4; border-radius: 8px; }
 .student-review-approved { color: #1d7a5c; font-size: 12px; }
+.student-anomaly-batch { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; margin: 12px 0; padding: 12px; border: 1px solid #e4e6ee; border-radius: 8px; background: #fafafd; }
+.student-anomaly-batch .student-input-label { flex: 1 1 260px; margin: 0; }
+.student-anomaly-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.student-anomaly-selection .teacher-confirm { margin: 8px 0; }
+.student-anomaly-review .student-anomaly-note { width: 100%; min-width: 160px; }
+.teacher-dialog .student-anomaly-review input[aria-invalid="true"] { border-color: #d5aa6e; }
 .teacher-dialog .student-delete-confirm { background: #c2483c; border-color: #c2483c; }
 .teacher-dialog .teacher-steps { flex-wrap: wrap; }
 .teacher-dialog:has(.student-review-box) .teacher-steps li { min-width: 90px; }
