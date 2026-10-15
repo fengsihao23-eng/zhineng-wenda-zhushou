@@ -12,6 +12,7 @@ type Props = {
 
 export function StudentAnomalyApprovals({ rows, notes, checked, busy, onNotesChange, onCheckedChange }: Props) {
   const [commonNote, setCommonNote] = useState("");
+  const commonInput = useRef<HTMLInputElement>(null);
   const selectAll = useRef<HTMLInputElement>(null);
   const hintId = useId(), statusId = useId();
   const selected = rows.filter(row => checked[row.student_id]).length;
@@ -35,13 +36,14 @@ export function StudentAnomalyApprovals({ rows, notes, checked, busy, onNotesCha
   return <div className="student-anomaly-review">
     <p id={hintId}>每人须填写核实依据并勾选审批，才能进入预览。共同依据可批量填写；依据不同的学生请单独填写。填写或修改依据后须重新勾选对应审批。</p>
     <div className="student-anomaly-batch">
-      <label className="student-input-label">批量核实依据（仅填写空白项）
-        <input aria-label="批量年级异常依据" value={commonNote} maxLength={500} disabled={busy}
+      <label className="student-input-label">批量填写依据（一次填写，应用到本批全部空白项）
+        <input ref={commonInput} aria-label="批量年级异常依据" value={commonNote} maxLength={500} disabled={busy}
           placeholder="填写本批相同情况的实际核实依据" onChange={e => setCommonNote(e.target.value)} />
       </label>
-      <button type="button" disabled={busy || !commonNote.trim() || !missing.length} onClick={fillMissing}>填入全部空白依据（{missing.length}人）</button>
+      <button type="button" className="teacher-primary" disabled={busy || !commonNote.trim() || !missing.length} onClick={fillMissing}>填入全部空白依据（{missing.length}人）</button>
     </div>
     <div className="student-anomaly-selection">
+      <button type="button" disabled={busy} onClick={() => { commonInput.current?.scrollIntoView({ block: "nearest" }); commonInput.current?.focus({ preventScroll: true }); }}>批量填写依据</button>
       <label className="teacher-confirm"><input ref={selectAll} type="checkbox" aria-label="全选本批年级异常审批" disabled={busy}
         checked={rows.length > 0 && selected === rows.length} onChange={e => onCheckedChange({ ...checked, ...Object.fromEntries(rows.map(row => [row.student_id, e.target.checked])) })} />全选本批审批（含所有分页）</label>
       <span>已勾选 {selected} / {rows.length} 人</span>

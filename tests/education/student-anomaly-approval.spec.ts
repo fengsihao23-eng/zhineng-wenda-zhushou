@@ -67,6 +67,8 @@ test('grade approval selects all pages, explains missing reasons, preserves indi
   expect(await selectAll.evaluate(input => (input as HTMLInputElement).indeterminate)).toBe(true)
   const common = review.getByLabel('批量年级异常依据', { exact: true })
   const fill = review.getByRole('button', { name: /^填入全部空白依据/ })
+  await review.getByRole('button', { name: '批量填写依据', exact: true }).click()
+  await expect(common).toBeFocused()
   await common.fill('   ')
   await expect(fill).toBeDisabled()
   const commonNote = '合成验收：已人工核对名单和原年级，批准本批相同的跳级安排'
@@ -92,6 +94,8 @@ test('grade approval selects all pages, explains missing reasons, preserves indi
   await common.scrollIntoViewIfNeeded()
   await page.screenshot({ path: test.info().outputPath('student-anomaly-select-all.png'), fullPage: true })
   await next.scrollIntoViewIfNeeded()
+  await expect(common).toBeInViewport()
+  await expect(fill).toBeInViewport()
   await expect(review.getByRole('status')).toHaveText('本批 25 人均已填写依据并勾选审批，可保存审批并进入预览。')
   await page.screenshot({ path: test.info().outputPath('student-anomaly-next-enabled.png'), fullPage: true })
   await next.click()
