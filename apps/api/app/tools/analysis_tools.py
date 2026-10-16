@@ -53,6 +53,8 @@ class GetScoreTrendTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """执行Tool"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         limit = min(max(int(args.get("limit", 5)), 1), 20)
         subject_name = args.get("subject_name")
 
@@ -236,6 +238,8 @@ class GetQuestionLossTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """执行Tool"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         exam_id_str = args.get("exam_id")
         subject_name = args.get("subject_name")
         min_loss = max(float(args.get("min_loss", 0)), 0)
@@ -383,6 +387,8 @@ class GetDiagnosisTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """Re-check database grants on every call; context claims are not authority."""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         from app.core.diagnosis_access import authorized_reports, require_diagnosis, audit_report_access
         from app.core.errors import ApiError
         try:

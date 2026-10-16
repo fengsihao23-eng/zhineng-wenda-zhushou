@@ -74,8 +74,8 @@ class QuestionScore(Base):
     question_version_id = Column(UUID(as_uuid=True), nullable=True, comment="经核验的正式题目版本")
     question_no = Column(String(20), nullable=False, comment="题号")
     score = Column(DECIMAL(10, 2), nullable=False, comment="得分")
-    full_score = Column(DECIMAL(10, 2), nullable=False, comment="满分")
-    lost_score = Column(DECIMAL(10, 2), nullable=False, comment="丢分")
+    full_score = Column(DECIMAL(10, 2), nullable=True, comment="满分；原文件未提供时为空")
+    lost_score = Column(DECIMAL(10, 2), nullable=True, comment="丢分；未知小题满分时为空")
     answer_status = Column(String(20), comment="答题状态")
     knowledge_point_id = Column(UUID(as_uuid=True), comment="知识点ID")
 

@@ -13,6 +13,7 @@ export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' 
   const roles = user?.roles || []
   if (roles.some(role => role.toUpperCase() === 'CITY_OPERATOR' || role.toUpperCase() === 'SUPER_ADMIN')) return 'city'
   if (roles.some(role => role.toUpperCase() === 'SCHOOL_ADMIN' || role.toUpperCase() === 'QA' || role.toUpperCase() === 'SCHOOL_VIEWER')) return 'school'
+  if (roles.includes('EXAM_ADMIN') && !roles.includes('TEACHER')) return 'school'
   if (roles.some(role => role.toUpperCase() === 'TEACHER')) return 'teacher'
   return 'student'
 }
@@ -21,6 +22,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
   student: [
     { path: '/', label: '学习总览', icon: '◈' },
     { path: '/profile', label: '成绩概览', icon: '📊' },
+    { path: '/exam-results', label: '考试成绩与报告', icon: 'file' },
     { path: '/trends', label: '成绩趋势', icon: '⌁' },
     { path: '/diagnosis', label: '诊断报告', icon: '◎' },
     { path: '/mistakes', label: '错题分析', icon: '◇' },
@@ -29,6 +31,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
   ],
   teacher: [
     { path: '/teacher', label: '教师总览', icon: '◈' },
+    { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' },
     { path: '/teacher/analysis', label: '班级学科分析', icon: 'chart', group: '教学分析' },
     { path: '/teacher/students', label: '学生学情', icon: 'users' },
     { path: '/teacher/handoffs', label: '人工转接', icon: '↗' },
@@ -38,6 +41,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
   school: [
     { path: '/admin', label: '学校总览', icon: '◈' },
     { path: '/admin/school', label: '师生班级与考试', icon: 'users', group: '业务生产' },
+    { path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file' },
     { path: '/admin/imports', label: '成绩导入', icon: 'upload' },
     { path: '/admin/papers', label: '试卷与拆题', icon: 'file' },
     { path: '/admin/questions', label: '题库与知识点', icon: 'tree' },
@@ -66,7 +70,9 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
   const navigate = useNavigate()
   const user = getUserInfo()
   const role = roleOf(user)
-  const navItems = role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [{ path: '/admin/school', label: '考试科目管理', icon: 'file', group: '业务生产' }, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, { path: '/admin/school', label: '本校教务工作台', icon: 'users', group: '业务生产' }] : navByRole[role]
+  const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
+  const baseNavItems = examAdminOnly ? [{ path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file', group: '业务生产' }] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [{ path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file', group: '业务生产' }, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, { path: '/admin/school', label: '本校教务工作台', icon: 'users', group: '业务生产' }] : navByRole[role]
+  const navItems = role !== 'teacher' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
   const serviceState = health.isLoading ? 'loading' : health.error ? 'unavailable' : health.data?.model?.real_model_ready ? 'ready' : 'model_pending'
   const [collapsed, setCollapsed] = useState(() => {

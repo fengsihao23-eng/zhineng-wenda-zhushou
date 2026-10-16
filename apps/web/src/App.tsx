@@ -7,6 +7,7 @@ import { RoleGate } from './components/RoleGate'
 import { STUDENT_ROLES, TEACHER_ROLES, SCHOOL_ROLES, CITY_ROLES, homePath } from './utils/permissions'
 import { StudentDetailPage, SchoolDetailPage } from './pages/ManagementDetails'
 import { SchoolWorkbenchPage, ClassAnalysisPage } from './features/education/SchoolWorkbench'
+import { ExamResultsPage } from './features/education/ExamResults'
 import { RosterTaskPage } from './features/education/RosterWorkbench'
 import { ImportWorkbenchPage } from './features/education/ImportWorkbench'
 import { PaperWorkbenchPage, PaperSplitPage } from './features/education/PaperWorkbench'
@@ -123,6 +124,7 @@ function App() {
             <Route path="/chat" element={<RoleGate allowed={STUDENT_ROLES}><ChatPage /></RoleGate>} />
             <Route path="/profile" element={<RoleGate allowed={STUDENT_ROLES}><ProfilePage /></RoleGate>} />
             <Route path="/trends" element={<RoleGate allowed={STUDENT_ROLES}><StudentTrendsPage /></RoleGate>} />
+            <Route path="/exam-results" element={<RoleGate allowed={STUDENT_ROLES}><ExamResultsPage /></RoleGate>} />
             <Route path="/diagnosis" element={<RoleGate allowed={STUDENT_ROLES}><StudentDiagnosisPage /></RoleGate>} />
             <Route path="/mistakes" element={<RoleGate allowed={STUDENT_ROLES}><StudentMistakesPage /></RoleGate>} />
             <Route path="/mistakes/reviews" element={<RoleGate allowed={STUDENT_ROLES}><StudentReviewsPage /></RoleGate>} />
@@ -130,6 +132,7 @@ function App() {
             <Route path="/support" element={<RoleGate allowed={STUDENT_ROLES}><StudentSupportPage /></RoleGate>} />
             <Route path="/teacher" element={<RoleGate allowed={TEACHER_ROLES}><ManagementOverviewPage /></RoleGate>} />
             <Route path="/teacher/analysis" element={<RoleGate allowed={TEACHER_ROLES}><ClassAnalysisPage /></RoleGate>} />
+            <Route path="/teacher/exams" element={<RoleGate allowed={TEACHER_ROLES}><ExamResultsPage /></RoleGate>} />
             <Route path="/teacher/students" element={<RoleGate allowed={TEACHER_ROLES}><StudentRosterPage /></RoleGate>} />
             <Route path="/teacher/students/:studentId" element={<RoleGate allowed={TEACHER_ROLES}><StudentDetailPage /></RoleGate>} />
             <Route path="/teacher/feedback" element={<RoleGate allowed={TEACHER_ROLES}><FeedbackPage /></RoleGate>} />

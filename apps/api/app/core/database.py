@@ -7,6 +7,7 @@ from app.core.config import settings
 # Import every model once at application startup so Base.metadata is complete
 # for Alembic, health checks, and test fixtures that only import this module.
 from app.db import models as _models  # noqa: F401,E402
+from app.core import exam_access as _exam_access  # noqa: F401,E402
 
 # 创建异步引擎
 engine_options = {

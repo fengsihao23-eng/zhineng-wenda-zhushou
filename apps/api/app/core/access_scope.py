@@ -30,12 +30,15 @@ def active_grants(user):
 
 
 def student_ids(user):
+    from app.db.models.exam_management import ExamQueryGrant
     return select(Student.id).where(
         Student.school_id == user.school_id,
         Student.status == "active",
-        exists(select(TeachingAssignment.id).where(
+        or_(exists(select(TeachingAssignment.id).where(
             *active_grants(user), assigned_class(),
-        )),
+        )), exists(select(ExamQueryGrant.id).where(ExamQueryGrant.school_id == user.school_id,
+            ExamQueryGrant.recipient_kind == "teacher", ExamQueryGrant.recipient_id == user.user_id,
+            ExamQueryGrant.student_id == Student.id))),
     )
 
 
@@ -66,7 +69,7 @@ def assigned_class(exam_id=None):
     ))
 
 
-def scoped(query, user, school_column):
+def scoped(query, user, school_column, score_type="student"):
     """Apply tenancy and, for teachers, class-level queues/rosters or subject docs."""
     if is_city(user):
         return query
@@ -80,7 +83,10 @@ def scoped(query, user, school_column):
         if "exam_id" in table.c:
             historic_ids = select(Student.id).where(Student.school_id == user.school_id, Student.status == "active",
                 exists(select(TeachingAssignment.id).where(*active_grants(user), assigned_class(table.c.exam_id))))
-            return query.where(table.c.student_id.in_(historic_ids))
+            from app.core.exam_access import managed, teacher_condition
+            management = managed(table.c.exam_id, table.c.school_id)
+            return query.where(or_(and_(~management, table.c.student_id.in_(historic_ids)),
+                and_(management, teacher_condition(table, user, score_type))))
         return query.where(table.c.student_id.in_(student_ids(user)))
     if table.name == "knowledge_documents":
         return query.where(table.c.subject.in_(
@@ -90,16 +96,17 @@ def scoped(query, user, school_column):
     return query
 
 
-def scoped_scores(query, user, model):
-    query = scoped(query, user, model.school_id)
+def scoped_scores(query, user, model, view_type="student"):
+    query = scoped(query, user, model.school_id, score_type=view_type).execution_options(exam_view_type=view_type)
     if is_teacher_only(user):
         # Correlate the subject grant with THIS student's class, never a union
         # of all subjects taught in unrelated classes.
-        query = query.where(exists(select(TeachingAssignment.id).join(
+        from app.core.exam_access import managed
+        query = query.where(or_(managed(model.exam_id, model.school_id), exists(select(TeachingAssignment.id).join(
             Student, assigned_class(model.exam_id),
         ).where(
             *active_grants(user), Student.school_id == user.school_id,
             Student.id == model.student_id,
             TeachingAssignment.subject_id == model.subject_id,
-        )))
+        ))))
     return query

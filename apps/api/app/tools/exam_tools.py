@@ -45,6 +45,8 @@ class GetExamSummaryTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """执行Tool"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         exam_id_str = args.get("exam_id")
 
         try:

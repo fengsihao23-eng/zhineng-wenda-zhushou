@@ -23,7 +23,10 @@ def active_entitlements(school_id, student_id):
 
 
 async def has_diagnosis_entitlement(db, school_id, student_id):
-    return bool(await db.scalar(select(exists().where(*active_entitlements(school_id, student_id)))))
+    from app.db.models.exam_management import ExamQueryGrant
+    explicit = exists(select(ExamQueryGrant.id).where(ExamQueryGrant.school_id == school_id,
+        ExamQueryGrant.recipient_kind == "student", ExamQueryGrant.recipient_id == student_id))
+    return bool(await db.scalar(select(or_(exists().where(*active_entitlements(school_id, student_id)), explicit))))
 
 
 def authorized_reports(school_id, student_id):
@@ -37,7 +40,9 @@ def authorized_reports(school_id, student_id):
             and_(e.resource_type == "subject", e.resource_id == r.subject_id),
         ),
     ))
-    return select(r).where(r.school_id == school_id, r.student_id == student_id, r.status == "generated", grant)
+    from app.core.exam_access import managed, student_condition
+    return select(r).where(r.school_id == school_id, r.student_id == student_id, r.status == "generated",
+        or_(and_(~managed(r.exam_id, r.school_id), grant), and_(managed(r.exam_id, r.school_id), student_condition(r, school_id, student_id))))
 
 
 async def audit_report_access(db, actor, allowed, resource_id=None, reason=None):

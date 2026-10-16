@@ -4,6 +4,7 @@ import { AppShell } from "../../layouts/AppShell";
 import { DetailDialog } from "../../components/DetailDialog";
 import { getUserInfo } from "../../utils/auth";
 import { RosterWorkbench } from "./RosterWorkbench";
+import { ExamWorkbench } from "./ExamWorkbench";
 import { useJsonQuery } from "../../hooks/useApi";
 import {
   BASE,
@@ -32,6 +33,7 @@ const tabs: Record<string, string> = {
   teaching: "教师任教",
   subjects: "学科",
   exams: "考试科目",
+  "exam-management": "考务管理",
 };
 
 function savedSchoolTab(key: string): string | null {
@@ -50,9 +52,9 @@ export function SchoolWorkbenchPage() {
   const tabKey = `school-workbench-tab:${user?.school_id || "unknown"}:${user?.user_id || "anonymous"}`;
   const requestedTab = params.get("tab");
   const lastTab = savedSchoolTab(tabKey);
-  const kind = examOnly ? "exams" : requestedTab && requestedTab in tabs ? requestedTab : lastTab && lastTab in tabs ? lastTab : "classes";
+  const kind = examOnly ? (requestedTab === "exams" ? "exams" : "exam-management") : requestedTab && requestedTab in tabs ? requestedTab : lastTab && lastTab in tabs ? lastTab : "classes";
   useEffect(() => { if (!examOnly) saveSchoolTab(tabKey, kind); }, [examOnly, kind, tabKey]);
-  const writable = canWrite() || (examAdmin && kind === "exams");
+  const writable = canWrite() || (examAdmin && ["exams", "exam-management"].includes(kind));
   const [search, setSearch] = useState("");
   const pagination = usePagination(`${kind}:${search}`);
   const { page, pageSize } = pagination;
@@ -60,7 +62,7 @@ export function SchoolWorkbenchPage() {
   const [showCreate, setShowCreate] = useState(false);
   const list = useJsonQuery<PageData>(
     `${BASE}/school/${kind}?page=${page}&page_size=${pageSize}&search=${encodeURIComponent(search)}`,
-    kind !== "teachers" && kind !== "students",
+    !["teachers", "students", "exam-management"].includes(kind),
   );
   const classes = useSchoolOptions("classes"),
     subjects = useSchoolOptions("subjects");
@@ -148,11 +150,11 @@ export function SchoolWorkbenchPage() {
       ? [{ name: "name", label: "班级名称" } as Field, statusField]
       : fields[kind];
   return (
-    <AppShell title="师生班级与考试" eyebrow="业务生产 / 学校范围">
+    <AppShell title={kind === "exam-management" ? "考务管理" : "师生班级与考试"} eyebrow="业务生产 / 学校范围">
       {!examOnly && <ReadOnlyNote />}
-      {kind !== "teachers" && kind !== "students" && <HelpTip label="使用说明">{examOnly ? "考试管理员可维护本校考试及考试科目。" : "班级名称可填写「高中一年级1班」，外部班级标识可填写「10.1」。师生档案在对应标签中通过 Excel 导入。"}</HelpTip>}
+      {!["teachers", "students", "exam-management"].includes(kind) && <HelpTip label="使用说明">{examOnly ? "考试管理员可维护本校考试及考试科目。" : "班级名称可填写「高中一年级1班」，外部班级标识可填写「10.1」。师生档案在对应标签中通过 Excel 导入。"}</HelpTip>}
       <div className="wb-tabs">
-        {Object.entries(examOnly ? { exams: tabs.exams } : tabs).filter(([key]) => !["teachers", "students"].includes(kind) || key !== "teaching").map(([key, label]) => (
+        {Object.entries(examOnly ? { "exam-management": tabs["exam-management"], exams: tabs.exams } : tabs).filter(([key]) => !["teachers", "students"].includes(kind) || key !== "teaching").map(([key, label]) => (
           <button
             key={key}
             className={kind === key ? "active" : ""}
@@ -169,7 +171,7 @@ export function SchoolWorkbenchPage() {
           </button>
         ))}
       </div>
-      {kind === "teachers" || kind === "students" ? <RosterWorkbench key={kind} kind={kind} /> : <>
+      {kind === "exam-management" ? <ExamWorkbench writable={writable} /> : kind === "teachers" || kind === "students" ? <RosterWorkbench key={kind} kind={kind} /> : <>
       <div className="wb-toolbar">
         <input
           aria-label="搜索名称"

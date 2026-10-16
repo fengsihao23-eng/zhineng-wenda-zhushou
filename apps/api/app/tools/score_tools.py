@@ -50,6 +50,8 @@ class GetSubjectScoresTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """执行Tool"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         exam_id_str = args.get("exam_id")
         subject_name = args.get("subject_name")
 
@@ -190,6 +192,8 @@ class GetRankingChangeTool(BaseTool):
         args: dict
     ) -> ToolResult:
         """执行Tool"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, tool_context.school_id, tool_context.student_id)
         current_exam_id_str = args.get("current_exam_id")
         previous_exam_id_str = args.get("previous_exam_id")
 

@@ -82,6 +82,8 @@ class StudentContextBuilder:
         selected_exam_id: UUID | None = None,
     ) -> StudentContext:
         """构建学生上下文"""
+        from app.core.exam_access import bind_student
+        bind_student(self.db, school_id, student_id)
 
         # 1. 查询学生基本信息
         student_result = await self.db.execute(

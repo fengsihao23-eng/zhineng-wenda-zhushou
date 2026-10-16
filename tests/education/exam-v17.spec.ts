@@ -1,0 +1,229 @@
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { readFileSync, mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+
+const fixture = JSON.parse(readFileSync(process.env.QA_FIXTURE_PATH!, 'utf8'))
+const root = path.resolve(__dirname, '../..')
+const base = '/api/v1/platform/education/exam-management'
+const evidence = process.env.QA_EXAM_EVIDENCE || '/tmp/exam-v17-evidence'
+mkdirSync(evidence, { recursive: true })
+
+async function login(page: Page, kind = 'admin') {
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(fixture.users[kind])
+  await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login$/)
+}
+
+async function apiLogin(request: APIRequestContext, kind = 'admin') {
+  const response = await request.post('/api/v1/auth/login', { data: { username: fixture.users[kind], password: process.env.QA_PASSWORD } })
+  expect(response.ok()).toBeTruthy()
+  return { Authorization: 'Bearer '+(await response.json()).access_token }
+}
+
+async function startWizard(page: Page, name: string) {
+  await page.goto('/admin/school?tab=exam-management')
+  await page.getByRole('button', { name: '创建考试', exact: false }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('考试名称', { exact: true }).fill(name)
+  // Keep the first two default subjects: Chinese and mathematics.
+  for (let i = 0; i < 4; i++) await dialog.locator('.exam-subject-edit').getByRole('button', { name: '删除', exact: true }).last().click()
+  await dialog.getByRole('button', { name: '校验并下一步', exact: true }).click()
+  await dialog.getByText('高中一年级', { exact: true }).click()
+  await dialog.getByRole('button', { name: '下一步：选择参试学生' }).click()
+  return dialog
+}
+
+function fillScore(buffer: Buffer, omitLast = false) {
+  return execFileSync(path.join(root, '.venv/bin/python'), ['-c', `import io,sys
+from openpyxl import load_workbook
+b=load_workbook(io.BytesIO(sys.stdin.buffer.read()));s=b.active
+if ${omitLast ? 'True' : 'False'}: s.delete_rows(s.max_row)
+for r in range(2,s.max_row+1):
+ s.cell(r,7,90);s.cell(r,10,30);s.cell(r,11,60)
+s.cell(1,10,'1');s.cell(1,11,'2')
+out=io.BytesIO();b.save(out);sys.stdout.buffer.write(out.getvalue())`], { input: buffer })
+}
+
+test('creation validates subjects and cancellation leaves no exam or roster', async ({ page, request }) => {
+  const headers = await apiLogin(request)
+  const before = (await (await request.get(base, { headers })).json()).total
+  await login(page)
+  await page.goto('/admin/school?tab=exam-management')
+  await page.getByRole('button', { name: '创建考试', exact: false }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('考试名称', { exact: true }).fill('取消创建验收')
+  await dialog.getByLabel('科目名称2', { exact: true }).fill('语文')
+  await dialog.getByRole('button', { name: '校验并下一步' }).click()
+  await expect(dialog.getByText(/至少保留一个不重复的科目/)).toBeVisible()
+  await dialog.getByLabel('科目名称2', { exact: true }).fill('数学')
+  await dialog.getByLabel('科目满分1', { exact: true }).fill('0')
+  await dialog.getByRole('button', { name: '校验并下一步' }).click()
+  await expect(dialog.getByText(/满分大于 0/)).toBeVisible()
+  await dialog.getByRole('button', { name: '取消本次创建' }).click()
+  await expect(dialog).not.toBeVisible()
+  expect((await (await request.get(base, { headers })).json()).total).toBe(before)
+})
+
+test('administrator creates, imports, previews authorizations; teachers and students only read their granted data', async ({ page, request, browser }) => {
+  test.setTimeout(150000)
+  const headers = await apiLogin(request), name = '考务完整路线 '+Date.now()
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await login(page)
+  const dialog = await startWizard(page, name)
+  // Subject rosters may differ. Chinese excludes class 2 while mathematics retains all three students.
+  await dialog.getByRole('checkbox', { name: '全选高中一年级 2班', exact: true }).uncheck()
+  await dialog.getByRole('button', { name: '下一步：预览', exact: true }).click()
+  await expect(dialog.getByText('去重后 3 人', { exact: false })).toBeVisible()
+  const rosterDownload = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: '下载参试名单（Excel）' }).click()
+  expect((await rosterDownload).suggestedFilename()).toBe('参试名单.xlsx')
+  await page.screenshot({ path: path.join(evidence, '01-create-preview.png'), fullPage: true })
+  await dialog.getByRole('checkbox', { name: /我已核对考试配置/ }).check()
+  const createdResponse = page.waitForResponse(r => r.url().endsWith(base) && r.request().method() === 'POST')
+  await dialog.getByRole('button', { name: '确认创建', exact: true }).click()
+  let exam = await (await createdResponse).json()
+  expect(exam.participant_count).toBe(3)
+  expect(exam.subjects.map((s: any) => s.student_ids.length)).toEqual([2,3])
+  expect(exam.open_state).toBe('none')
+  const templateDownload = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: '下载成绩模板（Excel）' }).click()
+  const template = readFileSync((await (await templateDownload).path())!)
+  const incomplete = fillScore(template, true), complete = fillScore(template)
+  await dialog.getByLabel('选择成绩 Excel', { exact: true }).setInputFiles({ name:'不完整名单.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer:incomplete })
+  await dialog.getByRole('button', { name:'校验文件', exact:true }).click()
+  await expect(dialog.getByText(/缺少 1 名参试学生/)).toBeVisible()
+  await expect(dialog.getByRole('button', { name:'确认导入', exact:true })).toBeDisabled()
+  await dialog.getByLabel('选择成绩 Excel', { exact:true }).setInputFiles({ name:'完整语文成绩.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer:complete })
+  await dialog.getByRole('button', { name:'校验文件', exact:true }).click()
+  await expect(dialog.getByText(/完整名单校验通过：2 人/)).toBeVisible()
+  await page.screenshot({ path:path.join(evidence,'02-score-preflight.png'), fullPage:true })
+  await dialog.getByRole('button', { name:'确认导入', exact:true }).click()
+  await expect(dialog.getByText('完整语文成绩.xlsx', { exact:true })).toBeVisible()
+  const sourceDownload = page.waitForEvent('download')
+  await dialog.getByRole('button', { name:'下载查看', exact:true }).click()
+  expect(readFileSync((await (await sourceDownload).path())!)).toEqual(complete)
+  await dialog.getByRole('button', { name:'关闭', exact:true }).click()
+  const row = page.getByRole('row').filter({ has:page.getByText(name, { exact:true }) })
+  await row.getByRole('button', { name:'成绩开放设置', exact:true }).click()
+  await dialog.getByRole('checkbox', { name:new RegExp('选择教师 数学教师甲') }).check()
+  await dialog.getByRole('checkbox', { name:'诊断报告', exact:true }).uncheck()
+  await dialog.getByRole('checkbox', { name:'成绩科目：语文', exact:true }).check()
+  await expect(dialog.getByRole('checkbox', { name:'成绩科目：数学（未导入）', exact:true })).toBeDisabled()
+  await dialog.getByRole('checkbox', { name:'语种 · 个人报告：语文', exact:true }).check()
+  await expect(dialog.getByRole('checkbox', { name:'全选作文报告语种' })).toHaveAttribute('aria-checked','mixed')
+  await page.screenshot({ path:path.join(evidence,'03-teacher-permissions.png'), fullPage:true })
+  await dialog.getByRole('checkbox', { name:'语种 · 个人报告：语文', exact:true }).uncheck()
+  await dialog.getByRole('radio', { name:'全部参试学生', exact:true }).check()
+  const teacherPreview = page.waitForEvent('download')
+  await dialog.getByRole('button', { name:'下载授权预览（Excel）', exact:true }).click()
+  await teacherPreview
+  await expect(dialog.getByRole('button', { name:'确认保存生效', exact:true })).toBeEnabled()
+  await dialog.getByRole('radio', { name:'按年级', exact:true }).check()
+  await expect(dialog.getByRole('button', { name:'确认保存生效', exact:true })).toBeDisabled()
+  await dialog.getByRole('radio', { name:'全部参试学生', exact:true }).check()
+  const newPreview = page.waitForEvent('download')
+  await dialog.getByRole('button', { name:'下载授权预览（Excel）', exact:true }).click()
+  await newPreview
+  await dialog.getByRole('button', { name:'确认保存生效', exact:true }).click()
+  await expect(dialog.getByText('请选择需配置权限的教师。')).toBeVisible()
+  await dialog.getByRole('button', { name:'2. 学生查询控制', exact:true }).click()
+  await dialog.getByRole('checkbox', { name:'操作科目：语文', exact:true }).check()
+  await expect(dialog.getByRole('checkbox', { name:'操作科目：数学（未导入）', exact:true })).toBeDisabled()
+  await dialog.getByRole('button', { name:'全选筛选结果', exact:true }).click()
+  const studentPreview = page.waitForEvent('download')
+  await dialog.getByRole('button', { name:'下载授权预览（Excel）', exact:true }).click()
+  await studentPreview
+  await page.screenshot({ path:path.join(evidence,'04-student-permissions.png'), fullPage:true })
+  await dialog.getByRole('button', { name:'确认保存生效', exact:true }).click()
+  await expect(dialog.getByRole('button', { name:'确认保存生效', exact:true })).toBeDisabled()
+  await dialog.getByRole('button', { name:'关闭', exact:true }).click()
+  exam = await (await request.get(base+'/'+exam.id, { headers })).json()
+  expect(Object.keys(exam.teacher_permissions)).toHaveLength(1)
+  expect(Object.keys(exam.student_permissions)).toHaveLength(2)
+  const studentContext = await browser.newContext(), studentPage = await studentContext.newPage()
+  await login(studentPage,'student'); await studentPage.goto('/exam-results')
+  await expect(studentPage.getByRole('cell', { name:'语文', exact:true })).toBeVisible()
+  await expect(studentPage.getByRole('cell', { name:'数学', exact:true })).toHaveCount(0)
+  await expect(studentPage.getByText('本人本次考试总分', { exact:false })).toHaveCount(0)
+  await page.screenshot({ path:path.join(evidence,'05-exam-list.png'), fullPage:true })
+  await studentPage.screenshot({ path:path.join(evidence,'06-student-results.png'), fullPage:true })
+  const teacherContext = await browser.newContext(), teacherPage = await teacherContext.newPage()
+  await login(teacherPage,'teacher'); await teacherPage.goto('/teacher/exams')
+  await expect(teacherPage.getByRole('cell', { name:'语文', exact:true })).toHaveCount(2)
+  await expect(teacherPage.getByRole('cell', { name:'数学', exact:true })).toHaveCount(0)
+  await teacherPage.screenshot({ path:path.join(evidence,'07-teacher-results.png'), fullPage:true })
+  const teacherHeaders = await apiLogin(request,'teacher')
+  const forbidden = await request.post(base+'/'+exam.id+'/permissions/student', { headers:teacherHeaders, data:{ expected_revision:exam.revision, student_ids:[fixture.students[0].id], subject_ids:[exam.subjects[0].subject_id], mode:'close' } })
+  expect(forbidden.status()).toBe(403)
+  await row.getByRole('button', { name:'调整考试范围', exact:true }).click()
+  await dialog.getByRole('button', { name:'校验并下一步', exact:true }).click()
+  await dialog.getByRole('button', { name:'全选筛选结果', exact:true }).click()
+  await dialog.getByRole('button', { name:'下一步：差异预览', exact:true }).click()
+  await expect(dialog.getByText('新增 1 人 / 移除 0 人', { exact:true })).toBeVisible()
+  await page.screenshot({ path:path.join(evidence,'08-adjustment-diff.png'), fullPage:true })
+  await dialog.getByRole('checkbox', { name:/我已核对考试配置/ }).check()
+  await dialog.getByRole('button', { name:'确认保存调整', exact:true }).click()
+  await expect(dialog.getByRole('heading', { name:'参试名单（考试学年快照）' })).toBeVisible()
+  await dialog.getByRole('button', { name:'关闭', exact:true }).click()
+  await teacherPage.reload()
+  await expect(teacherPage.getByRole('cell', { name:'语文', exact:true })).toHaveCount(2)
+  exam = await (await request.get(base+'/'+exam.id, { headers })).json()
+  expect(exam.subjects[0].student_ids).toHaveLength(3)
+  await row.getByRole('button', { name:'查看已导入成绩', exact:true }).click()
+  await dialog.getByRole('button', { name:'删除成绩文件', exact:true }).click()
+  await expect(dialog.getByText(/重新导入后须重新授权/)).toBeVisible()
+  await dialog.getByRole('button', { name:'确认删除', exact:true }).click()
+  await expect(dialog.getByRole('button', { name:'删除成绩文件', exact:true })).toHaveCount(0)
+  await dialog.getByRole('button', { name:'关闭', exact:true }).click()
+  await studentPage.reload()
+  await expect(studentPage.getByText('暂无已开放的考试，请等待运营管理员完成查询授权。')).toBeVisible()
+  await page.getByRole('button', { name:'操作记录', exact:true }).click()
+  await expect(dialog.getByRole('heading', { name:'创建考试', exact:true })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name:'删除成绩文件', exact:true })).toBeVisible()
+  await page.screenshot({ path:path.join(evidence,'09-operation-history.png'), fullPage:true })
+  await studentContext.close(); await teacherContext.close()
+})
+
+test('read-only school account can inspect exams and history without write controls', async ({ page }) => {
+  await login(page,'viewer'); await page.goto('/admin/school?tab=exam-management')
+  await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
+  await expect(page.getByRole('button', { name:'创建考试', exact:false })).toHaveCount(0)
+  await expect(page.getByRole('button', { name:'调整考试范围', exact:true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name:'导入成绩', exact:true })).toHaveCount(0)
+  await page.getByRole('button', { name:'操作记录', exact:true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('concurrent confirmations import one complete file without duplicate score writes', async ({ request }) => {
+  const headers = await apiLogin(request)
+  const body = { name:'并发导入验收 '+Date.now(), academic_year:'2026-2027', exam_date:'2026-10-16', subjects:[{ key:'math', name:'数学', full_score:150, student_ids:fixture.students.slice(0,2).map((s:any) => s.id) }] }
+  const checked = await (await request.post(base+'/preview', { headers, data:body })).json()
+  const exam = await (await request.post(base, { headers:{...headers,'Idempotency-Key':crypto.randomUUID()}, data:{...body,preview_hash:checked.preview_hash} })).json()
+  const sub = exam.subjects[0].subject_id
+  const template = await request.get(`${base}/${exam.id}/score-template/${sub}`, { headers })
+  const content = fillScore(await template.body())
+  const payload = { filename:'并发合成成绩.xlsx',content_base64:content.toString('base64'),subject_id:sub,expected_revision:exam.revision }
+  const files = await Promise.all([1,2].map(async () => {
+    const response = await request.post(`${base}/${exam.id}/score-files`, { headers,data:payload })
+    expect(response.ok()).toBeTruthy();return response.json()
+  }))
+  const responses = await Promise.all(files.map(file => request.post(`${base}/${exam.id}/score-files/${file.id}/confirm`, { headers })))
+  expect(responses.map(r => r.status()).sort()).toEqual([200,409])
+  const result = await (await request.get(base+'/'+exam.id, { headers })).json()
+  expect(Object.values(result.score_files)).toHaveLength(1)
+  expect(result.score_files[sub].row_count).toBe(2)
+  expect(result.open_state).toBe('none')
+})
+
+test('an explicitly appointed exam administrator gets exam controls and no student navigation', async ({ page }) => {
+  await login(page,'examadmin')
+  await expect(page.getByRole('heading',{ name:'考试列表',exact:true })).toBeVisible()
+  await expect(page.getByRole('button',{ name:'创建考试',exact:false })).toBeVisible()
+  await expect(page.getByRole('link',{ name:'学习总览',exact:true })).toHaveCount(0)
+  await page.getByRole('button',{ name:'创建考试',exact:false }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('button',{ name:'取消本次创建',exact:true }).click()
+})

@@ -75,6 +75,8 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> AuthenticatedUser:
     """获取当前用户"""
+    db.info.pop("exam_student_scope", None)
+    db.info.pop("exam_teacher_scope", None)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -130,6 +132,9 @@ async def get_current_user(
         )
     )
     roles = [code for code in role_result.scalars().all() if code]
+    if "TEACHER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR", "QA", "EXAM_ADMIN"}.intersection(roles):
+        from app.core.exam_access import bind_teacher
+        bind_teacher(db, user.school_id, user.id)
     if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password":
         raise HTTPException(status_code=403, detail="当前职务仅有全校数据查看权限。", headers={"X-Error-Code": "SCHOOL_READ_ONLY"})
 
@@ -169,6 +174,8 @@ async def get_current_student(
             detail="Student profile not found"
         )
 
+    from app.core.exam_access import bind_student
+    bind_student(db, student.school_id, student.id)
     return AuthenticatedStudent(
         user_id=current_user.user_id,
         school_id=student.school_id,

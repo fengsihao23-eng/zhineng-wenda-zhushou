@@ -503,6 +503,10 @@ class CsvImportService:
                 Exam.school_id == school.id,
                 Exam.external_exam_id == data["external_exam_id"],
             )
+            if exam is not None:
+                from app.db.models.exam_management import ExamAdministration
+                if await self.db.get(ExamAdministration, exam.id):
+                    raise CsvImportError("该考试由考务管理维护，请在考务管理中按科目导入完整成绩文件。")
             if exam is None:
                 exam = Exam(
                     school_id=school.id,

@@ -195,6 +195,10 @@ async def create(db, actor, kind, body, key):
 
 async def update_record(db, actor, kind, identifier, body):
     item = await owned(db, MODELS[kind], identifier, actor, lock=True)
+    if kind == "exams":
+        from app.db.models.exam_management import ExamAdministration
+        if await db.get(ExamAdministration, identifier):
+            raise ApiError(409, "EXAM_WORKFLOW_REQUIRED", "请通过考务管理预览差异后调整本次考试。")
     if kind == "students" and any(getattr(item, k) != v for k, v in body.model_dump().items()):
         raise ApiError(422, "STUDENT_WORKFLOW_REQUIRED", "请在学生档案页通过档案变更、姓名·账号变更、升级换班或离校办理核对并确认；不可直接修改锁定字段。")
     if kind != "teaching":
@@ -329,6 +333,9 @@ async def exam_detail(db, actor, identifier):
 
 async def set_exam_subject(db, actor, identifier, body):
     exam = await owned(db, Exam, identifier, actor, lock=True)
+    from app.db.models.exam_management import ExamAdministration
+    if await db.get(ExamAdministration, identifier):
+        raise ApiError(409, "EXAM_WORKFLOW_REQUIRED", "请通过考务管理调整科目与范围，核对差异后保存。")
     native_only(exam)
     await owned(db, Subject, body.subject_id, actor)
     item = await db.scalar(
@@ -381,7 +388,9 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
     classroom = await owned(db, ImportedClass, class_id, actor)
     await owned(db, Subject, subject_id, actor)
     await owned(db, Exam, exam_id, actor)
-    if is_teacher_only(actor) and not await db.scalar(
+    from app.db.models.exam_management import ExamAdministration
+    managed_exam = await db.get(ExamAdministration, exam_id)
+    if is_teacher_only(actor) and not managed_exam and not await db.scalar(
         select(TeachingAssignment.id).where(
             *active_grants(actor),
             TeachingAssignment.class_id == class_id,
@@ -405,7 +414,7 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
             StudentSubjectScore.exam_id == exam_id,
         )
     )
-    scores = (await db.scalars(base)).all()
+    scores = (await db.scalars(scoped_scores(base, actor, StudentSubjectScore, view_type="classSubject"))).all()
     values = [float(s.score) for s in scores]
     distribution = [
         {"label": "低于 60%", "count": 0},
@@ -425,7 +434,7 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
     previous = None
     if selected_exam.start_date:
         prior_exam = await db.scalar(
-            select(Exam)
+            scoped_scores(select(Exam)
             .join(StudentSubjectScore, StudentSubjectScore.exam_id == Exam.id)
             .join(Student, Student.id == StudentSubjectScore.student_id)
             .where(
@@ -437,12 +446,12 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
                 Exam.start_date < selected_exam.start_date,
             )
             .order_by(Exam.start_date.desc())
-            .limit(1)
+            .limit(1), actor, StudentSubjectScore, view_type="classSubject")
         )
         if prior_exam:
             prior_scores = (
                 await db.scalars(
-                    select(StudentSubjectScore)
+                    scoped_scores(select(StudentSubjectScore)
                     .join(Student, Student.id == StudentSubjectScore.student_id)
                     .where(
                         StudentSubjectScore.school_id == actor.school_id,
@@ -450,7 +459,7 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
                         in_class,
                         StudentSubjectScore.subject_id == subject_id,
                         StudentSubjectScore.exam_id == prior_exam.id,
-                    )
+                    ), actor, StudentSubjectScore, view_type="classSubject")
                 )
             ).all()
             average = sum(float(s.score) for s in prior_scores) / len(prior_scores)
@@ -473,7 +482,7 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
             }
     losses = (
         await db.execute(
-            select(QuestionScore, TaxonomyNode.name)
+            scoped_scores(select(QuestionScore, TaxonomyNode.name)
             .join(Student, Student.id == QuestionScore.student_id)
             .outerjoin(
                 TaxonomyNode,
@@ -488,7 +497,9 @@ async def class_analysis(db, actor, class_id, subject_id, exam_id):
                 exam_class(QuestionScore.exam_id),
                 QuestionScore.exam_id == exam_id,
                 QuestionScore.subject_id == subject_id,
+                QuestionScore.lost_score.is_not(None),
             )
+            , actor, QuestionScore, view_type="classSubject")
         )
     ).all()
     points, unknown = {}, 0

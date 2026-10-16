@@ -176,6 +176,13 @@ async def add_review_record(db, actor, identifier, body, key):
 async def create_report(db, actor, body, key):
     await owned(db, Student, body.student_id, actor)
     await owned(db, Exam, body.exam_id, actor)
+    from app.db.models.exam_management import ExamAdministration
+    administration = await db.get(ExamAdministration, body.exam_id)
+    if administration:
+        selected = [s for s in administration.configuration["subjects"]
+                    if str(body.student_id) in s["student_ids"] and (not body.subject_id or s["subject_id"] == str(body.subject_id))]
+        if not selected:
+            raise ApiError(422, "EXAM_PARTICIPANT_REQUIRED", "报告只能关联本次考试对应科目参试名单中的学生。")
     await owned(db, PrivateAsset, body.asset_id, actor)
     if body.subject_id:
         await owned(db, Subject, body.subject_id, actor)
