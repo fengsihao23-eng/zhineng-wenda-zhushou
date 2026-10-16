@@ -53,12 +53,17 @@ async def main():
             db.add(StudentYearClass(school_id=school.id, student_id=student.id, academic_year="2026-2027",
                 grade="高中一年级", class_number=str(1 if index < 2 else 2), class_id=classroom.id,
                 status="graduated" if key == "inactive" else "active"))
+            if index < 2:
+                db.add(StudentYearClass(school_id=school.id, student_id=student.id, academic_year="2025-2026",
+                    grade="初中三年级", class_number="8", class_id=classroom.id))
             students.append(student)
         for key,index in [("teacher",0),("teacher2",1)]:
             db.add(TeachingAssignment(school_id=school.id, teacher_user_id=users[key].id, class_id=classes[index].id,
                 subject_id=subjects[index].id, starts_at=datetime.now(timezone.utc)-timedelta(days=1)))
             db.add(TeacherProfile(id=users[key].id, school_id=school.id,
-                fields={"教师姓名":users[key].display_name,"任课年级班级":f"高中一年级{index+1}班","任教学科":subjects[index].name}, duties=["TEACHER"]))
+                fields={"教师姓名":users[key].display_name,"任课年级班级":f"{subjects[index].name}:10.{index+1}",
+                        "班主任年级班级":"10.1" if key == "teacher2" else ""},
+                duties=["TEACHER", "HOMEROOM_TEACHER"] if key == "teacher2" else ["TEACHER"]))
         await db.commit()
         print(json.dumps({"users":{key:user.username for key,user in users.items()}, "user_ids":{key:str(user.id) for key,user in users.items()},
             "school_id":str(school.id), "students":[{"id":str(s.id),"platform_id":str(s.platform_id),"name":s.name} for s in students]}, ensure_ascii=False))

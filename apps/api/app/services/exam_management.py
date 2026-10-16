@@ -17,9 +17,10 @@ from app.db.models import (School, User, Student, Subject, Exam, ExamSubject, St
                            DiagnosisReport, TeacherProfile, TeachingAssignment, Role, UserRole)
 from app.db.models.exam_management import (ExamAdministration, ExamParticipant, ExamQueryPolicy,
                                           ExamQueryGrant, ExamScoreFile, ExamOperation)
-from app.services.education_common import data, digest, owned, claim, audit
+from app.services.education_common import data, digest, owned, claim, audit, now
 from app.services import student_roster
 from app.services.roster_excel import workbook_bytes
+from app.services.exam_permission_defaults import DEFAULT_RULES, teacher_defaults
 
 SCORE_TYPES = {"student": "个人单科成绩", "classSubject": "班级单科成绩", "gradeSubject": "年级单科成绩",
                "classAll": "班级综合成绩", "gradeAll": "年级综合成绩", "school": "全校综合成绩"}
@@ -83,12 +84,24 @@ async def teacher_options(db, actor):
         UserRole.school_id == actor.school_id, Role.code == "TEACHER")
     rows = (await db.execute(select(User, TeacherProfile).outerjoin(TeacherProfile, TeacherProfile.id == User.id).where(
         User.school_id == actor.school_id, User.status == "active", User.id.in_(teacher_ids)).order_by(User.display_name, User.id))).all()
+    current_time = now()
     assignments = (await db.scalars(select(TeachingAssignment).where(TeachingAssignment.school_id == actor.school_id,
-                                                                    TeachingAssignment.status == "active"))).all()
+        TeachingAssignment.status == "active", TeachingAssignment.starts_at <= current_time,
+        (TeachingAssignment.expires_at.is_(None) | (TeachingAssignment.expires_at > current_time))))).all()
     return [{"id": str(user.id), "platform_id": str(user.platform_id), "name": user.display_name or user.username,
              "account": user.username, "fields": profile.fields if profile else {}, "duties": profile.duties if profile else ["TEACHER"],
              "class_ids": unique(a.class_id for a in assignments if a.teacher_user_id == user.id),
-             "subject_ids": unique(a.subject_id for a in assignments if a.teacher_user_id == user.id)} for user, profile in rows]
+             "subject_ids": unique(a.subject_id for a in assignments if a.teacher_user_id == user.id),
+             "assignments": [{"class_id": str(assignment.class_id), "subject_id": str(assignment.subject_id)}
+                             for assignment in assignments if assignment.teacher_user_id == user.id]} for user, profile in rows]
+
+
+async def teacher_permission_options(db, actor, identifier):
+    item = await administration(db, actor, identifier)
+    ready = {str(file.subject_id) for file in await files_for(db, actor, identifier)}
+    teachers = await teacher_options(db, actor)
+    return {"items": [{**teacher, **teacher_defaults(teacher, item.configuration, ready)} for teacher in teachers],
+            "default_rules": DEFAULT_RULES}
 
 
 async def administration(db, actor, identifier, lock=False, revision=None):
@@ -147,11 +160,10 @@ async def preview(db, actor, body, identifier=None):
     if identifier and body.expected_revision is None:
         fail("调整考试必须携带当前版本，请刷新后重新预览。")
     old = await administration(db, actor, identifier, revision=body.expected_revision) if identifier else None
-    if old and body.academic_year != old.configuration["academic_year"]:
-        fail("考试学年已冻结，调整范围时不能更换考试学年。")
+    same_year = old is not None and body.academic_year == old.configuration["academic_year"]
     candidates = await options(db, actor, body.academic_year)
     available = {s["id"]: s for s in candidates["students"]}
-    snapshots = dict(old.configuration["snapshots"]) if old else {}
+    snapshots = dict(old.configuration["snapshots"]) if same_year else {}
     subjects = []
     old_by_id = {s["subject_id"]: s for s in old.configuration["subjects"]} if old else {}
     for subject in body.subjects:
@@ -160,7 +172,7 @@ async def preview(db, actor, body, identifier=None):
                 fail("科目标识不属于当前考试。")
             await owned(db, Subject, subject.subject_id, actor)
         ids = unique(subject.student_ids)
-        retained = old_by_id.get(str(subject.subject_id), {}).get("student_ids", [])
+        retained = old_by_id.get(str(subject.subject_id), {}).get("student_ids", []) if same_year else []
         for sid in ids:
             if sid not in available and sid not in retained:
                 fail("名单包含非本校、非考试学年或状态非正常的学生，请重新选择。")
@@ -193,7 +205,8 @@ async def preview(db, actor, body, identifier=None):
     return {"configuration": config, "preview_hash": checksum, "participant_count": len(roster_ids(config)),
             "duplicates": [{"id": e.external_exam_id or str(e.id), "name": e.name} for e in duplicates],
             "summary": dict(summary), "changes": changes, "linked_data": linked,
-            "permission_note": "已有成绩、报告及历史归属保留。授权名单按授权时冻结，新增学生或科目须重新授权。"}
+            "permission_note": ("考试学年和本次名单归属按新学年更新。已有成绩、报告保留；原授权名单保持冻结，新增学生或科目须重新授权。"
+                                if old and not same_year else "已有成绩、报告及历史归属保留。授权名单按授权时冻结，新增学生或科目须重新授权。")}
 
 
 async def operation(db, actor, identifier, kind, details):
@@ -217,7 +230,7 @@ async def save(db, actor, body, key=None, identifier=None):
     before = previous.configuration if previous else None
     if previous:
         exam = await owned(db, Exam, identifier, actor)
-        exam.name, exam.start_date = body.name, body.exam_date
+        exam.name, exam.academic_year, exam.start_date = body.name, body.academic_year, body.exam_date
     else:
         exam = Exam(id=identifier, school_id=actor.school_id, name=body.name, academic_year=body.academic_year,
                     start_date=body.exam_date, exam_type="school", source_system="native", status="active",
@@ -243,13 +256,18 @@ async def save(db, actor, body, key=None, identifier=None):
     for subject in config["subjects"]:
         for sid in subject["student_ids"]:
             db.add(ExamParticipant(school_id=actor.school_id, exam_id=identifier, subject_id=UUID(subject["subject_id"]), student_id=UUID(sid)))
-    existing_placements = set((await db.scalars(select(StudentExamPlacement.student_id).where(StudentExamPlacement.school_id == actor.school_id, StudentExamPlacement.exam_id == identifier))).all())
+    existing_placements = {placement.student_id: placement for placement in (await db.scalars(select(StudentExamPlacement).where(
+        StudentExamPlacement.school_id == actor.school_id, StudentExamPlacement.exam_id == identifier))).all()}
     for sid in roster_ids(config):
-        if UUID(sid) not in existing_placements:
+        placement = existing_placements.get(UUID(sid))
+        if placement is None:
+            placement = StudentExamPlacement(school_id=actor.school_id, exam_id=identifier, student_id=UUID(sid))
+            db.add(placement)
+        if UUID(sid) not in existing_placements or body.academic_year != before["academic_year"]:
             snap = config["snapshots"][sid]
-            db.add(StudentExamPlacement(school_id=actor.school_id, exam_id=identifier, student_id=UUID(sid),
-                academic_year=body.academic_year, grade=snap["grade"], class_number=snap["class_number"],
-                class_id=UUID(snap["class_id"]) if snap.get("class_id") else None, external_class_id=snap.get("external_class_id")))
+            placement.academic_year, placement.grade, placement.class_number = body.academic_year, snap["grade"], snap["class_number"]
+            placement.class_id = UUID(snap["class_id"]) if snap.get("class_id") else None
+            placement.external_class_id = snap.get("external_class_id")
     if previous:
         previous.configuration = config
         previous.revision += 1
@@ -635,8 +653,8 @@ async def permission_preview(db, actor, identifier, body, kind):
 async def permission_save(db, actor, identifier, body, kind):
     item = await administration(db, actor, identifier, lock=True, revision=body.expected_revision)
     checked = await permission_preview(db, actor, identifier, body, kind)
-    if body.preview_hash != checked["preview_hash"]:
-        fail("请先下载最新授权预览，再确认保存生效。", "EXAM_PREVIEW_CHANGED", 409)
+    if body.preview_hash is not None and body.preview_hash != checked["preview_hash"]:
+        fail("授权配置已变化，请核对当前选项后重新保存。", "EXAM_PREVIEW_CHANGED", 409)
     ids = [UUID(s) for s in checked["policies"]]
     await db.execute(delete(ExamQueryGrant).where(ExamQueryGrant.school_id == actor.school_id, ExamQueryGrant.exam_id == identifier,
         ExamQueryGrant.recipient_kind == kind, ExamQueryGrant.recipient_id.in_(ids)))

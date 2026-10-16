@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
-import { DetailDialog } from "../../components/DetailDialog";
 import { getUserInfo } from "../../utils/auth";
 import { RosterWorkbench } from "./RosterWorkbench";
 import { ExamWorkbench } from "./ExamWorkbench";
@@ -9,30 +8,17 @@ import { useJsonQuery } from "../../hooks/useApi";
 import {
   BASE,
   type Row,
-  type PageData,
-  type Field,
-  Badge,
   QueryState,
   ReadOnlyNote,
   canWrite,
-  useAction,
-  ActionError,
-  FormPanel,
   Table,
-  Pager,
-  usePagination,
   HelpTip,
   useSchoolOptions,
-  options,
 } from "./shared";
 
 const tabs: Record<string, string> = {
-  classes: "班级",
   students: "学生档案",
   teachers: "教师档案",
-  teaching: "教师任教",
-  subjects: "学科",
-  exams: "考试科目",
   "exam-management": "考务管理",
 };
 
@@ -41,341 +27,39 @@ function savedSchoolTab(key: string): string | null {
 }
 
 function saveSchoolTab(key: string, tab: string): void {
-  try { sessionStorage.setItem(key, tab); } catch { /* Storage may be unavailable. */ }
+  try { sessionStorage.setItem(key, tab); } catch { return; }
 }
 
 export function SchoolWorkbenchPage() {
-  const examAdmin = (getUserInfo()?.roles || []).includes("EXAM_ADMIN");
+  const user = getUserInfo();
+  const examAdmin = (user?.roles || []).includes("EXAM_ADMIN");
   const examOnly = examAdmin && !canWrite();
   const [params, setParams] = useSearchParams();
-  const user = getUserInfo();
   const tabKey = `school-workbench-tab:${user?.school_id || "unknown"}:${user?.user_id || "anonymous"}`;
   const requestedTab = params.get("tab");
   const lastTab = savedSchoolTab(tabKey);
-  const kind = examOnly ? (requestedTab === "exams" ? "exams" : "exam-management") : requestedTab && requestedTab in tabs ? requestedTab : lastTab && lastTab in tabs ? lastTab : "classes";
-  useEffect(() => { if (!examOnly) saveSchoolTab(tabKey, kind); }, [examOnly, kind, tabKey]);
-  const writable = canWrite() || (examAdmin && ["exams", "exam-management"].includes(kind));
-  const [search, setSearch] = useState("");
-  const pagination = usePagination(`${kind}:${search}`);
-  const { page, pageSize } = pagination;
-  const [selected, setSelected] = useState<Row | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const list = useJsonQuery<PageData>(
-    `${BASE}/school/${kind}?page=${page}&page_size=${pageSize}&search=${encodeURIComponent(search)}`,
-    !["teachers", "students", "exam-management"].includes(kind),
-  );
-  const classes = useSchoolOptions("classes"),
-    subjects = useSchoolOptions("subjects");
-  const accounts = useJsonQuery<Row[]>(`${BASE}/accounts`, !examOnly);
-  const create = useAction();
-  const update = useAction("PUT");
-  const [notice, setNotice] = useState("");
-  const statusField: Field = {
-    name: "status",
-    label: "状态",
-    type: "select",
-    options: [
-      { value: "active", label: "有效" },
-      { value: "inactive", label: "停用（保留历史）" },
-    ],
-  };
-  const fields: Record<string, Field[]> = {
-    classes: [
-      { name: "external_class_id", label: "外部班级标识" },
-      { name: "name", label: "班级名称" },
-    ],
-    subjects: [
-      { name: "external_subject_id", label: "外部学科标识" },
-      { name: "code", label: "学科代码" },
-      { name: "name", label: "学科名称" },
-    ],
-    exams: [
-      { name: "external_exam_id", label: "外部考试标识" },
-      { name: "name", label: "考试名称" },
-      { name: "exam_type", label: "考试类型" },
-      { name: "start_date", label: "开始日期", type: "date" },
-      { name: "end_date", label: "结束日期", type: "date", required: false },
-      statusField,
-    ],
-    teaching: [
-      {
-        name: "teacher_user_id",
-        label: "教师账号",
-        type: "select",
-        options: options(accounts.data?.filter((a) => a.role === "TEACHER")),
-      },
-      {
-        name: "class_id",
-        label: "班级",
-        type: "select",
-        options: options(classes.data?.items),
-      },
-      {
-        name: "subject_id",
-        label: "学科",
-        type: "select",
-        options: options(subjects.data?.items),
-      },
-      { name: "starts_at", label: "生效时间", type: "datetime-local" },
-      {
-        name: "expires_at",
-        label: "到期时间",
-        type: "datetime-local",
-        required: false,
-      },
-      statusField,
-    ],
-  };
-  const normalize = (v: Record<string, any>) => ({
-    ...v,
-    ...(kind === "exams"
-      ? { end_date: v.end_date || null, status: v.status || "active" }
-      : {}),
-    ...(kind === "teaching"
-      ? {
-          starts_at: new Date(v.starts_at).toISOString(),
-          expires_at: v.expires_at
-            ? new Date(v.expires_at).toISOString()
-            : null,
-        }
-      : {}),
-  });
-  const saved = () => {
-    setSelected(null);
-    setShowCreate(false);
-    setNotice("已保存。");
-  };
-  const editFields =
-    kind === "classes"
-      ? [{ name: "name", label: "班级名称" } as Field, statusField]
-      : fields[kind];
+  const availableTabs = examOnly ? ["exam-management"] : Object.keys(tabs);
+  const kind = requestedTab && availableTabs.includes(requestedTab) ? requestedTab
+    : lastTab && availableTabs.includes(lastTab) ? lastTab : "exam-management";
+  useEffect(() => {
+    if (!examOnly) saveSchoolTab(tabKey, kind);
+    if (requestedTab !== kind) setParams({ tab: kind }, { replace: true });
+  }, [examOnly, kind, requestedTab, setParams, tabKey]);
+  const writable = canWrite() || (examAdmin && kind === "exam-management");
   return (
     <AppShell title={kind === "exam-management" ? "考务管理" : "师生班级与考试"} eyebrow="业务生产 / 学校范围">
       {!examOnly && <ReadOnlyNote />}
-      {!["teachers", "students", "exam-management"].includes(kind) && <HelpTip label="使用说明">{examOnly ? "考试管理员可维护本校考试及考试科目。" : "班级名称可填写「高中一年级1班」，外部班级标识可填写「10.1」。师生档案在对应标签中通过 Excel 导入。"}</HelpTip>}
       <div className="wb-tabs">
-        {Object.entries(examOnly ? { "exam-management": tabs["exam-management"], exams: tabs.exams } : tabs).filter(([key]) => !["teachers", "students"].includes(kind) || key !== "teaching").map(([key, label]) => (
-          <button
-            key={key}
-            className={kind === key ? "active" : ""}
-            onClick={() => {
-              saveSchoolTab(tabKey, key);
-              setParams({ tab: key });
-              setSearch("");
-              setSelected(null);
-              setShowCreate(false);
-              setNotice("");
-            }}
-          >
-            {label}
-          </button>
+        {availableTabs.map(key => (
+          <button key={key} className={kind === key ? "active" : ""}
+            onClick={() => setParams({ tab: key })}>{tabs[key]}</button>
         ))}
       </div>
-      {kind === "exam-management" ? <ExamWorkbench writable={writable} /> : kind === "teachers" || kind === "students" ? <RosterWorkbench key={kind} kind={kind} /> : <>
-      <div className="wb-toolbar">
-        <input
-          aria-label="搜索名称"
-          placeholder="搜索名称"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-          }}
-        />
-        {writable && (
-          <button
-            onClick={() => {
-              setShowCreate(!showCreate);
-              setSelected(null);
-            }}
-          >
-            新建{tabs[kind]}
-          </button>
-        )}
-      </div>
-      {!showCreate && <ActionError action={create} />}
-      {!selected && <ActionError action={update} />}
-      {notice && (
-        <p role="status" className="wb-status">
-          {notice}
-        </p>
-      )}
-      {accounts.error && <QueryState query={accounts}>{null}</QueryState>}
-      {showCreate && <DetailDialog title={`新建${tabs[kind]}`} busy={create.isPending} onClose={() => setShowCreate(false)}>
-        <ActionError action={create} />
-        <FormPanel
-          key={kind}
-          title={`新建${tabs[kind]}`}
-          fields={fields[kind]}
-          initial={{ status: "active" }}
-          pending={create.isPending}
-          onSubmit={(values) =>
-            create.mutate(
-              { path: `/school/${kind}`, body: normalize(values) },
-              { onSuccess: saved },
-            )
-          }
-        />
-      </DetailDialog>}
-      {list.data && !list.error && <Pager {...pagination} total={list.data.total} />}
-      <QueryState query={list} empty={!list.data?.items.length}>
-        <Table
-          headers={
-            kind === "teaching"
-              ? ["教师", "班级 / 学科", "生效与到期", "状态", "操作"]
-              : ["名称 / 标识", "来源", "状态 / 绑定", "操作"]
-          }
-        >
-          {list.data?.items.map((row) => (
-            <tr key={row.id}>
-              {kind === "teaching" ? (
-                <>
-                  <td>
-                    {accounts.data?.find((a) => a.id === row.teacher_user_id)
-                      ?.name || "未读取账号"}
-                  </td>
-                  <td>
-                    {classes.data?.items.find((c) => c.id === row.class_id)
-                      ?.name || "当前页外班级"}{" "}
-                    /{" "}
-                    {subjects.data?.items.find((s) => s.id === row.subject_id)
-                      ?.name || "学科"}
-                  </td>
-                  <td>
-                    {row.starts_at?.slice(0, 16)}
-                    <br />
-                    {row.expires_at?.slice(0, 16) || "无到期时间"}
-                  </td>
-                  <td>
-                    <Badge value={row.status} />
-                  </td>
-                </>
-              ) : (
-                <>
-                  <td>
-                    <strong>{row.name}</strong>
-                    <small className="subtle">
-                      {row.external_student_id ||
-                        row.external_class_id ||
-                        row.external_exam_id ||
-                        row.external_subject_id}
-                    </small>
-                  </td>
-                  <td>{row.source_system || "待补充"}</td>
-                  <td>{row.status && <Badge value={row.status} />}</td>
-                </>
-              )}
-              <td>
-                {writable &&
-                  (kind === "teaching" || row.source_system === "native") &&
-                  kind !== "subjects" && (
-                    <button
-                      onClick={() => {
-                        setSelected(row);
-                        setShowCreate(false);
-                      }}
-                    >
-                      维护
-                    </button>
-                  )}
-                {kind === "exams" && (
-                  <button onClick={() => setSelected(row)}>考试科目</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </QueryState>
-      {selected && (
-        <DetailDialog title={selected.name || "任教关系"} busy={update.isPending} onClose={() => setSelected(null)}>
-          <ActionError action={update} />
-          {writable &&
-            (kind === "teaching" || selected.source_system === "native") && (
-              <FormPanel
-                key={`${kind}-${selected.id}`}
-                title="维护当前记录"
-                fields={editFields}
-                initial={Object.fromEntries(
-                  editFields.map((f) => [
-                    f.name,
-                    f.type === "datetime-local"
-                      ? selected[f.name]?.slice(0, 16)
-                      : selected[f.name],
-                  ]),
-                )}
-                pending={update.isPending}
-                onSubmit={(v) =>
-                  update.mutate(
-                    {
-                      path: `/school/${kind}/${selected.id}`,
-                      body: normalize(v),
-                    },
-                    { onSuccess: saved },
-                  )
-                }
-              />
-            )}
-          {kind === "exams" && (
-            <ExamSubjects
-              id={selected.id}
-              writable={selected.source_system === "native" && writable}
-            />
-          )}
-        </DetailDialog>
-      )}
-      </>}
+      {kind === "exam-management" ? <ExamWorkbench writable={writable} />
+        : <RosterWorkbench key={kind} kind={kind as "teachers" | "students"} />}
     </AppShell>
   );
 }
-function ExamSubjects({ id, writable }: { id: string; writable: boolean }) {
-  const detail = useJsonQuery<Row>(`${BASE}/exams/${id}`),
-    subjects = useSchoolOptions("subjects"),
-    action = useAction("PUT");
-  return (
-    <>
-      <QueryState query={detail}>
-        <h3>已配置科目</h3>
-        {detail.data?.subjects?.length ? (
-          <ul>
-            {detail.data.subjects.map((s: Row) => (
-              <li key={s.subject_id}>
-                {s.name} · 满分 {s.full_score}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>尚未配置科目。</p>
-        )}
-      </QueryState>
-      <ActionError action={action} />
-      {writable && (
-        <FormPanel
-          title="配置科目与满分"
-          fields={[
-            {
-              name: "subject_id",
-              label: "学科",
-              type: "select",
-              options: options(subjects.data?.items),
-            },
-            {
-              name: "full_score",
-              label: "满分",
-              type: "number",
-              min: 0.01,
-              max: 10000,
-              step: "0.01",
-            },
-          ]}
-          pending={action.isPending}
-          onSubmit={(body) =>
-            action.mutate({ path: `/exams/${id}/subjects`, body })
-          }
-        />
-      )}
-    </>
-  );
-}
-
 export function ClassAnalysisPage() {
   const classes = useSchoolOptions("classes"),
     subjects = useSchoolOptions("subjects"),

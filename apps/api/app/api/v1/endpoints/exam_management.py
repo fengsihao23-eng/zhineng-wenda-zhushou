@@ -43,8 +43,8 @@ async def options(academic_year: str | None = Query(None, max_length=20), actor=
 
 
 @router.get("/teachers")
-async def teachers(actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):
-    return await service.teacher_options(db, actor)
+async def teachers(exam_id: UUID | None = None, actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):
+    return await service.teacher_permission_options(db, actor, exam_id) if exam_id else await service.teacher_options(db, actor)
 
 
 @router.get("/operations")

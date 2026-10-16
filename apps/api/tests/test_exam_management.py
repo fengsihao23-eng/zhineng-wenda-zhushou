@@ -9,7 +9,7 @@ import pytest
 from openpyxl import load_workbook, Workbook
 from sqlalchemy import select, func
 from app.db.models import (School, User, Student, StudentYearClass, StudentExamPlacement, StudentSubjectScore,
-                           StudentExamScore, QuestionScore, Exam, DiagnosisReport)
+                           StudentExamScore, QuestionScore, Exam, DiagnosisReport, TeacherProfile)
 from app.db.models.exam_management import ExamAdministration, ExamQueryGrant, ExamOperation
 from app.db.models.education import PrivateAsset, ReportAttachment
 from app.tools.exam_tools import GetExamSummaryTool
@@ -284,6 +284,82 @@ async def test_permission_excel_round_trip_and_stale_preview(client, test_db, ac
     assert (await client.get(ROOT+f"/{exam['id']}")).status_code == 404
     switch(actors, test_db, "qa")
     await post(client, "/preview", draft(exam_people), 403)
+
+
+@pytest.mark.asyncio
+async def test_permissions_save_directly_without_download_and_still_validate_revision_and_subjects(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people)
+    exam, _, _ = await import_score(client, exam)
+    subject, unimported = [subject["subject_id"] for subject in exam["subjects"]]
+    teacher_body = {"expected_revision": exam["revision"], "teachers": [{"teacher_id": str(actors["teacher"].id),
+        "score_types": ["student"], "score_subjects": [subject], "range_type": "all"}]}
+    invalid = {**teacher_body, "teachers": [{**teacher_body["teachers"][0], "score_subjects": [unimported]}]}
+    await post(client, f"/{exam['id']}/permissions/teacher", invalid, 422)
+    assert await test_db.scalar(select(func.count()).select_from(ExamQueryGrant)) == 0
+    saved = await post(client, f"/{exam['id']}/permissions/teacher", teacher_body)
+    assert saved["teacher_permissions"][str(actors["teacher"].id)]["score_subjects"] == [subject]
+    await post(client, f"/{exam['id']}/permissions/teacher", teacher_body, 409)
+    student_body = {"expected_revision": saved["revision"], "student_ids": [str(exam_people[0].id)], "subject_ids": [subject], "mode": "open"}
+    saved = await post(client, f"/{exam['id']}/permissions/student", student_body)
+    assert saved["student_permissions"][str(exam_people[0].id)]["subjects"] == [subject]
+    await post(client, f"/{exam['id']}/permissions/student", student_body, 409)
+    saved = await post(client, f"/{exam['id']}/permissions/student", {**student_body, "expected_revision": saved["revision"], "mode": "close"})
+    assert not saved["student_permissions"]
+
+
+@pytest.mark.asyncio
+async def test_edit_exam_metadata_and_year_rebuilds_year_placements_and_preserves_linked_data(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people, subjects=1)
+    exam, _, _ = await import_score(client, exam)
+    subject = exam["subjects"][0]["subject_id"]
+    exam = await permission(client, exam, "teacher", {"teachers": [{"teacher_id": str(actors["teacher"].id),
+        "score_types": ["student"], "score_subjects": [subject], "range_type": "all"}]})
+    grants_before = await test_db.scalar(select(func.count()).select_from(ExamQueryGrant))
+    test_db.add(StudentYearClass(school_id=actors["school"].id, student_id=exam_people[0].id,
+        academic_year="2025-2026", grade="初中三年级", class_number="8班"))
+    await test_db.commit()
+    body = {key: exam[key] for key in ["name", "academic_year", "exam_date", "subjects"]}
+    body.update(name="修改后的考试", academic_year="2025-2026", exam_date="2025-12-18", expected_revision=exam["revision"])
+    await post(client, f"/{exam['id']}/preview", body, 422)
+    body["subjects"] = [{**body["subjects"][0], "student_ids": [str(exam_people[0].id)]}]
+    checked = await post(client, f"/{exam['id']}/preview", body)
+    response = await client.put(ROOT+f"/{exam['id']}", json={**body, "preview_hash": checked["preview_hash"]})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["name"] == "修改后的考试" and result["academic_year"] == "2025-2026" and result["exam_date"] == "2025-12-18"
+    assert result["snapshots"][str(exam_people[0].id)]["class_number"] == "8班"
+    assert result["snapshots"][str(exam_people[0].id)]["academic_year"] == "2025-2026"
+    assert str(exam_people[1].id) not in result["snapshots"]
+    stored = await test_db.get(Exam, UUID(exam["id"]))
+    assert stored.academic_year == "2025-2026" and stored.start_date.isoformat() == "2025-12-18" and stored.name == "修改后的考试"
+    placement = await test_db.scalar(select(StudentExamPlacement).where(StudentExamPlacement.exam_id == stored.id,
+        StudentExamPlacement.student_id == exam_people[0].id))
+    assert placement.academic_year == "2025-2026" and placement.grade == "初中三年级" and placement.class_number == "8班"
+    assert await test_db.scalar(select(func.count()).select_from(StudentSubjectScore)) == 2
+    assert await test_db.scalar(select(func.count()).select_from(ExamQueryGrant)) == grants_before
+    listing = await client.get(ROOT+"?academic_year=2025-2026&search=修改后的考试")
+    assert listing.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_teacher_default_options_use_profile_roles_and_raw_scope_without_class_references(client, test_db, actors, exam_people):
+    test_db.add(TeacherProfile(id=actors["teacher"].id, school_id=actors["school"].id,
+        fields={"任课年级班级": "数学:10.1", "班主任年级班级": "10.1"}, duties=["TEACHER", "HOMEROOM_TEACHER"]))
+    await test_db.commit()
+    exam = await create(client, exam_people)
+    exam, _, _ = await import_score(client, exam)
+    response = await client.get(ROOT+f"/teachers?exam_id={exam['id']}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    teacher = next(teacher for teacher in data["items"] if teacher["id"] == str(actors["teacher"].id))
+    assert teacher["role_labels"] == ["任课教师", "班主任"]
+    assert teacher["recommendation"]["score_types"] == ["student", "classSubject", "classAll"]
+    assert teacher["recommendation"]["score_subjects"] == [exam["subjects"][0]["subject_id"]]
+    assert teacher["recommendation"]["diagnosis_subjects"] == [subject["subject_id"] for subject in exam["subjects"]]
+    assert teacher["recommendation"]["classes"] == ["高中一年级 / 1班"]
+    assert "GENERAL_DIRECTOR" in {rule["role"] for rule in data["default_rules"]}
+    switch(actors, test_db, "foreign")
+    assert (await client.get(ROOT+f"/teachers?exam_id={exam['id']}")).status_code == 404
 
 
 @pytest.mark.asyncio
