@@ -25,7 +25,7 @@ async def main():
                 role = Role(id=uuid4(), code=code, name=code); db.add(role); await db.flush()
             roles[code] = role.id
         users, students = {}, []
-        for key, role in [("admin","SCHOOL_ADMIN"), ("teacher","TEACHER"), ("teacher2","TEACHER"),
+        for key, role in [("admin","SCHOOL_ADMIN"), ("teacher","TEACHER"), ("teacher2","TEACHER"), ("teacherexam","TEACHER"),
                           ("viewer","SCHOOL_VIEWER"), ("examadmin","EXAM_ADMIN"),
                           ("student","STUDENT"), ("student2","STUDENT"), ("student3","STUDENT"), ("inactive","STUDENT")]:
             user = User(id=uuid4(), school_id=school.id, username="exam-"+key+"-"+uuid4().hex[:8],
@@ -33,6 +33,7 @@ async def main():
                         password_hash=get_password_hash(password))
             db.add(user); await db.flush()
             db.add(UserRole(school_id=school.id, user_id=user.id, role_id=roles[role])); users[key] = user
+        db.add(UserRole(school_id=school.id, user_id=users["teacherexam"].id, role_id=roles["EXAM_ADMIN"]))
         classes = []
         for index in [1,2]:
             c = ImportedClass(id=uuid4(), school_id=school.id, external_class_id=f"10.{index}", name=f"高中一年级{index}班", source_system="native")

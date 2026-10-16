@@ -47,6 +47,42 @@ s.cell(1,10,'1');s.cell(1,11,'2')
 out=io.BytesIO();b.save(out);sys.stdout.buffer.write(out.getvalue())`], { input: buffer })
 }
 
+test('exams use the integrated school navigation and shared system colors', async ({ page }) => {
+  await page.setViewportSize({ width:1600, height:1100 })
+  await login(page)
+  await page.getByRole('link', { name:'师生班级与考试', exact:true }).click()
+  await expect(page.getByRole('heading', { name:'师生班级与考试', exact:true })).toBeVisible()
+  await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
+  await expect(page.locator('.side-nav').getByRole('link', { name:'考务管理', exact:true })).toHaveCount(0)
+  await expect(page.locator('.side-nav__item.is-active')).toHaveCount(1)
+  const theme = await page.evaluate(() => {
+    const probe = document.createElement('span')
+    document.body.append(probe)
+    const resolve = (token: string) => { probe.style.color = `var(${token})`; return getComputedStyle(probe).color }
+    const colors = { accent:resolve('--color-accent'), strong:resolve('--color-accent-strong'), ink:resolve('--color-ink'), contrast:resolve('--color-accent-contrast') }
+    probe.remove()
+    return colors
+  })
+  const createButton = page.getByRole('button', { name:'创建考试', exact:false })
+  await expect(createButton).toHaveCSS('background-color', theme.accent)
+  await expect(page.locator('.exam-workbench')).toHaveCSS('color', theme.ink)
+  await expect(page.locator('.wb-tabs button.active')).toHaveCSS('background-color', theme.accent)
+  await page.screenshot({ path:path.join(evidence,'11-integrated-school-navigation.png'), fullPage:true })
+  await createButton.hover()
+  await expect(createButton).toHaveCSS('background-color', theme.strong)
+  await expect(createButton).toHaveCSS('color', theme.contrast)
+  await createButton.click()
+  const dialog = page.getByRole('dialog')
+  await page.mouse.move(0,0)
+  await expect(dialog.locator('.exam-steps li.active')).toHaveCSS('background-color', theme.accent)
+  await expect(dialog.locator('.exam-dialog')).toHaveCSS('color', theme.ink)
+  await expect(dialog.getByRole('button', { name:'校验并下一步', exact:true })).toHaveCSS('background-color', theme.accent)
+  await dialog.getByLabel('考试名称', { exact:true }).focus()
+  await expect(dialog.getByLabel('考试名称', { exact:true })).toHaveCSS('outline-color', theme.accent)
+  await page.screenshot({ path:path.join(evidence,'12-system-themed-exam-dialog.png'), fullPage:true })
+  await dialog.getByRole('button', { name:'取消本次创建', exact:true }).click()
+})
+
 test('creation validates subjects and cancellation leaves no exam or roster', async ({ page, request }) => {
   const headers = await apiLogin(request)
   const before = (await (await request.get(base, { headers })).json()).total
@@ -208,6 +244,8 @@ test('administrator creates, imports and saves authorizations without downloadin
 
 test('read-only school account can inspect exams and history without write controls', async ({ page }) => {
   await login(page,'viewer'); await page.goto('/admin/school?tab=exam-management')
+  await expect(page.locator('.side-nav').getByRole('link', { name:'师生班级与考试', exact:true })).toHaveCount(1)
+  await expect(page.locator('.side-nav').getByRole('link', { name:'考务管理', exact:true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
   await expect(page.getByRole('button', { name:'创建考试', exact:false })).toHaveCount(0)
   await expect(page.getByRole('button', { name:'调整考试范围', exact:true })).toHaveCount(0)
@@ -239,12 +277,26 @@ test('concurrent confirmations import one complete file without duplicate score 
 
 test('an explicitly appointed exam administrator gets exam controls and no student navigation', async ({ page }) => {
   await login(page,'examadmin')
+  await expect(page.locator('.side-nav').getByRole('link', { name:'师生班级与考试', exact:true })).toHaveCount(1)
+  await expect(page.locator('.side-nav').getByRole('link', { name:'考务管理', exact:true })).toHaveCount(0)
   await expect(page.getByRole('heading',{ name:'考试列表',exact:true })).toBeVisible()
   await expect(page.getByRole('button',{ name:'创建考试',exact:false })).toBeVisible()
   await expect(page.getByRole('link',{ name:'学习总览',exact:true })).toHaveCount(0)
   await page.getByRole('button',{ name:'创建考试',exact:false }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByRole('button',{ name:'取消本次创建',exact:true }).click()
+})
+
+test('a teacher with an exam duty reaches exam controls through the integrated school entry', async ({ page }) => {
+  await login(page,'teacherexam')
+  await expect(page.locator('.side-nav').getByRole('link', { name:'师生班级与考试', exact:true })).toHaveCount(1)
+  await expect(page.locator('.side-nav').getByRole('link', { name:'考务管理', exact:true })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
+  await expect(page.getByRole('button', { name:'创建考试', exact:false })).toBeVisible()
+  await page.locator('.side-nav').getByRole('link', { name:'考试成绩与报告', exact:true }).click()
+  await page.locator('.side-nav').getByRole('link', { name:'师生班级与考试', exact:true }).click()
+  await expect(page.getByRole('heading', { name:'师生班级与考试', exact:true })).toBeVisible()
+  await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
 })
 
 test('exam name, academic year and date can be edited and saved with the selected year roster', async ({ page, request }) => {

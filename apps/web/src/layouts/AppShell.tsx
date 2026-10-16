@@ -9,6 +9,8 @@ import './AppShell.css'
 
 type NavItem = { path: string; label: string; icon: string; group?: string }
 
+const schoolWorkbenchNavItem: NavItem = { path: '/admin/school', label: '师生班级与考试', icon: 'users', group: '业务生产' }
+
 export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' {
   const roles = user?.roles || []
   if (roles.some(role => role.toUpperCase() === 'CITY_OPERATOR' || role.toUpperCase() === 'SUPER_ADMIN')) return 'city'
@@ -40,8 +42,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
   ],
   school: [
     { path: '/admin', label: '学校总览', icon: '◈' },
-    { path: '/admin/school', label: '师生班级与考试', icon: 'users', group: '业务生产' },
-    { path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file' },
+    schoolWorkbenchNavItem,
     { path: '/admin/imports', label: '成绩导入', icon: 'upload' },
     { path: '/admin/papers', label: '试卷与拆题', icon: 'file' },
     { path: '/admin/questions', label: '题库与知识点', icon: 'tree' },
@@ -71,7 +72,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
   const user = getUserInfo()
   const role = roleOf(user)
   const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
-  const baseNavItems = examAdminOnly ? [{ path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file', group: '业务生产' }] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [{ path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file', group: '业务生产' }, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, { path: '/admin/school', label: '本校教务工作台', icon: 'users', group: '业务生产' }] : navByRole[role]
+  const baseNavItems = examAdminOnly ? [schoolWorkbenchNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [schoolWorkbenchNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, schoolWorkbenchNavItem] : navByRole[role]
   const navItems = role !== 'teacher' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
   const serviceState = health.isLoading ? 'loading' : health.error ? 'unavailable' : health.data?.model?.real_model_ready ? 'ready' : 'model_pending'

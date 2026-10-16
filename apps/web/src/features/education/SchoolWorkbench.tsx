@@ -47,7 +47,7 @@ export function SchoolWorkbenchPage() {
   }, [examOnly, kind, requestedTab, setParams, tabKey]);
   const writable = canWrite() || (examAdmin && kind === "exam-management");
   return (
-    <AppShell title={kind === "exam-management" ? "考务管理" : "师生班级与考试"} eyebrow="业务生产 / 学校范围">
+    <AppShell title="师生班级与考试" eyebrow="业务生产 / 学校范围">
       {!examOnly && <ReadOnlyNote />}
       <div className="wb-tabs">
         {availableTabs.map(key => (
