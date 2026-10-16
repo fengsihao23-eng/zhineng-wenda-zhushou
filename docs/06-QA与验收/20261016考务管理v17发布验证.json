@@ -1,0 +1,35 @@
+{
+  "existing_admin_readback": true,
+  "exam_list_http": 200,
+  "year_options_http": 200,
+  "teacher_options_http": 200,
+  "operations_http": 200,
+  "production_frontend_new_features": true,
+  "real_model_ready": true,
+  "read_only_no_business_writes": true,
+  "managed_exams": 0,
+  "available_students": 0,
+  "available_teachers": 73,
+  "year_student_counts": {
+    "2029-2030": 0,
+    "2028-2029": 0,
+    "2027-2028": 0,
+    "2026-2027": 0
+  },
+  "current_academic_year": "2029-2030",
+  "counts": {
+    "students": 17,
+    "exams": 2,
+    "exam_administrations": 0,
+    "exam_operations": 0,
+    "exam_query_grants": 0,
+    "exam_score_files": 0
+  },
+  "release_code_commit": "97bcc3f568615c98140d895b28f47e2f6f3f05ac",
+  "server": "43.161.195.51",
+  "schema": "022_exam_management",
+  "backup_directory": "/srv/backups/exam-v17-20261016-013653Z",
+  "all_five_services_healthy": true,
+  "existing_business_counts_preserved": true,
+  "environment_preserved": true
+}
