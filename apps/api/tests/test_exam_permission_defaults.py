@@ -97,3 +97,33 @@ def test_no_imported_scores_does_not_generate_invalid_score_defaults(configurati
     form = recommend(configuration, {"班主任年级班级": "10.26"}, ready=())["recommendation"]
     assert form["score_types"] == [] and form["score_subjects"] == []
     assert "classAll" in form["diagnosis_types"]
+
+
+def test_filter_classes_do_not_inherit_subject_leader_authorization(configuration):
+    result = recommend(configuration, {"任课年级班级": "英语:10.22", "教研组长负责年级科目": "10.英语"})
+    assert set(result["scope_classes"]) == {"高中一年级 / 5", "高中一年级 / 26班"}
+    direct = [scope for scope in result["filter_scopes"] if scope["class_number"]]
+    assert direct == [{"role": "TEACHER", "grade": "高中一年级", "class_number": "22", "subject": "英语"}]
+
+
+def test_filter_classes_do_not_inherit_school_authorization(configuration):
+    result = recommend(configuration, {"任课年级班级": "英语:10.22", "是否教务主任": "是"})
+    assert result["recommendation"]["range_type"] == "all"
+    assert {scope["class_number"] for scope in result["filter_scopes"]} == {"22"}
+
+
+def test_filter_scopes_keep_class_grade_subject_pairs_and_real_homerooms(configuration):
+    result = recommend(configuration, {"任课年级班级": "语文:10.05;数学:11.1", "班主任年级班级": "高中一年级26班"})
+    assert result["filter_scopes"] == [
+        {"role": "TEACHER", "grade": "高中一年级", "class_number": "5", "subject": "语文"},
+        {"role": "TEACHER", "grade": "高中二年级", "class_number": "1", "subject": "数学"},
+        {"role": "HOMEROOM_TEACHER", "grade": "高中一年级", "class_number": "26", "subject": ""},
+    ]
+
+
+def test_filter_scope_fallback_uses_only_explicit_legacy_assignments(configuration):
+    assignments = [{"class_id": "class-5", "subject_id": "math"}]
+    result = recommend(configuration, assignments=assignments)
+    assert result["filter_scopes"] == [{"role": "TEACHER", "grade": "高中一年级", "class_number": "5", "subject": "数学"}]
+    leader = recommend(configuration, duties=["TEACHER", "PRINCIPAL"], assignments=assignments)
+    assert not leader["filter_scopes"]

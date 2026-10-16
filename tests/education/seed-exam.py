@@ -19,13 +19,14 @@ async def main():
         school = School(id=uuid4(), code="EXAM-QA-"+uuid4().hex[:12], name="考务验收学校", current_academic_year="2026-2027")
         db.add(school); await db.flush()
         roles = {}
-        for code in ["SCHOOL_ADMIN", "TEACHER", "STUDENT", "SCHOOL_VIEWER", "EXAM_ADMIN"]:
+        for code in ["SCHOOL_ADMIN", "TEACHER", "STUDENT", "SCHOOL_VIEWER", "EXAM_ADMIN", "SUBJECT_LEADER", "ACADEMIC_DIRECTOR"]:
             role = await db.scalar(select(Role).where(Role.code == code))
             if not role:
                 role = Role(id=uuid4(), code=code, name=code); db.add(role); await db.flush()
             roles[code] = role.id
         users, students = {}, []
         for key, role in [("admin","SCHOOL_ADMIN"), ("teacher","TEACHER"), ("teacher2","TEACHER"), ("teacherexam","TEACHER"),
+                          ("teacherleader","TEACHER"), ("teachermixed","TEACHER"), ("teacherschool","TEACHER"),
                           ("viewer","SCHOOL_VIEWER"), ("examadmin","EXAM_ADMIN"),
                           ("student","STUDENT"), ("student2","STUDENT"), ("student3","STUDENT"), ("inactive","STUDENT")]:
             user = User(id=uuid4(), school_id=school.id, username="exam-"+key+"-"+uuid4().hex[:8],
@@ -65,6 +66,15 @@ async def main():
                 fields={"教师姓名":users[key].display_name,"任课年级班级":f"{subjects[index].name}:10.{index+1}",
                         "班主任年级班级":"10.1" if key == "teacher2" else ""},
                 duties=["TEACHER", "HOMEROOM_TEACHER"] if key == "teacher2" else ["TEACHER"]))
+        for key, fields, duties in [
+            ("teacherleader", {"任课年级班级":"英语:10.22", "教研组长负责年级科目":"10.英语"}, ["TEACHER","SUBJECT_LEADER"]),
+            ("teachermixed", {"任课年级班级":"数学:10.1;语文:10.2"}, ["TEACHER"]),
+            ("teacherschool", {"任课年级班级":"英语:10.22", "是否教务主任":"是"}, ["TEACHER","ACADEMIC_DIRECTOR"]),
+        ]:
+            db.add(TeacherProfile(id=users[key].id, school_id=school.id, fields=fields, duties=duties))
+            for duty in duties:
+                if duty != "TEACHER":
+                    db.add(UserRole(school_id=school.id, user_id=users[key].id, role_id=roles[duty]))
         await db.commit()
         print(json.dumps({"users":{key:user.username for key,user in users.items()}, "user_ids":{key:str(user.id) for key,user in users.items()},
             "school_id":str(school.id), "students":[{"id":str(s.id),"platform_id":str(s.platform_id),"name":s.name} for s in students]}, ensure_ascii=False))

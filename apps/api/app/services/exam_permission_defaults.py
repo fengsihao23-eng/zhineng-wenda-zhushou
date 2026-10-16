@@ -28,8 +28,13 @@ def grade_name(value):
     return GRADE_NAMES.get(int(value), value) if value.isdigit() else value
 
 
+def class_number(value):
+    value = str(value).strip().removesuffix("班").strip()
+    return str(int(value)) if value.isdigit() else value
+
+
 def class_matches(person, grade, number):
-    return grade_name(person["grade"]) == grade_name(grade) and person["class_number"].removesuffix("班").strip() == str(number)
+    return grade_name(person["grade"]) == grade_name(grade) and class_number(person["class_number"]) == class_number(number)
 
 
 def teacher_defaults(teacher, config, ready):
@@ -48,6 +53,28 @@ def teacher_defaults(teacher, config, ready):
         homerooms.extend((label, int(number)) for number in re.findall(re.escape(label) + r"\s*(\d+)班", fields.get("班主任年级班级", "")))
     leaders = subject_leadership(fields.get("教研组长负责年级科目", ""))
     grade_values = {grade_name(value) for value in re.split(r"[,，;；\s]+", fields.get("年级长负责年级", "")) if value}
+    filter_scopes = []
+
+    def add_filter_scope(role, grade, number="", subject=""):
+        scope = {"role": role, "grade": grade_name(grade), "class_number": class_number(number), "subject": subject}
+        if scope not in filter_scopes:
+            filter_scopes.append(scope)
+
+    for subject, grade, number in teaching:
+        add_filter_scope("TEACHER", grade, number, subject)
+    for grade, number in homerooms:
+        add_filter_scope("HOMEROOM_TEACHER", grade, number)
+    for grade, subject in sorted(leaders):
+        add_filter_scope("SUBJECT_LEADER", grade, subject=subject)
+    for grade in sorted(grade_values):
+        add_filter_scope("GRADE_LEADER", grade)
+    expanded_roles = {rule["role"] for rule in DEFAULT_RULES if rule["role"] != "TEACHER"}
+    if not teaching and not duties.intersection(expanded_roles):
+        subject_names = {subject["subject_id"]: subject["name"] for subject in config["subjects"]}
+        for assignment in teacher.get("assignments") or []:
+            for person in people:
+                if person.get("class_id") == assignment["class_id"]:
+                    add_filter_scope("TEACHER", person["grade"], person["class_number"], subject_names.get(assignment["subject_id"], ""))
     for rule in rules:
         role = rule["role"]
         role_classes, role_subjects = set(), set()
@@ -92,6 +119,7 @@ def teacher_defaults(teacher, config, ready):
     if not subjects:
         warnings.append("角色学科与本次考试科目没有匹配，请手动选择查询类型与科目。")
     return {"duties": sorted(duties), "role_labels": role_labels,
+            "filter_scopes": filter_scopes,
             "scope_classes": sorted(classes), "scope_grades": sorted(grades), "scope_subject_ids": ordered_subjects,
             "default_warnings": warnings,
             "recommendation": {"teacher_id": teacher["id"], "score_types": ordered_types if score_subjects else [],

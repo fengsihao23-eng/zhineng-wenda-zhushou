@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 from sqlalchemy import select, delete, func
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 import xlrd
 
 from app.core.errors import ApiError
@@ -102,6 +103,45 @@ async def teacher_permission_options(db, actor, identifier):
     teachers = await teacher_options(db, actor)
     return {"items": [{**teacher, **teacher_defaults(teacher, item.configuration, ready)} for teacher in teachers],
             "default_rules": DEFAULT_RULES}
+
+
+def teacher_default_rules_file():
+    headers = ["教师角色", "默认成绩类型", "默认诊断类型", "默认科目", "默认学生范围"]
+    rows = [[rule["label"], "、".join(SCORE_TYPES[value] for value in rule["types"]),
+             "、".join(DIAG_TYPES[value] for value in rule["types"]), rule["subjects"], rule["scope"]]
+            for rule in DEFAULT_RULES]
+    book = load_workbook(io.BytesIO(workbook_bytes(headers, rows)))
+    rules = book.active
+    rules.title = "默认选项规则"
+    for column, width in zip("ABCDE", [20, 44, 44, 28, 28]):
+        rules.column_dimensions[column].width = width
+    notes = book.create_sheet("使用说明")
+    for values in [
+        ["事项", "说明"],
+        ["使用时机", "首次勾选未授权教师时生成默认选项；已保存、上传或手动编辑的配置优先保留。"],
+        ["兼任角色", "多个角色的类型、科目和学生范围取并集。"],
+        ["成绩与诊断", "成绩科目只默认勾选已导入科目；诊断科目限本次已配置科目，是否能查看具体报告取决于实际报告文件。"],
+        ["作文报告", "作文批改报告默认不勾选，可按需手动选择。"],
+        ["学生范围", "仅匹配本次考试的参试名单；无法匹配时请核对教师档案并手动补选。"],
+        ["教师筛选", "班级筛选只匹配实际任课或班主任班级，默认授权范围不用于扩大筛选结果。年级、班级、学科同时筛选时须匹配同一档案职责。"],
+        ["保存生效", "默认选项可手动调整，确认保存后才生效。下载本规则文件或授权预览均不会修改查询权限。"],
+    ]:
+        notes.append(values)
+    notes.column_dimensions["A"].width = 20
+    notes.column_dimensions["B"].width = 100
+    notes.freeze_panes = "A2"
+    for sheet in book:
+        for row in sheet:
+            for cell in row:
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
+                if cell.row == 1:
+                    cell.fill = PatternFill("solid", fgColor="5F5BDB")
+                    cell.font = Font(bold=True, color="FFFFFF")
+            sheet.row_dimensions[row[0].row].height = 30 if row[0].row == 1 else 84 if sheet == rules else 48
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    return output.getvalue()
 
 
 async def administration(db, actor, identifier, lock=False, revision=None):

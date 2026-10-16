@@ -47,6 +47,11 @@ async def teachers(exam_id: UUID | None = None, actor=Depends(exam_read_role), d
     return await service.teacher_permission_options(db, actor, exam_id) if exam_id else await service.teacher_options(db, actor)
 
 
+@router.get("/teacher-default-rules")
+async def teacher_default_rules(actor=Depends(exam_read_role)):
+    return excel(service.teacher_default_rules_file(), "教师默认选项规则.xlsx")
+
+
 @router.get("/operations")
 async def operations(exam_id: UUID | None = None, category: Literal["", "exam", "permission"] = "", page: int = Query(1, ge=1),
                      page_size: int = Query(20, ge=1, le=100), actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):

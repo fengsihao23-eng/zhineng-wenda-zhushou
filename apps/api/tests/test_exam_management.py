@@ -357,9 +357,35 @@ async def test_teacher_default_options_use_profile_roles_and_raw_scope_without_c
     assert teacher["recommendation"]["score_subjects"] == [exam["subjects"][0]["subject_id"]]
     assert teacher["recommendation"]["diagnosis_subjects"] == [subject["subject_id"] for subject in exam["subjects"]]
     assert teacher["recommendation"]["classes"] == ["高中一年级 / 1班"]
+    assert teacher["filter_scopes"] == [
+        {"role": "TEACHER", "grade": "高中一年级", "class_number": "1", "subject": "数学"},
+        {"role": "HOMEROOM_TEACHER", "grade": "高中一年级", "class_number": "1", "subject": ""},
+    ]
     assert "GENERAL_DIRECTOR" in {rule["role"] for rule in data["default_rules"]}
     switch(actors, test_db, "foreign")
     assert (await client.get(ROOT+f"/teachers?exam_id={exam['id']}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_default_rules_download_contains_complete_rules_without_saving_permissions(client, test_db, actors):
+    response = await client.get(ROOT+"/teacher-default-rules")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert response.headers["content-disposition"].startswith("attachment;")
+    book = load_workbook(io.BytesIO(response.content))
+    assert book.sheetnames == ["默认选项规则", "使用说明"]
+    sheet = book["默认选项规则"]
+    assert list(next(sheet.values)) == ["教师角色", "默认成绩类型", "默认诊断类型", "默认科目", "默认学生范围"]
+    rows = {row[0]: row for row in list(sheet.values)[1:]}
+    assert len(rows) == 8 and "总务主任" in rows
+    assert "班级综合成绩" in rows["班主任"][1] and "班级综合诊断" in rows["班主任"][2]
+    assert sheet["B2"].alignment.wrap_text
+    assert book["使用说明"].max_row > 5
+    book.close()
+    assert await test_db.scalar(select(func.count()).select_from(ExamQueryGrant)) == 0
+    assert await test_db.scalar(select(func.count()).select_from(ExamOperation)) == 0
+    switch(actors, test_db, "teacher")
+    assert (await client.get(ROOT+"/teacher-default-rules")).status_code == 403
 
 
 @pytest.mark.asyncio
