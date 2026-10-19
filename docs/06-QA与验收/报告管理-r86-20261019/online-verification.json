@@ -1,0 +1,42 @@
+{
+  "report_list_http": 200,
+  "report_options_http": 200,
+  "operation_records_http": 200,
+  "pdf_inspection_pages": 2,
+  "pdf_preview_png": true,
+  "invalid_pdf_rejected": true,
+  "teacher_admin_route_denied": null,
+  "teacher_probe_available": false,
+  "historical_recipient_login_policy_verified": true,
+  "exam_endpoint_sha256": "3fb39e6ffcf9da779d9db4bc924b32b395d553cb61924e7598c8872489812863",
+  "production_frontend_report_v4_verified": true,
+  "production_scoped_css_verified": true,
+  "real_model_ready": true,
+  "business_counts_unchanged": true,
+  "no_persistent_test_records": true,
+  "available_exams": 1,
+  "exam_scopes": [
+    {
+      "subject_count": 6,
+      "participant_count": 315
+    }
+  ],
+  "counts": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "student_year_classes": 375,
+    "exams": 3,
+    "exam_administrations": 1,
+    "exam_participants": 1889,
+    "exam_query_policies": 315,
+    "exam_query_grants": 314,
+    "student_subject_scores": 315,
+    "question_scores": 19155,
+    "diagnosis_reports": 0,
+    "managed_reports": 0,
+    "report_files": 0,
+    "report_operations": 0
+  }
+}

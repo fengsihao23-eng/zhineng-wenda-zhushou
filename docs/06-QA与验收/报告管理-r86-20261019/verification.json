@@ -26,5 +26,25 @@
     "passed": 12,
     "failed": 9,
     "same_failures_on_unmodified_baseline": true
-  }
+  },
+  "historical_report_access_after_student_status_change": "passed",
+  "github_ci": {
+    "headSha": "bc691c6c4916d616e88764f89b97f19d8a83edca",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39185627486",
+    "jobs": [
+      {
+        "name": "frontend",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "backend",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "deployed_code_commit": "bc691c6c4916d616e88764f89b97f19d8a83edca"
 }
