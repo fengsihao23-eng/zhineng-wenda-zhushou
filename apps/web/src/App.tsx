@@ -53,7 +53,8 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<RoleGate><HomeRedirect /></RoleGate>} />
-            <Route path="/mini" element={<AnswerWorkbenchPage />} />
+            <Route path="/mini" element={<Navigate to={getUserInfo()?.roles.includes('TEACHER') && !getUserInfo()?.roles.includes('STUDENT') ? '/teacher/chat' : '/chat'} replace />} />
+            <Route path="/mini-preview" element={<AnswerWorkbenchPage mode="mini" />} />
             <Route path="/chat" element={<RoleGate allowed={[...STUDENT_ROLES, ...TEACHER_ROLES]}><AnswerWorkbenchPage /></RoleGate>} />
             <Route path="/teacher/chat" element={<RoleGate allowed={TEACHER_ROLES}><AnswerWorkbenchPage /></RoleGate>} />
             <Route path="/admin/prompts" element={<RoleGate allowed={['SCHOOL_ADMIN', 'SUPER_ADMIN']}><AnswerWorkbenchPage mode="admin" /></RoleGate>} />

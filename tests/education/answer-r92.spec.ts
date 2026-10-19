@@ -20,7 +20,14 @@ async function adminLogin(page: Page) {
   const f = page.frameLocator('iframe[title="提示词及人工"]'); await expect(f.getByRole('heading', { name: '提示词及人工', exact: true })).toBeVisible(); await expect(f.getByRole('button', { name: '高中', exact: false }).first()).toBeVisible(); return f
 }
 async function miniLogin(page: Page, kind = 'student') {
-  await page.goto('/mini'); const f = page.frameLocator('iframe[title="学科智能问答小程序"]'); await f.getByLabel('登录账号').fill(fixture.users[kind]); await f.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!); await f.getByRole('button', { name: '登录', exact: true }).click(); await expect(f.getByLabel('输入问题')).toBeVisible(); return f
+  if (process.env.QA_ANSWER_WEB === '1') {
+    await page.goto('/login'); await page.getByLabel('用户名').fill(fixture.users[kind]); await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!); await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByRole('button', { name:'退出登录', exact:true })).toBeVisible();
+    await page.goto(kind === 'student' ? '/chat' : '/teacher/chat');
+    const f = page.frameLocator('iframe[title="智能问答助手"]'); await expect(f.getByLabel('输入问题')).toBeVisible();
+    await expect(f.locator('.phone')).toHaveCount(0); await expect(page.locator('.app-sidebar')).toHaveCount(1);
+    return f;
+  }
+  await page.goto('/mini-preview'); const f = page.frameLocator('iframe[title="学科智能问答小程序"]'); await f.getByLabel('登录账号').fill(fixture.users[kind]); await f.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!); await f.getByRole('button', { name: '登录', exact: true }).click(); await expect(f.getByLabel('输入问题')).toBeVisible(); return f
 }
 
 test('原型布局、草稿、四类联合试问、预览发布和恢复历史', async ({ page, request }) => {
@@ -110,8 +117,14 @@ test('学生留言 → 后台领取、保存草稿、核对回复 → 追加 →
 })
 
 test('移动端自然语言提问、学习工具、历史会话和报告空态', async ({ page }) => {
-  await page.setViewportSize({width:390,height:844});const f=await miniLogin(page,'teacher')
+  await page.setViewportSize(process.env.QA_ANSWER_WEB === '1' ? {width:1440,height:1000} : {width:390,height:844});const f=await miniLogin(page,'teacher')
+  if (process.env.QA_ANSWER_WEB === '1') {
+    await expect(f.getByRole('heading',{name:/想了解什么，尽管问吧/})).toBeVisible()
+    await page.screenshot({path:path.join(evidence,'21-desktop-web-welcome.png'),fullPage:true})
+    await page.setViewportSize({width:390,height:844})
+  }
   await f.getByLabel('输入问题').fill('你好');await f.getByLabel('发送问题').click();await expect(f.getByText('你好，可以直接描述')).toBeVisible()
+  if (process.env.QA_ANSWER_WEB === '1') { await expect(f.getByRole('button',{name:'新会话',exact:true})).toBeEnabled(); await expect(f.locator('.message').last()).toHaveCSS('opacity','1') }
   await page.screenshot({path:path.join(evidence,'06-mobile-chat.png'),fullPage:true})
   await f.getByRole('button',{name:'学习工具',exact:true}).click();await f.getByRole('button',{name:/历史会话/}).click();await expect(f.getByText('历史数据型答复会按你当前的权限重新核对。')).toBeVisible()
   await f.getByLabel('返回', {exact:true}).click();await f.getByRole('button',{name:/报告中心/}).click();await expect(f.getByText('暂无可查看报告')).toBeVisible()

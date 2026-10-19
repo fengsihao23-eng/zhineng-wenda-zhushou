@@ -1,16 +1,32 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import axios from 'axios'
 import api from '../../services/axios'
 import { getAuthSignal, getAuthScope, getRefreshToken, getToken, getUserInfo, setAuthSession, clearAuth } from '../../utils/auth'
 import { getCurrentUserApi, loginApi, logoutApi } from '../../services/auth'
 import { AppShell } from '../../layouts/AppShell'
+import AnswerText from '../../components/AnswerText'
+import '../../components/ChatContainer.css'
+import '../../components/MessageList.css'
+import '../../components/MessageBubble.css'
+import '../../components/InputBox.css'
 
 /** Isolate the supplied prototype's styles while retaining the application's auth lifecycle. */
-export function AnswerWorkbenchPage({ mode = 'mini' }: { mode?: 'admin' | 'mini' }) {
+export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' | 'web' }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const [answers, setAnswers] = useState<Array<{ node: HTMLElement; text: string; id: string }>>([])
   useEffect(() => {
     const receive = async (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== frame.current?.contentWindow || event.data?.type !== 'answer-request') return
+      if (event.origin !== location.origin || event.source !== frame.current?.contentWindow) return
+      if (mode === 'web' && event.data?.type === 'answer-web-render') {
+        const nodes = frame.current?.contentDocument?.querySelectorAll<HTMLElement>('[data-web-message]')
+        setAnswers(Array.from(nodes || []).map(node => {
+          if (!node.dataset.richRendered) { node.replaceChildren(); node.dataset.richRendered = 'true' }
+          return { node, text: node.dataset.webText || '', id: node.dataset.webMessage || '' }
+        }))
+        return
+      }
+      if (event.data?.type !== 'answer-request') return
       const { id, path, body, method, binary, requestKey } = event.data
       if (typeof id !== 'string' || typeof path !== 'string' || !['GET', 'POST'].includes(method)) return
       const target = frame.current?.contentWindow
@@ -49,7 +65,21 @@ export function AnswerWorkbenchPage({ mode = 'mini' }: { mode?: 'admin' | 'mini'
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
-  }, [])
-  const content = <iframe ref={frame} title={mode === 'admin' ? '提示词及人工' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=r92-20261019`} style={{ width: '100%', height: mode === 'admin' ? '100%' : '100dvh', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />
-  return mode === 'admin' ? <AppShell>{content}</AppShell> : content
+  }, [mode])
+  const onLoad = () => {
+    if (mode !== 'web') return
+    const document = frame.current?.contentDocument
+    if (!document) return
+    // Use the original desktop chat's compiled theme, typography and composer styles.
+    const before = document.head.firstChild
+    window.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(link => {
+      const copy = document.createElement('link')
+      copy.rel = 'stylesheet'; copy.href = link.href
+      document.head.insertBefore(copy, before)
+    })
+  }
+  const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=web-20261019`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
+  if (mode === 'admin') return <AppShell>{content}</AppShell>
+  if (mode === 'web') return <AppShell bleed title="智能问答" eyebrow={`${getUserInfo()?.roles.includes('STUDENT') ? '学生空间' : '教师工作台'} / 智能问答`}><div className="chat-page-frame">{content}</div></AppShell>
+  return content
 }

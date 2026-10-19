@@ -210,4 +210,4 @@ catch (e) {
 } });
 document.addEventListener('keydown', e => { if (e.key === 'Escape')
     closeModal(); });
-boot();
+if (window.ANSWER_PRESENTATION !== 'web') boot();
