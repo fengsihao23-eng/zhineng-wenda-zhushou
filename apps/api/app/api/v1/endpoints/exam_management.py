@@ -96,7 +96,9 @@ async def my_exams(actor=Depends(get_current_user), db: AsyncSession = Depends(g
 
 async def recipient_for(db, actor):
     if actor.has_role("STUDENT"):
-        student = await db.scalar(select(Student).where(Student.school_id == actor.school_id, Student.user_id == actor.user_id, Student.status == "active"))
+        # Existing exam/report grants survive changes to the student's roster
+        # status. get_current_user already requires a login-enabled account.
+        student = await db.scalar(select(Student).where(Student.school_id == actor.school_id, Student.user_id == actor.user_id))
         if student:
             from app.core.exam_access import bind_student
             bind_student(db, actor.school_id, student.id)

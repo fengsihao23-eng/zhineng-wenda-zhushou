@@ -147,6 +147,17 @@ async def test_frozen_roster_same_names_filename_account_and_invalid_scope(clien
     record = result["reports"][0]
     assert "同名学生" in record["target_label"] and "后续改名" not in record["target_label"]
     assert person["grade"] in record["grades"]
+    # Historical report access follows account login and the saved exam grant,
+    # rather than reusing the rule for choosing NEW exam participants.
+    test_db.add(ExamQueryGrant(school_id=actors["school"].id, exam_id=UUID(exam["id"]), recipient_kind="student",
+        recipient_id=actors["student"].id, student_id=actors["student"].id,
+        subject_id=UUID(row["subject_ids"][0]), content_type="student"))
+    await test_db.commit()
+    switch(actors, test_db, "student")
+    history = await client.get(EXAMS + "/my-exams/" + exam["id"])
+    assert history.status_code == 200, history.text
+    assert [r["id"] for r in history.json()["reports"]] == [record["id"]]
+    switch(actors, test_db, "admin")
     admin = await test_db.get(ExamAdministration, UUID(exam["id"]))
     configuration = copy.deepcopy(admin.configuration)
     configuration["subjects"][0]["student_ids"] = configuration["subjects"][0]["student_ids"][:1]

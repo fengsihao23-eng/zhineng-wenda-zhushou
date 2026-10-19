@@ -46,6 +46,13 @@ test -s "$release_dir/database-before.dump"
 docker compose exec -T db pg_restore --list < "$release_dir/database-before.dump" > "$release_dir/backup-catalog.txt"
 counts_sql="SELECT json_build_object('users',(SELECT count(*) FROM users),'students',(SELECT count(*) FROM students),'teacher_profiles',(SELECT count(*) FROM teacher_profiles),'teaching_assignments',(SELECT count(*) FROM teaching_assignments),'student_year_classes',(SELECT count(*) FROM student_year_classes),'exams',(SELECT count(*) FROM exams),'exam_administrations',(SELECT count(*) FROM exam_administrations),'exam_query_policies',(SELECT count(*) FROM exam_query_policies),'exam_query_grants',(SELECT count(*) FROM exam_query_grants),'exam_participants',(SELECT count(*) FROM exam_participants),'subject_scores',(SELECT count(*) FROM student_subject_scores),'question_scores',(SELECT count(*) FROM question_scores),'legacy_reports',(SELECT count(*) FROM diagnosis_reports));"
 docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$counts_sql" < /dev/null > "$release_dir/counts-before.json"
+report_counts_sql="SELECT json_build_object('managed_reports',(SELECT count(*) FROM managed_reports),'report_files',(SELECT count(*) FROM report_files),'report_operations',(SELECT count(*) FROM report_operations));"
+report_tables_present=$(docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "SELECT to_regclass('public.managed_reports') IS NOT NULL" < /dev/null)
+if [[ "$report_tables_present" = "t" ]]; then
+  docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$report_counts_sql" < /dev/null > "$release_dir/report-counts-before.json"
+else
+  printf '{"managed_reports":0,"report_files":0,"report_operations":0}\n' > "$release_dir/report-counts-before.json"
+fi
 printf 'backup_verified=%s\n' "$release_dir"
 git fetch origin refs/heads/codex/report-management-r86:refs/remotes/origin/codex/report-management-r86 > "$release_dir/git-fetch.log" 2>&1
 git merge-base --is-ancestor "$previous_commit" "$release_commit"
@@ -64,6 +71,7 @@ docker compose exec -T nginx nginx -t < /dev/null >> "$release_dir/activate.log"
 docker compose exec -T nginx nginx -s reload < /dev/null >> "$release_dir/activate.log" 2>&1
 curl --fail --silent --show-error --retry 8 --retry-delay 2 --retry-connrefused --max-time 10 http://127.0.0.1/api/v1/health > "$release_dir/health-after.json"
 docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$counts_sql" < /dev/null > "$release_dir/counts-after.json"
+docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$report_counts_sql" < /dev/null > "$release_dir/report-counts-after.json"
 expected_hash=$(sha256sum apps/api/app/services/report_management.py | cut -d ' ' -f 1)
 actual_hash=$(docker compose exec -T api python -c 'import hashlib;from pathlib import Path;print(hashlib.sha256(Path("/app/app/services/report_management.py").read_bytes()).hexdigest())' < /dev/null)
 test "$actual_hash" = "$expected_hash"
@@ -74,6 +82,7 @@ directory = Path(sys.argv[1])
 before = json.loads((directory / 'counts-before.json').read_text())
 after = json.loads((directory / 'counts-after.json').read_text())
 assert before == after, (before, after)
+assert json.loads((directory / 'report-counts-before.json').read_text()) == json.loads((directory / 'report-counts-after.json').read_text())
 health = json.loads((directory / 'health-after.json').read_text())
 assert health['status'] == 'ok' and health['environment'] == 'production'
 assert health['model']['real_model_ready']
