@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/fix-exam-report-subjects",
+  "frontend_lint": "passed",
+  "frontend_typescript_production_build": "passed",
+  "frontend_unit_tests": {
+    "passed": 31,
+    "files": 9
+  },
+  "isolated_real_api_playwright": {
+    "passed": 3,
+    "failed": 0,
+    "database": "exam_v17_browser_subject_options_20261019",
+    "duration_seconds": 7.3,
+    "scenarios": [
+      "教师筛选及跨考试职责匹配",
+      "多教师草稿、保存、刷新及预选",
+      "单科考试六个科目状态、已配置未导入状态、作文语种筛选及无效筛选清理"
+    ]
+  },
+  "deployment_script_syntax": "passed",
+  "production_data_observation": {
+    "math_practice_exam": {
+      "configured_subjects": [
+        "数学"
+      ],
+      "imported_subjects": [
+        "数学"
+      ]
+    },
+    "other_six_subject_exam": {
+      "configured_subjects": [
+        "语文",
+        "数学",
+        "英语",
+        "物理",
+        "化学",
+        "生物"
+      ],
+      "imported_subjects": [
+        "语文"
+      ]
+    }
+  },
+  "database_changes_required": false
+}

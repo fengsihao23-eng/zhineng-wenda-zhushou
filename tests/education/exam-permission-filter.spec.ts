@@ -9,11 +9,11 @@ const base = '/api/v1/platform/education/exam-management'
 const evidence = process.env.QA_EXAM_EVIDENCE || '/tmp/exam-permission-filter-evidence'
 mkdirSync(evidence, { recursive: true })
 
-async function prepare(request: APIRequestContext, name: string) {
+async function prepare(request: APIRequestContext, name: string, subjects = ['语文', '数学']) {
   const login = await request.post('/api/v1/auth/login', { data: { username: fixture.users.admin, password: process.env.QA_PASSWORD } })
   expect(login.ok()).toBeTruthy()
   const headers = { Authorization: 'Bearer ' + (await login.json()).access_token }
-  const body = { name, academic_year: '2026-2027', exam_date: '2026-10-19', subjects: ['语文', '数学'].map((name, i) => ({ key: String(i), name, full_score: 150, student_ids: fixture.students.slice(0, 3).map((p: any) => p.id) })) }
+  const body = { name, academic_year: '2026-2027', exam_date: '2026-10-19', subjects: subjects.map((name, i) => ({ key: String(i), name, full_score: 150, student_ids: fixture.students.slice(0, 3).map((p: any) => p.id) })) }
   const preview = await request.post(base + '/preview', { headers, data: body }); expect(preview.ok()).toBeTruthy()
   const created = await request.post(base, { headers, data: { ...body, preview_hash: (await preview.json()).preview_hash } }); expect(created.ok()).toBeTruthy()
   const exam = await created.json(), subject = exam.subjects[0].subject_id
@@ -81,6 +81,8 @@ test('teacher identity, selected subjects and student scope stay bound through f
   await first.getByRole('checkbox').check()
   await expect(dialog.getByRole('checkbox', { name: '报告科目：数学', exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: '报告科目：语文', exact: true })).not.toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: '成绩科目：数学（未导入）', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('checkbox', { name: '报告科目：数学', exact: true })).toBeEnabled()
   await expect(dialog.getByRole('checkbox', { name: '授权班级：高中一年级 1班', exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: '授权班级：高中一年级 2班', exact: true })).not.toBeChecked()
   await dialog.getByRole('checkbox', { name: '成绩科目：语文', exact: true }).check()
@@ -118,4 +120,47 @@ test('teacher identity, selected subjects and student scope stay bound through f
   await expect(dialog.getByRole('checkbox', { name: '成绩科目：语文', exact: true })).not.toBeChecked()
   await dialog.getByRole('button', { name: '清空已选教师', exact: true }).click()
   await expect(dialog.getByRole('button', { name: '确认保存生效', exact: true })).toBeDisabled()
+})
+
+test('single-subject exams explain unavailable subjects and essay filters only offer Chinese and English', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1600, height: 1100 })
+  const name = '数学单科科目选项验收 ' + Date.now(), { exam, headers } = await prepare(request, name, ['数学'])
+  const dialog = await open(page, name)
+  await dialog.locator('.exam-teacher-row').filter({ hasText: fixture.users.teacher }).getByRole('checkbox').check()
+  await expect(dialog.getByLabel('科目配置说明')).toContainText('本次考试已配置：数学')
+  await expect(dialog.getByLabel('科目配置说明')).toContainText('调整考试范围')
+  for (const title of ['成绩科目', '报告科目']) {
+    await expect(dialog.getByRole('group', { name: title, exact: true }).getByRole('checkbox')).toHaveCount(6)
+    await expect(dialog.getByRole('checkbox', { name: `${title}：数学`, exact: true })).toBeEnabled()
+    for (const subject of ['语文', '英语', '物理', '化学', '生物']) {
+      await expect(dialog.getByRole('checkbox', { name: `${title}：${subject}（本次考试未配置）`, exact: true })).toBeDisabled()
+    }
+  }
+  await dialog.getByRole('group', { name: '报告科目', exact: true }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(evidence, '20-single-subject-permission-options.png'), fullPage: true })
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  expect((await (await request.get(`${base}/${exam.id}`, { headers })).json()).teacher_permissions).toEqual({})
+
+  await page.goto('/admin/reports')
+  const subjects = page.getByRole('combobox', { name: '全部科目', exact: true })
+  await page.getByRole('combobox', { name: '考试筛选', exact: true }).selectOption(exam.id)
+  await expect(subjects.locator('option')).toHaveText(['全部科目', '数学'])
+  await subjects.selectOption('数学')
+  const essayResponse = page.waitForResponse(response => response.url().includes('/report-management?') && new URL(response.url()).searchParams.get('category') === 'essay')
+  await page.getByRole('tab', { name: /作文批改报告/ }).click()
+  expect(new URL((await essayResponse).url()).searchParams.has('subject')).toBe(false)
+  await expect(subjects).toHaveValue('')
+  await expect(subjects.locator('option')).toHaveText(['全部科目', '语文', '英语'])
+  await subjects.selectOption('英语')
+  await page.getByRole('button', { name: '重置', exact: true }).click()
+  await expect(subjects).toHaveValue('')
+  await expect(subjects.locator('option')).toHaveText(['全部科目', '语文', '英语'])
+  await page.getByRole('combobox', { name: '考试筛选', exact: true }).selectOption(exam.id)
+  await subjects.selectOption('英语')
+  await page.getByRole('tab', { name: /诊断报告/ }).click()
+  await expect(subjects).toHaveValue('')
+  await expect(subjects.locator('option')).toHaveText(['全部科目', '数学'])
+  await page.getByRole('tab', { name: /作文批改报告/ }).click()
+  await expect(subjects.locator('option')).toHaveText(['全部科目', '语文', '英语'])
+  await page.screenshot({ path: path.join(evidence, '21-essay-language-filter.png'), fullPage: true })
 })
