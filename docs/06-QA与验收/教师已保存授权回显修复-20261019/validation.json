@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/fix-saved-teacher-permissions",
+  "base_commit": "ab0e100f124dd91c1e44b5d9d7c74c530f826aa0",
+  "frontend_lint": "passed",
+  "frontend_typescript_and_production_build": "passed",
+  "frontend_unit_tests": {
+    "passed": 31,
+    "files": 9
+  },
+  "isolated_real_api_playwright": {
+    "passed": 19,
+    "failed": 0,
+    "duration_seconds": 44.8,
+    "database": "exam_v17_browser_saved_permissions_20261019",
+    "specs": [
+      "exam-permission-filter.spec.ts",
+      "exam-v17.spec.ts"
+    ],
+    "scenarios": [
+      "自动勾选并显示单个及多个教师的已保存权限",
+      "手动授权优先于教师档案默认建议",
+      "完整回显成绩类型、成绩科目、诊断类型、诊断科目、作文语种和学生范围",
+      "打开及清空勾选不写入授权",
+      "筛选时保留修改，保存后刷新重开及切换教师/学生页签仍回显",
+      "取消授权后列表、编辑页及查看配置人数同步",
+      "保存错误、重复提交防护、并发冲突及学生查询控制回归"
+    ]
+  },
+  "deployment_script_bash_syntax": "passed",
+  "database_migrations_required": false
+}
