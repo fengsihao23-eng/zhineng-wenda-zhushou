@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
-import { readFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
@@ -133,6 +133,77 @@ test('prototype upload wizard validates names, previews every file and persists 
   await page.reload(); await page.getByLabel('考试筛选').selectOption(setup.exam.id)
   await expect(page.locator('.report-workbench tbody tr')).toHaveCount(2)
   await page.screenshot({ path: path.join(evidence, '05-report-list.png'), fullPage: true })
+})
+
+test('report file list and attribution form scroll independently with a fixed footer', async ({ page, request }) => {
+  const setup = await createExam(request, '报告上传独立滚动验收 ' + Date.now())
+  const rows = [0, 1, 2].flatMap(index => {
+    const row = reportRow(setup.scope, 'student', index), person = setup.scope.snapshots[row.target_key]
+    return [row, { ...row, file: { ...row.file, filename: row.file.filename.replace(person.platform_id, person.account) } }]
+  })
+  await page.setViewportSize({ width: 1600, height: 720 }); await login(page); await page.goto('/admin/reports/new')
+  await chooseExam(page, setup.exam.name)
+  const drawer = page.getByRole('dialog', { name: '上传报告', exact: true })
+  await drawer.getByRole('radio', { name: '语文', exact: true }).check()
+  await drawer.getByLabel('上传 PDF 文件').setInputFiles(rows.map(row => ({ name: row.file.filename, mimeType: 'application/pdf', buffer: originalPdf })))
+  await expect(drawer.getByText('校验通过 6 / 6 份')).toBeVisible()
+  await drawer.getByRole('button', { name: '下一步：预览归属' }).click()
+  const files = drawer.getByRole('complementary', { name: '报告文件列表', exact: true })
+  const form = drawer.getByRole('region', { name: '报告归属配置', exact: true })
+  const metrics = () => drawer.evaluate(element => {
+    const body = element.querySelector('.drawer-body')!, left = element.querySelector('.file-list')!, right = element.querySelector('.assignment')!, footer = element.querySelector('.drawer-foot')!
+    return { outer: body.scrollTop, page: window.scrollY, left: left.scrollTop, right: right.scrollTop, leftHorizontal: left.scrollLeft, leftHeight: left.clientHeight, rightHeight: right.clientHeight, leftContent: left.scrollHeight, rightContent: right.scrollHeight, bodyHeight: body.clientHeight, bodyContent: body.scrollHeight, footerTop: footer.getBoundingClientRect().top, footerBottom: footer.getBoundingClientRect().bottom }
+  })
+  const wheel = async (panel: typeof files, x: number, y: number) => { const box = await panel.boundingBox(); await page.mouse.move(box!.x + box!.width / 2, box!.y + Math.min(80, box!.height / 2)); await page.mouse.wheel(x, y) }
+  const initial = await metrics()
+  expect(initial.leftContent).toBeGreaterThan(initial.leftHeight)
+  expect(initial.rightContent).toBeGreaterThan(initial.rightHeight)
+  expect(Math.abs(initial.leftHeight - initial.rightHeight)).toBeLessThanOrEqual(2)
+  await wheel(files, 0, 260)
+  await expect.poll(async () => (await metrics()).left).toBeGreaterThan(100)
+  const afterLeft = await metrics()
+  expect(afterLeft.right).toBe(initial.right)
+  expect(afterLeft.outer).toBe(0)
+  await wheel(form, 0, 240)
+  await expect.poll(async () => (await metrics()).right).toBeGreaterThan(50)
+  const afterRight = await metrics()
+  expect(afterRight.left).toBe(afterLeft.left)
+  expect(afterRight.outer).toBe(0)
+  expect(afterRight.footerTop).toBe(initial.footerTop)
+  expect(afterRight.footerBottom).toBeLessThanOrEqual(720)
+  await files.evaluate(element => { element.scrollTop = element.scrollHeight })
+  const bottom = await metrics()
+  await wheel(files, 0, 500)
+  await page.evaluate(() => new Promise(requestAnimationFrame))
+  expect((await metrics()).right).toBe(bottom.right)
+  expect((await metrics()).outer).toBe(0)
+  expect((await metrics()).page).toBe(bottom.page)
+  await files.locator('.file-entry').last().click()
+  await expect.poll(async () => (await metrics()).right).toBe(0)
+  expect((await metrics()).left).toBe(bottom.left)
+  await expect(form.locator('.filename')).toHaveText(rows.at(-1)!.file.filename)
+  await wheel(form, 0, 240)
+  await expect.poll(async () => (await metrics()).right).toBeGreaterThan(50)
+  await expect(drawer.getByRole('button', { name: '下一步：核对清单' })).toBeInViewport()
+  await page.screenshot({ path: path.join(evidence, '15-upload-independent-desktop-scroll.png'), fullPage: true })
+  const desktop = await metrics()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  const mobile = await metrics()
+  expect(mobile.bodyContent).toBeLessThanOrEqual(mobile.bodyHeight + 1)
+  expect(mobile.rightHeight).toBeGreaterThan(150)
+  await expect(drawer.getByRole('button', { name: '下一步：核对清单' })).toBeInViewport()
+  await wheel(files, 420, 0)
+  await expect.poll(async () => (await metrics()).leftHorizontal).toBeGreaterThan(100)
+  const mobileLeft = await metrics()
+  await wheel(form, 0, 240)
+  await expect.poll(async () => (await metrics()).right).toBeGreaterThan(mobileLeft.right)
+  expect((await metrics()).leftHorizontal).toBe(mobileLeft.leftHorizontal)
+  expect((await metrics()).outer).toBe(0)
+  await page.screenshot({ path: path.join(evidence, '16-upload-independent-mobile-scroll.png'), fullPage: true })
+  writeFileSync(path.join(evidence, 'upload-scroll-metrics.json'), JSON.stringify({ desktop, mobile: await metrics(), wheel_inputs_independent: true, scroll_boundary_contained: true, switching_file_preserves_list_and_resets_form: true }, null, 2))
+  await drawer.getByRole('button', { name: '取消', exact: true }).click()
+  expect((await (await request.get(base + '?exam_id=' + setup.exam.id, { headers: setup.auth })).json()).total).toBe(0)
 })
 
 test('replace keeps attribution and history, delete cancellation and confirmed batch are real', async ({ page, request }) => {

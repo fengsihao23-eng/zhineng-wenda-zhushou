@@ -1,0 +1,35 @@
+{
+  "desktop": {
+    "outer": 0,
+    "page": 0,
+    "left": 191,
+    "right": 118,
+    "leftHorizontal": 0,
+    "leftHeight": 448,
+    "rightHeight": 448,
+    "leftContent": 639,
+    "rightContent": 566,
+    "bodyHeight": 588,
+    "bodyContent": 588,
+    "footerTop": 653,
+    "footerBottom": 720
+  },
+  "mobile": {
+    "outer": 0,
+    "page": 0,
+    "left": 0,
+    "right": 294,
+    "leftHorizontal": 420,
+    "leftHeight": 110,
+    "rightHeight": 429,
+    "leftContent": 110,
+    "rightContent": 723,
+    "bodyHeight": 719,
+    "bodyContent": 719,
+    "footerTop": 784,
+    "footerBottom": 844
+  },
+  "wheel_inputs_independent": true,
+  "scroll_boundary_contained": true,
+  "switching_file_preserves_list_and_resets_form": true
+}
