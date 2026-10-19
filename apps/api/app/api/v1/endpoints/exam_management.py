@@ -15,6 +15,7 @@ from app.db.models.exam_management import ExamQueryPolicy, ExamQueryGrant
 from app.api.v1.endpoints.education import exam_read_role as base_exam_reader, exam_write_role, write
 from app.schemas.exam_management import (ExamDraft, ScoreUpload, Revision, TeacherPermissions, StudentPermissions, Upload)
 from app.services import exam_management as service
+from app.services import report_management as report_service
 from app.services.education_common import data, audit
 
 router = APIRouter(prefix="/platform/education/exam-management", tags=["exam-management"])
@@ -162,19 +163,36 @@ async def my_results(identifier: UUID, view_type: Literal["student", "classSubje
         Subject.id.in_([s.subject_id for s in scores])))).all()
     for subject in historical_subjects:
         subjects.setdefault(str(subject.id), subject.name)
+    maintained = await report_service.authorized_reports(db, actor, identifier, kind, recipient, view_type)
+    maintained_views = []
+    for report in maintained:
+        file = await report_service.current_file(db, actor, report)
+        maintained_views.append({**data(report, "id", "report_type", "version"),
+            "generated_at": report.updated_at.isoformat(), "type_name": report.attribution["type_name"],
+            "target_label": report.attribution["target_label"], "subject_names": report.attribution["subject_names"],
+            "filename": file.filename, "page_count": file.page_count, "managed": True})
     return {"id": detail["id"], "name": detail["name"], "exam_id": detail["exam_id"], "kind": kind,
             "scores": [score_view(row) for row in scores if (row.student_id, row.subject_id) in allowed],
             "totals": totals,
-            "reports": [data(r, "id", "subject_id", "report_type", "version", "generated_at") for r in reports if report_allowed(r)]}
+            "reports": [data(r, "id", "subject_id", "report_type", "version", "generated_at") for r in reports if report_allowed(r)] + maintained_views}
 
 
 @router.get("/my-exams/{identifier}/reports/{report_id}/original")
 async def my_report_original(identifier: UUID, report_id: UUID,
     view_type: Literal["student", "classSubject", "gradeSubject", "classAll", "gradeAll", "school"] = "student",
+    page: int | None = Query(None, ge=1, le=100),
     actor=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await my_results(identifier, view_type, actor, db)
     if str(report_id) not in {r["id"] for r in result["reports"]}:
         raise ApiError(404, "REPORT_NOT_AVAILABLE", "报告不存在或不在本次考试授权范围内。")
+    if any(r["id"] == str(report_id) and r.get("managed") for r in result["reports"]):
+        kind, recipient = await recipient_for(db, actor)
+        report, file = await report_service.recipient_file(db, actor, identifier, report_id, kind, recipient, view_type)
+        content = report_service.render_pdf(file.content, page) if page else file.content
+        audit(db, actor, "exam.report.read", report, {"version": report.version, "page": page})
+        await db.commit()
+        from app.api.v1.endpoints.report_management import private_response
+        return private_response(content, "image/png" if page else "application/pdf", None if page else file.filename)
     asset = await db.scalar(select(PrivateAsset).join(ReportAttachment, ReportAttachment.asset_id == PrivateAsset.id).where(
         ReportAttachment.school_id == actor.school_id, ReportAttachment.report_id == report_id, PrivateAsset.school_id == actor.school_id))
     if asset is None:

@@ -13,6 +13,7 @@ from app.db.models.teaching import TeachingAssignment
 from app.db.models.operation_receipt import OperationReceipt
 from app.db.models.exam import Exam, Subject, ExamSubject
 from app.db.models.exam_management import (ExamAdministration, ExamParticipant, ExamQueryPolicy, ExamQueryGrant, ExamScoreFile, ExamOperation)
+from app.db.models.report_management import ManagedReport, ReportFile, ReportOperation
 from app.db.models.score import (
     StudentExamScore,
     StudentSubjectScore,

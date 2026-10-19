@@ -241,6 +241,10 @@ async def preview(db, actor, body, identifier=None):
                 changes.append({"subject": prior["name"], "before": prior, "after": None, "removed": prior["student_ids"], "added": []})
     linked = {"score_records": int(await db.scalar(select(func.count()).select_from(StudentSubjectScore).where(StudentSubjectScore.exam_id == identifier)) or 0),
               "reports": int(await db.scalar(select(func.count()).select_from(DiagnosisReport).where(DiagnosisReport.exam_id == identifier)) or 0)} if old else {}
+    if old:
+        from app.db.models.report_management import ManagedReport
+        linked["reports"] += int(await db.scalar(select(func.count()).select_from(ManagedReport).where(
+            ManagedReport.school_id == actor.school_id, ManagedReport.exam_id == identifier, ManagedReport.status == "current")) or 0)
     checksum = digest({"config": config, "revision": old.revision if old else None, "duplicates": [str(e.id) for e in duplicates], "linked": linked})
     return {"configuration": config, "preview_hash": checksum, "participant_count": len(roster_ids(config)),
             "duplicates": [{"id": e.external_exam_id or str(e.id), "name": e.name} for e in duplicates],

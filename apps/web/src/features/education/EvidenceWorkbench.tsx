@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { AppShell } from "../../layouts/AppShell";
 import { useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
@@ -12,15 +12,10 @@ import {
   canWrite,
   useAction,
   ActionError,
-  FormPanel,
   Table,
   Pager,
   usePagination,
   HelpTip,
-  useSchoolOptions,
-  options,
-  AssetUpload,
-  AssetButton,
 } from "./shared";
 
 export function SourcesWorkbenchPage({ view = "list" }: { view?: "list" | "create" | "detail" }) {
@@ -163,143 +158,6 @@ export function SourcesWorkbenchPage({ view = "list" }: { view?: "list" | "creat
               {action.data.source_version}。<Link to="/admin/sources">查看来源列表</Link>
             </p>
           )}
-        </section>
-      )}
-    </AppShell>
-  );
-}
-
-export function ReportWorkbenchPage({ view = "list" }: { view?: "list" | "create" }) {
-  const navigate = useNavigate();
-  const list = useJsonQuery<Row[]>(`${BASE}/reports`, view === "list"),
-    students = useSchoolOptions("students"),
-    exams = useSchoolOptions("exams"),
-    subjects = useSchoolOptions("subjects"),
-    action = useAction();
-  const [asset, setAsset] = useState<Row | null>(null);
-  return (
-    <AppShell title={view === "create" ? "保存新报告版本" : "正式报告与原件"} eyebrow="教学分析 / 报告版本">
-      <ReadOnlyNote />
-      <div className="wb-toolbar">
-        {view === "create" ? <Link className="secondary-button" to="/admin/reports">返回报告列表</Link> : canWrite() && <Link className="primary-button" to="/admin/reports/new">保存新报告版本</Link>}
-        <HelpTip label="报告说明">人工确认后的正式报告与原件按版本保存；不会自动批改或扩大学生诊断权益。</HelpTip>
-      </div>
-      {view === "list" && <QueryState query={list} empty={!list.data?.length}>
-        <Table paginate headers={["学生 / 考试", "类型 / 版本", "来源 / 时间", "原件"]}>
-          {list.data?.map((r) => (
-            <tr key={r.id}>
-              <td>
-                {students.data?.items.find((s) => s.id === r.student_id)
-                  ?.name || "本校学生"}{" "}
-                /{" "}
-                {exams.data?.items.find((e) => e.id === r.exam_id)?.name ||
-                  "历史考试"}
-              </td>
-              <td>
-                {(
-                  {
-                    diagnosis: "学情诊断",
-                    score_report: "成绩报告",
-                    marked_work: "批阅文件",
-                  } as Record<string, string>
-                )[r.report_type] || r.report_type}{" "}
-                · {r.version || "待补充"}
-              </td>
-              <td>
-                {r.source_system} · {r.generated_at?.slice(0, 16)}
-              </td>
-              <td>
-                {r.asset_id ? (
-                  <AssetButton id={r.asset_id} />
-                ) : (
-                  <span>原件尚未接入</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </QueryState>}
-      {view === "create" && canWrite() && (
-        <section className="panel">
-          <h2>上传与绑定报告</h2>
-          <AssetUpload label="上传正式报告原件" onUploaded={setAsset} />
-          {asset && (
-            <>
-              <p role="status">原件已保存：{asset.filename}</p>
-              <FormPanel
-                key={asset.id}
-                title="绑定正式报告"
-                fields={[
-                  {
-                    name: "student_id",
-                    label: "学生",
-                    type: "select",
-                    options: options(students.data?.items),
-                  },
-                  {
-                    name: "exam_id",
-                    label: "考试",
-                    type: "select",
-                    options: options(exams.data?.items),
-                  },
-                  {
-                    name: "subject_id",
-                    label: "学科（综合报告可留空）",
-                    type: "select",
-                    required: false,
-                    options: options(subjects.data?.items),
-                  },
-                  {
-                    name: "report_type",
-                    label: "报告类型",
-                    type: "select",
-                    options: [
-                      { value: "diagnosis", label: "学情诊断" },
-                      { value: "score_report", label: "成绩报告" },
-                      { value: "marked_work", label: "批阅文件" },
-                    ],
-                  },
-                  { name: "version", label: "版本号", maxLength: 20 },
-                  {
-                    name: "generated_at",
-                    label: "报告生成时间",
-                    type: "datetime-local",
-                  },
-                  {
-                    name: "summary",
-                    label: "正式摘要",
-                    type: "textarea",
-                    maxLength: 10000,
-                  },
-                  {
-                    name: "raw_content",
-                    label: "报告原文（可选）",
-                    type: "textarea",
-                    required: false,
-                    maxLength: 100000,
-                  },
-                ]}
-                initial={{ report_type: "diagnosis" }}
-                pending={action.isPending}
-                onSubmit={(v) =>
-                  action.mutate(
-                    {
-                      path: "/reports",
-                      body: {
-                        ...v,
-                        subject_id: v.subject_id || null,
-                        raw_content: v.raw_content || "",
-                        generated_at: new Date(v.generated_at).toISOString(),
-                        asset_id: asset.id,
-                      },
-                    },
-                    { onSuccess: () => { setAsset(null); navigate("/admin/reports"); } },
-                  )
-                }
-              />
-            </>
-          )}
-          <ActionError action={action} />
         </section>
       )}
     </AppShell>

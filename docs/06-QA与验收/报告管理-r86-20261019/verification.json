@@ -1,0 +1,30 @@
+{
+  "references": {
+    "prototype.html": "7f43160d2cefc0811293fcce2190db87a24df7929be91df1ba4051006cbc58e9",
+    "flow.html": "cd700e14b1f3cfda9effc1b752f20518abb54e6373146cbfeb9d857b29761737"
+  },
+  "accepted_upload_rule": "高保真原型优先：每批单科，规范命名后预填归属",
+  "backend_sqlite": {
+    "passed": 301,
+    "skipped": 8
+  },
+  "backend_postgresql": {
+    "passed": 309,
+    "failed": 0
+  },
+  "frontend_unit": {
+    "passed": 26,
+    "failed": 0
+  },
+  "report_browser": {
+    "passed": 6,
+    "failed": 0
+  },
+  "frontend_lint_and_build": "passed",
+  "backend_compile_and_static": "passed",
+  "legacy_mock_ui": {
+    "passed": 12,
+    "failed": 9,
+    "same_failures_on_unmodified_baseline": true
+  }
+}

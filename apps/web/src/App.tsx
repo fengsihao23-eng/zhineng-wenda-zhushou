@@ -12,7 +12,8 @@ import { RosterTaskPage } from './features/education/RosterWorkbench'
 import { ImportWorkbenchPage } from './features/education/ImportWorkbench'
 import { PaperWorkbenchPage, PaperSplitPage } from './features/education/PaperWorkbench'
 import { QuestionWorkbenchPage } from './features/education/QuestionWorkbench'
-import { ReportWorkbenchPage, SourcesWorkbenchPage } from './features/education/EvidenceWorkbench'
+import { SourcesWorkbenchPage } from './features/education/EvidenceWorkbench'
+import { ReportWorkbenchPage } from './features/education/ReportWorkbench'
 import { ErrorBoundary, ErrorDisplay } from './components/ErrorDisplay'
 import { AppShell } from './layouts/AppShell'
 import { getUserInfo } from './utils/auth'
@@ -157,8 +158,8 @@ function App() {
             <Route path="/admin/sources" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage /></RoleGate>} />
             <Route path="/admin/sources/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage key="create" view="create" /></RoleGate>} />
             <Route path="/admin/sources/:sourceId" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><SourcesWorkbenchPage key="detail" view="detail" /></RoleGate>} />
-            <Route path="/admin/reports" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ReportWorkbenchPage /></RoleGate>} />
-            <Route path="/admin/reports/new" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ReportWorkbenchPage key="create" view="create" /></RoleGate>} />
+            <Route path="/admin/reports" element={<RoleGate allowed={['SCHOOL_ADMIN', 'QA', 'SUPER_ADMIN']}><ReportWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/reports/new" element={<RoleGate allowed={['SCHOOL_ADMIN', 'QA', 'SUPER_ADMIN']}><ReportWorkbenchPage key="create" view="create" /></RoleGate>} />
             <Route path="/admin/analysis" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ClassAnalysisPage /></RoleGate>} />
             <Route path="/admin/students" element={<RoleGate allowed={SCHOOL_ROLES}><StudentRosterPage /></RoleGate>} />
             <Route path="/admin/students/:studentId" element={<RoleGate allowed={SCHOOL_ROLES}><StudentDetailPage /></RoleGate>} />

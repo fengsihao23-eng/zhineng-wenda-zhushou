@@ -1,0 +1,18 @@
+{
+  "baseline_commit": "d60e20d13745b279fe256032196998dddfcabda2",
+  "baseline_failures": 9,
+  "current_failures": 9,
+  "failure_names_identical": true,
+  "failure_names": [
+    "an existing ready student batch remains reachable when the upload response is lost ",
+    "batch change retains task on cancel, requires matching locked IDs and verifies field changes ",
+    "deleting the last row on the last page returns to a populated page ",
+    "edit forms open in focused dialogs and keyboard dismissal returns to the list ",
+    "mobile actions, pagination and explanation popovers stay within the viewport ",
+    "read-only roles retain history access without import or archive actions ",
+    "roster focuses on records, help opens on click, and history has its own refreshable page ",
+    "server pagination changes request size, resets filters and handles the last or empty page ",
+    "teacher list matches prototype, selects visible rows, resets filters, and shows 24 fields in a drawer "
+  ],
+  "report_mock_journey_passed": true
+}

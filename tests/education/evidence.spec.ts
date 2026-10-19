@@ -33,29 +33,7 @@ test('controlled legacy snapshot has visible mapping hash and repeatable receipt
   await expect(row).toHaveCount(1)
 })
 
-test('formal report original upload version preview and reload are real', async ({ page }) => {
-  await login(page, 'admin')
-  await page.goto('/admin/reports')
-  await page.getByRole('link', { name: '保存新报告版本', exact: true }).click()
-  await page.getByLabel('上传正式报告原件').setInputFiles(fixture.pdf_path)
-  await page.getByRole('button', { name: '校验并上传', exact: true }).click()
-  await expect(page.getByText(/原件已保存：/)).toBeVisible()
-  await page.getByLabel('学生', { exact: true }).selectOption(fixture.student_id)
-  await page.getByLabel('考试', { exact: true }).selectOption(fixture.exam_id)
-  await page.getByLabel('学科（综合报告可留空）').selectOption(fixture.subject_id)
-  await page.getByLabel('版本号').fill('browser-v2')
-  await page.getByLabel('报告生成时间').fill('2026-09-18T10:00')
-  await page.getByLabel('正式摘要').fill('QA 人工审核后的正式摘要。')
-  await page.getByRole('button', { name: '保存', exact: true }).click()
-  const row = page.getByRole('row').filter({ hasText: 'browser-v2' })
-  await expect(row).toBeVisible()
-  await row.getByRole('button', { name: '查看原件', exact: true }).click()
-  await expect(page.getByTitle('原件预览')).toBeVisible()
-  await expect(page.getByRole('link', { name: '下载当前版本' })).toHaveAttribute('href', /^blob:/)
-  await page.getByRole('button', { name: '关闭预览' }).click()
-  await page.reload()
-  await expect(row).toBeVisible()
-})
+// The report lifecycle is exercised by report-r86.spec.ts against a managed exam.
 
 test('authorized teacher class aggregation drills down to the same student facts', async ({ page }) => {
   await login(page, 'teacher')

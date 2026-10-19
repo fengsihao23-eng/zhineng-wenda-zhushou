@@ -21,6 +21,8 @@ async function mockApi(page: Page, role = 'SCHOOL_ADMIN', recordCount = 55) {
     let body: unknown = []
     if (path === '/auth/me') body = user
     else if (path === '/health') body = { model: { real_model_ready: true } }
+    else if (path === '/platform/education/report-management/options') body = { school: '测试学校', exams: [] }
+    else if (path === '/platform/education/report-management') body = { items: [], total: 0, counts: { all: 0, diagnostic: 0, essay: 0 }, facets: { subjects: [], grades: [], classes: [] } }
     else if (path.endsWith('/actions')) {
       const id = path.split('/').at(-2)
       records = records.filter(row => row.id !== id)
@@ -141,7 +143,6 @@ test('client pagination resets on status filters and keeps totals for the whole 
 for (const [path, entry, field] of [
   ['/admin/imports', '上传新批次', '批次编号'],
   ['/admin/papers', '上传新试卷', '上传原件'],
-  ['/admin/reports', '保存新报告版本', '上传正式报告原件'],
   ['/admin/sources', '接入旧资料', '快照 JSON 文件'],
 ]) {
   test(`${path} keeps upload forms off the list page`, async ({ page }) => {
@@ -155,6 +156,20 @@ for (const [path, entry, field] of [
     await expect(page.getByLabel(field, { exact: true })).toBeVisible()
   })
 }
+
+test('report r86 opens the upload wizard from its own list and supports its direct URL', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/admin/reports')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: '＋ 上传报告', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '上传报告', exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: '上传所属考试', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await page.goto('/admin/reports/new')
+  await expect(page.getByRole('dialog', { name: '上传报告', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: '上传所属考试', exact: true })).toBeVisible()
+})
 
 for (const path of ['/admin/papers', '/admin/questions', '/admin/sources']) {
   test(`${path} requests the selected page size`, async ({ page }) => {
