@@ -267,3 +267,27 @@ async def test_foreign_ticket_and_sources_never_expand_permission(client, test_d
     await post(client, '/tickets/'+ticket['id']+'/reply', {'expected': claimed['revision'], 'text': '成绩为90分', 'reply_kind': 'routing', 'reviewed': True}, 403)
     visible = (await client.get(ROOT+'/tickets/'+ticket['id']+'?management=true')).json()
     assert visible['status'] == '处理中' and not visible['currentAllowed']
+
+
+@pytest.mark.asyncio
+async def test_historical_exam_uses_its_own_stage_and_cannot_count_as_another_stage_trial(client, test_db, actors, setup):
+    from app.db.models import ExamAdministration
+    row = await test_db.get(ExamAdministration, UUID(setup['exam']['id']))
+    config = deepcopy(row.configuration)
+    for person in config['snapshots'].values():
+        person['grade'] = '初中三年级'
+    row.configuration = config
+    await test_db.commit()
+    state = (await client.get(ROOT+'/admin/state')).json()
+    assert '初中' in state['stages']
+    student = next(p for p in state['accounts'] if p['userId'] == str(actors['student'].user_id))
+    assert set(student['stages']) == {'初中', '高中'}
+    bucket = await draft(client, state)
+    d = bucket['draft']
+    trial = await post(client, '/admin/scopes/prompt:高中/trials', {'user_id': str(actors['student'].user_id), 'roles': ['学生'],
+        'draft_id': d['id'], 'draft_revision': d['revision'], 'test_stage': '高中', 'kind': 'authorized', 'question': '我的数学成绩'})
+    assert trial['answer']['configurationFailure'] and not trial['answer']['sources']
+    await post(client, '/admin/trials/'+trial['id']+'/review', {'accepted': True}, 409)
+    switch(actors, test_db, 'student')
+    session = await post(client, '/mini/ask', {'question': '我的数学成绩'})
+    assert [v['stage'] for v in session['messages'][-1]['promptVersions']] == ['初中']

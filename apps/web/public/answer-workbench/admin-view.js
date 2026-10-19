@@ -1,6 +1,4 @@
-// Display templates adapted from the supplied r92 prototype. API mutations live in admin-api.js.
-function rolesOf(account) { if (account.role === 'student')
-    return ['学生']; const a = BACKEND.teacherArchives.find(a => a.id === account.id), fields = a?.fields || {}; const roles = ROLE_FIELDS.filter(([_, field], i) => i < 4 ? !!String(fields[field] || '').trim() : fields[field] === '是').map(([role]) => role); return roles.length ? roles : ['教师']; }
+
 function actor(id) { return ENGINE.accounts.find(a => a.id === id); }
 function activeVersion(s = stage, type = maintenanceType) { const b = maintenanceBucket(s, type); return b?.versions.find(v => v.id === b.activeId) || null; }
 function pill(text) { const tone = text === '已发布' || text === '已回复' || text === '通过' ? 'green' : text === '待处理' || text === '未保存' ? 'amber' : text === '未通过' ? 'red' : text === '已关闭' ? 'grey' : ''; return '<span class="pill ' + tone + '">' + esc(text) + '</span>'; }
@@ -55,7 +53,6 @@ function modal(title, body, foot = '') { $('dialog').innerHTML = '<div class="mo
 function closeDialog() { $('dialog').innerHTML = ''; }
 function showPublished() { const v = activeVersion(); modal('当前生效内容', v ? `<p class="meta">${maintenanceName()} V${v.number} · ${esc(v.by)} · ${esc(v.at)}</p>${maintenanceType === 'limits' ? limitFields(v, true) : `<h3>回答要求</h3><div class="code">${esc(v.content)}</div><h3 style="margin-top:18px">输出格式</h3><div class="code">${esc(v.format)}</div>`}` : '<div class="empty">当前维护范围尚无生效版本。</div>'); }
 function openHistory() { const b = maintenanceBucket(); overlay(maintenanceName() + ' · 历史版本', b.versions.length ? b.versions.slice().reverse().map(v => `<div class="history-item"><div class="between"><h3>V${v.number} ${pill(v.id === b.activeId ? '已发布' : '历史')}</h3><button class="small" onclick="restoreVersion('${v.id}')">恢复为新草稿</button></div><p class="meta">${esc(v.by)} · ${esc(v.at)}<br>${esc(v.reason)}</p><details><summary>查看版本内容</summary>${maintenanceType === 'limits' ? limitFields(v, true) : `<div class="code">${esc(v.content)}\n\n输出格式：${esc(v.format)}</div>`}</details>${v.tests?.length ? `<details style="margin-top:12px"><summary>发布时的联合测试（只读）</summary>${testsTable(state.tests.filter(t => v.tests.includes(t.id)), true)}</details>` : ''}</div>`).join('') : '<div class="empty">暂无发布历史</div>', '<span class="meta">仅恢复当前范围为新草稿，重新联合测试后再发布。</span>'); }
-function testAccount() { return actor(tester.accountId); }
 function openTester() { if (dirty || !working.revision) {
     toast('请先保存草稿，再开始联合试问');
     return;
@@ -92,13 +89,6 @@ function uniqueRefs(refs) { const m = new Map(); for (const ref of refs)
 function currentTicket() { return tickets.find(t => t.id === ticketUI?.id); }
 function ticketRefs(t = currentTicket()) { return uniqueRefs([...(t?.sources || []), ...(t?.context || []).flatMap(m => m.sources || []), ...(ticketUI?.extraRefs || [])]); }
 function canHandle(t) { return t.status === '处理中' && t.assignee?.id === OP.id; }
-function feedbackPair(t) { let q = (t.context || []).find(m => m.role === 'user'), a = (t.context || []).find(m => m.role === 'assistant'); if (t.feedbackMessageId && (!q || !a)) {
-    const s = miniState?.sessions.find(s => s.id === t.sessionId && s.owner === t.owner), i = s?.messages.findIndex(m => m.id === t.feedbackMessageId) ?? -1;
-    if (i > 0) {
-        q = s.messages[i - 1];
-        a = s.messages[i];
-    }
-} return { question: q?.text, answer: a?.text }; }
 function protectReplyDraft() { if (!ticketUI)
     return; if (!ticketUI.allowed && ticketUI.replyKind === 'data') {
     ticketUI.restrictedDraft = { reply: ticketUI.reply, selected: copy(ticketUI.selected), replyKind: ticketUI.replyKind };
@@ -156,10 +146,6 @@ function limitFields(v, readonly = false) {
 function versionLabel(v) { if (!v)
     return '缺少生效版'; return v.mode === 'draft' ? 'D' + v.revision : 'V' + v.number; }
 function jointLabel(t) { return `学段提示词 ${t.testStage || t.stage} ${versionLabel(t.versions?.prompt)} ＋ 全校限制 ${versionLabel(t.versions?.limits)}`; }
-function accountStages(p) { if (p.role === 'student')
-    return p.grade?.startsWith('初中') ? ['初中'] : p.grade?.startsWith('小学') ? ['小学'] : ['高中']; const f = BACKEND.teacherArchives.find(a => a.id === p.id)?.fields || {}, text = [f['任课年级班级'], f['班主任年级班级'], f['教研组长负责年级科目'], f['年级长负责年级'], p.grade].join(' '), a = []; if (/初中|初[一二三]|(?:^|[\s:,;])(?:7|8|9)\./.test(text))
-    a.push('初中'); if (/高中|高[一二三]|(?:^|[\s:,;])(?:10|11|12)\./.test(text))
-    a.push('高中'); return a; }
 function testStage() { return maintenanceType === 'prompt' ? stage : tester.testStage || stage; }
 function selectStageAccount() { const selected = testStage(), current = testAccount(); if (accountStages(current).length && !accountStages(current).includes(selected)) {
     const candidate = ENGINE.accounts.find(p => p.status === '正常' && accountStages(p).includes(selected));
