@@ -34,13 +34,14 @@ function messageHTML(m) {
   return `<article class="message message--assistant"><div class="message__content"><div class="message__text" data-web-message="${esc(m.id)}" data-web-text="${esc(m.text)}">${esc(m.text)}</div>${table}${m.sources?.length?`<div class="message__sources"><span>回答依据</span>${m.sources.map(sourceButton).join('')}</div>`:''}${(m.choices||[]).map(q=>`<button class="choice-chip" data-choice="${esc(q)}">${esc(q)}</button>`).join('')}<div class="message-tools">${!m.fallback?`<button onclick="openTicketCompose('${m.id}','answerFeedback')">留言请人工核查</button>`:`<button onclick="openTicketCompose('${m.id}')">提交人工留言</button>`}<span>${esc(m.at?.slice(11,16)||'')}</span></div></div></article>`;
 }
 function renderComposer() {
-  $('composer').innerHTML=`<form class="input-box" onsubmit="event.preventDefault();sendWebQuestion()"><div class="input-box__container"><textarea class="input-box__textarea" id="question" aria-label="输入问题" rows="1" placeholder="问我任何关于成绩的问题... (Enter发送，Shift+Enter换行)" oninput="chatDraft=this.value" oncompositionstart="webComposing=true" oncompositionend="webComposing=false" onblur="webComposing=false" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229&&!webComposing){event.preventDefault();sendWebQuestion()}">${esc(chatDraft)}</textarea><button class="input-box__send" id="sendQuestion" aria-label="发送问题" type="submit" ${busy?'disabled':''}><span class="send-icon">➤</span>发送</button></div></form>`;
+  const placeholder = window.matchMedia('(max-width:650px)').matches ? '问我任何关于成绩的问题…' : '问我任何关于成绩的问题... (Enter发送，Shift+Enter换行)';
+  $('composer').innerHTML=`<form class="input-box" onsubmit="event.preventDefault();sendWebQuestion()"><div class="input-box__container"><textarea class="input-box__textarea" id="question" aria-label="输入问题" rows="1" placeholder="${esc(placeholder)}" oninput="chatDraft=this.value" oncompositionstart="webComposing=true" oncompositionend="webComposing=false" onblur="webComposing=false" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229&&!webComposing){event.preventDefault();sendWebQuestion()}">${esc(chatDraft)}</textarea><button class="input-box__send" id="sendQuestion" aria-label="发送问题" type="submit" ${busy?'disabled':''}><span class="send-icon">➤</span>发送</button></div></form>`;
 }
 async function sendWebQuestion(text) {
   if(busy||webComposing)return;
   const button=$('sendQuestion');if(button)button.textContent='生成中…';
-  const pending = ask(text); webToolbar();
-  try{await pending}finally{webToolbar();if($('sendQuestion'))$('sendQuestion').innerHTML='<span class="send-icon">➤</span>发送'}
+  const pending = ask(text); webToolbar(); if($('question'))$('question').disabled=busy;
+  try{await pending}finally{webToolbar();if($('question'))$('question').disabled=false;if($('sendQuestion'))$('sendQuestion').innerHTML='<span class="send-icon">➤</span>发送'}
 }
 function renderChat() {
   const s=currentSession();

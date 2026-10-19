@@ -11,6 +11,12 @@ async function auth(request: APIRequestContext, kind = 'admin') {
   const result = await request.post('/api/v1/auth/login', { data: { username: fixture.users[kind], password: process.env.QA_PASSWORD } })
   expect(result.ok()).toBeTruthy(); return { Authorization: 'Bearer '+(await result.json()).access_token }
 }
+test.beforeEach(async ({ request }) => {
+  const headers = await auth(request)
+  const state = await request.get(base+'/admin/state', { headers })
+  expect(state.ok()).toBeTruthy()
+})
+
 async function post(request: APIRequestContext, url: string, headers: Record<string,string>, data?: unknown) {
   const r = await request.post(url, { headers: { ...headers, 'Idempotency-Key': crypto.randomUUID() }, data }); expect(r.ok(), await r.text()).toBeTruthy(); return r.json()
 }
