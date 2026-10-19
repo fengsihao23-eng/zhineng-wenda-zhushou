@@ -1,0 +1,77 @@
+{
+  "counts-before.json": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 318,
+    "exam_query_grants": 7272,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 0
+  },
+  "counts-after.json": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 318,
+    "exam_query_grants": 7272,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 0
+  },
+  "fingerprints-before.json": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "d6137e2996bfbafda4b54194c90297b1",
+    "grants": "b1e1e683a61c8ad37da7b96e7e5c6466",
+    "administration": "ea0a947b020e9603fb9d2d268842c688"
+  },
+  "fingerprints-after.json": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "d6137e2996bfbafda4b54194c90297b1",
+    "grants": "b1e1e683a61c8ad37da7b96e7e5c6466",
+    "administration": "ea0a947b020e9603fb9d2d268842c688"
+  },
+  "frontend-after.json": {
+    "verified_assets": [
+      "/assets/index-DIhuacoh.css",
+      "/assets/index-Uf2N7JTz.js"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/mini"
+    ],
+    "new_permission_ui_verified": true
+  },
+  "app_commit": "c9461cea1d3cc58bb27216cb5a1a964771e2bb79",
+  "schema_before": "024_answer_workbench",
+  "schema_after": "024_answer_workbench",
+  "active_api_source_sha256": [
+    "ad9a1d55b24c873b3ff554607972113bcd3c8f460e1e59226c16fe05bfc5fb07  exam_management.py",
+    "62b4bfdc4bd723f21ea71cb44a32b9de5dad25324ac135579eca173a4108b415  exam_permission_defaults.py"
+  ],
+  "date": "2026-10-19",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/exam-permission-filter-fix",
+  "release_directory": "/srv/backups/exam-permissions-20261019-072326Z",
+  "services_rebuilt": [
+    "api",
+    "web"
+  ],
+  "database_backup_catalog_verified": true,
+  "database_migrations_run": false,
+  "environment_hash_unchanged": true,
+  "rollback_images_retained": true,
+  "ci_url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39214904511",
+  "ci_conclusion": "success",
+  "production_health": "ok",
+  "real_model_ready": true
+}

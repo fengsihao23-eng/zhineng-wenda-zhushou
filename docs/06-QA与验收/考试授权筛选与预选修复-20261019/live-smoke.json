@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-19T07:43:32.759Z",
+  "origin": "http://43.161.195.51",
+  "app_commit": "c9461cea1d3cc58bb27216cb5a1a964771e2bb79",
+  "read_only": true,
+  "authentication_bootstrap": "temporary server-signed session; refresh response intercepted locally; login and refresh lifecycle tested against isolated real API",
+  "teacher_count": 73,
+  "filter_grades": [
+    "高中二年级",
+    "高中一年级",
+    "高中三年级"
+  ],
+  "filter_class_count": 48,
+  "filter_subject_count": 14,
+  "actual_exam_filter_options_complete": true,
+  "outside_exam_teacher_has_no_false_defaults": true,
+  "matching_teacher_identity_subjects_and_classes_verified": true,
+  "selected_teachers_and_drafts_survive_filter_changes": true,
+  "clear_selection_does_not_revoke_saved_permissions": true,
+  "business_write_requests": 0,
+  "uncaught_browser_errors": 0
+}
