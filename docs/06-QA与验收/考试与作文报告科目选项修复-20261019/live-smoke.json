@@ -1,0 +1,140 @@
+{
+  "origin": "http://43.161.195.51",
+  "authentication": "short-lived server-signed session; real GET requests only",
+  "no_business_writes": true,
+  "checks": [
+    {
+      "exam": "高一数学大练习（六）",
+      "configured_subjects": [
+        "数学"
+      ],
+      "score_options": [
+        {
+          "label": "语文（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "数学",
+          "enabled": true
+        },
+        {
+          "label": "英语（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "物理（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "化学（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "生物（本次考试未配置）",
+          "enabled": false
+        }
+      ],
+      "report_options": [
+        {
+          "label": "语文（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "数学",
+          "enabled": true
+        },
+        {
+          "label": "英语（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "物理（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "化学（本次考试未配置）",
+          "enabled": false
+        },
+        {
+          "label": "生物（本次考试未配置）",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "exam": "XXXX",
+      "configured_subjects": [
+        "语文",
+        "数学",
+        "英语",
+        "物理",
+        "化学",
+        "生物"
+      ],
+      "score_options": [
+        {
+          "label": "语文",
+          "enabled": true
+        },
+        {
+          "label": "数学（未导入）",
+          "enabled": false
+        },
+        {
+          "label": "英语（未导入）",
+          "enabled": false
+        },
+        {
+          "label": "物理（未导入）",
+          "enabled": false
+        },
+        {
+          "label": "化学（未导入）",
+          "enabled": false
+        },
+        {
+          "label": "生物（未导入）",
+          "enabled": false
+        }
+      ],
+      "report_options": [
+        {
+          "label": "语文",
+          "enabled": true
+        },
+        {
+          "label": "数学",
+          "enabled": true
+        },
+        {
+          "label": "英语",
+          "enabled": true
+        },
+        {
+          "label": "物理",
+          "enabled": true
+        },
+        {
+          "label": "化学",
+          "enabled": true
+        },
+        {
+          "label": "生物",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "essay_options": [
+    "全部科目",
+    "语文",
+    "英语"
+  ],
+  "invalid_math_filter_cleared": true,
+  "both_languages_queries_http": 200,
+  "math_only_exam_still_shows_two_languages": true,
+  "reset_preserves_language_options": true,
+  "page_errors": [],
+  "bad_api_responses": [],
+  "blocked_writes": []
+}

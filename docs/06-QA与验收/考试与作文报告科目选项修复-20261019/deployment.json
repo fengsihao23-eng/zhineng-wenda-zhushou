@@ -1,0 +1,69 @@
+{
+  "counts-before": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 2
+  },
+  "counts-after": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 2
+  },
+  "fingerprints-before": {
+    "administration": "8f48fd3ef045fde477135fc3909cea2f",
+    "policies": "6c2d5bf52c9c87d02eb2dacf6f56fc00",
+    "grants": "fea2fe644c6cfe47a4be6ef8273c78db"
+  },
+  "fingerprints-after": {
+    "administration": "8f48fd3ef045fde477135fc3909cea2f",
+    "policies": "6c2d5bf52c9c87d02eb2dacf6f56fc00",
+    "grants": "fea2fe644c6cfe47a4be6ef8273c78db"
+  },
+  "frontend-after": {
+    "verified_assets": [
+      "/assets/index-BIQFp_G5.js",
+      "/assets/index-DIhuacoh.css"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/admin/prompts",
+      "/mini"
+    ],
+    "subject_option_ui_verified": true
+  },
+  "date": "2026-10-19",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/fix-exam-report-subjects",
+  "release_commit": "cdab529fdef3e335929fae49b8d2ec792dd51a6e",
+  "previous_commit": "0f31db5b756d88f5e59fe938d07c8ee33b42e5e7",
+  "release_directory": "/srv/backups/subject-options-20261019-084425Z",
+  "database_backup_catalog_verified": true,
+  "business_data_counts_unchanged": true,
+  "exam_config_and_permission_fingerprints_unchanged": true,
+  "database_migrations_run": false,
+  "services_rebuilt": [
+    "web"
+  ],
+  "rollback_image_retained": true,
+  "production_health": "ok",
+  "ci_url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39224882277",
+  "frontend_ci_conclusion": "success",
+  "ci_backend_status_at_online_verification": "in_progress"
+}
