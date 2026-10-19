@@ -91,7 +91,17 @@ async function renderPreview(page: Page, button = '预览 PDF') {
 test('prototype upload wizard validates names, previews every file and persists a real batch', async ({ page, request }) => {
   const setup = await createExam(request, '报告r86三步上传验收'), rows = [reportRow(setup.scope), reportRow(setup.scope, 'student', 1)]
   await page.setViewportSize({ width: 1600, height: 1100 }); await login(page)
-  await page.goto('/admin/reports'); await page.getByRole('button', { name: '＋ 上传报告', exact: true }).click()
+  await page.goto('/admin/reports')
+  const workbench = page.getByRole('region', { name: '报告管理', exact: true })
+  await expect(workbench.getByRole('link', { name: '考务管理', exact: true })).toHaveCount(0)
+  await expect(workbench.getByRole('button', { name: '报告维护', exact: true })).toHaveCount(0)
+  const operationButton = workbench.locator('.toolbar').getByRole('button', { name: '操作记录', exact: true })
+  await expect(operationButton).toBeVisible()
+  const operationsBox = await operationButton.boundingBox(), accessBox = await workbench.getByRole('button', { name: '核对查询权限', exact: true }).boundingBox()
+  expect(operationsBox!.x).toBeLessThan(accessBox!.x)
+  expect(operationsBox!.y).toBe(accessBox!.y)
+  await page.screenshot({ path: path.join(evidence, '18-report-management-toolbar.png'), fullPage: true })
+  await page.getByRole('button', { name: '＋ 上传报告', exact: true }).click()
   await chooseExam(page, setup.exam.name)
   const drawer = page.getByRole('dialog', { name: '上传报告', exact: true })
   await expect(drawer.getByRole('button', { name: '下一步：预览归属' })).toBeDisabled()

@@ -154,7 +154,7 @@ function textPdf() {
 test('真实双页报告、自然语言引用、下载、权限撤销后的历史和PDF阻断', async ({ page, request }) => {
   test.setTimeout(90000)
   const h=await auth(request),reportBase='/api/v1/platform/education/report-management'
-  const draft={name:'小程序报告闭环验收',academic_year:'2026-2027',exam_date:'2026-10-19',subjects:[{key:'chinese',name:'语文',full_score:150,student_ids:fixture.students.slice(0,2).map((s:any)=>s.id)}]}
+  const draft={name:'小程序学情闭环验收',academic_year:'2026-2027',exam_date:'2026-10-19',subjects:[{key:'chinese',name:'语文',full_score:150,student_ids:fixture.students.slice(0,2).map((s:any)=>s.id)}]}
   const checked=await post(request,examBase+'/preview',h,draft)
   let exam=await post(request,examBase,h,{...draft,preview_hash:checked.preview_hash})
   const template=await request.get(`${examBase}/${exam.id}/score-template/${exam.subjects[0].subject_id}`,{headers:h})
@@ -173,8 +173,13 @@ o=io.BytesIO();b.save(o);sys.stdout.buffer.write(o.getvalue())`],{input:await te
   const batch={exam_id:exam.id,expected_exam_revision:exam.revision,reports:[row]},prepared=await post(request,reportBase+'/batches/preview',h,batch)
   const saved=await post(request,reportBase+'/batches',h,{...batch,preview_hash:prepared.preview_hash}),report=saved.reports[0]
   const f=await miniLogin(page)
-  await f.getByLabel('输入问题').fill('查看小程序报告闭环验收语文诊断报告');await f.getByLabel('发送问题').click()
+  const scoreResponse = page.waitForResponse(response => response.url().endsWith('/answer-workbench/mini/ask') && response.request().method() === 'POST')
+  await f.getByLabel('输入问题').fill('我在小程序学情闭环验收这次考试各科成绩怎么样？');await f.getByLabel('发送问题').click()
+  const scoreAnswer = (await (await scoreResponse).json()).messages.at(-1)
+  expect(scoreAnswer.sources.map((source:any) => source.kind)).toEqual(['score','report','report'])
+  expect(scoreAnswer.table[0].score).toBe(90)
   await expect(f.getByRole('button',{name:/第2页/})).toBeVisible()
+  await page.screenshot({path:path.join(evidence,'17-score-answer-includes-report-sources.png'),fullPage:true})
   await f.getByRole('button',{name:/第2页/}).click();await expect(f.getByRole('img',{name:'报告PDF第1页'})).toBeVisible()
   await f.getByRole('button',{name:'下一页',exact:true}).click();await expect(f.getByRole('img',{name:'报告PDF第2页'})).toBeVisible()
   await page.screenshot({path:path.join(evidence,'08-two-page-report.png'),fullPage:true})
@@ -185,7 +190,7 @@ o=io.BytesIO();b.save(o);sys.stdout.buffer.write(o.getvalue())`],{input:await te
   await post(request,`${examBase}/${exam.id}/permissions/student`,h,{...revoke,preview_hash:rp.headers()['x-exam-preview-hash']})
   await f.getByRole('button',{name:'上一页',exact:true}).click();await expect(f.locator('#pdfCanvasWrap').getByText('报告不存在、版本已变化或当前无权查看。')).toBeVisible()
   await f.getByLabel('返回',{exact:true}).click();await f.getByRole('button',{name:'学习工具',exact:true}).click();await f.getByRole('button',{name:/历史会话/}).click()
-  await f.getByRole('button',{name:/小程序报告闭环验收语文诊断报告/}).click();await expect(f.getByText('当前权限或来源版本已变化，相关历史答复及来源已隐藏。')).toBeVisible()
+  await f.getByRole('button',{name:/我在小程序学情闭环验收/}).click();await expect(f.getByText('当前权限或来源版本已变化，相关历史答复及来源已隐藏。')).toBeVisible()
 })
 
 test('提交响应丢失后保留输入并以同一请求重试，留言只建立一次', async ({ page, request }) => {
