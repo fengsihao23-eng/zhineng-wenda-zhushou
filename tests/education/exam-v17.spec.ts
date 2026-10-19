@@ -66,11 +66,11 @@ async function createScoredExam(request: APIRequestContext, name: string) {
   return { exam:await imported.json(), headers }
 }
 
-test('school navigation contains four direct modules with correct active states and shared system colors', async ({ page }) => {
+test('school navigation keeps four business modules plus prompt support with correct active states and shared system colors', async ({ page }) => {
   await page.setViewportSize({ width:1600, height:1100 })
   await login(page)
   const navigation = page.locator('.side-nav')
-  await expect(navigation.getByRole('link')).toHaveText(['教师档案','学生档案','考务管理','报告管理'])
+  await expect(navigation.getByRole('link')).toHaveText(['教师档案','学生档案','考务管理','报告管理','提示词及人工'])
   for (const name of ['教师档案','学生档案','报告管理','考务管理']) {
     await navigation.getByRole('link', { name, exact:true }).click()
     await expect(page.getByRole('heading', { name, exact:true })).toBeVisible()
@@ -78,6 +78,19 @@ test('school navigation contains four direct modules with correct active states 
     await expect(navigation.locator('.is-active')).toHaveCount(1)
     await expect(navigation.locator('[aria-current="page"]')).toHaveCount(1)
   }
+  await navigation.getByRole('link', { name:'提示词及人工', exact:true }).click()
+  await expect(navigation.locator('.is-active')).toHaveText('提示词及人工')
+  await expect(navigation.locator('.is-active')).toHaveCount(1)
+  await expect(navigation.locator('[aria-current="page"]')).toHaveCount(1)
+  const prompts = page.frameLocator('iframe[title="提示词及人工"]')
+  await expect(prompts.getByRole('heading', { name:'提示词及人工', exact:true })).toBeVisible()
+  await expect(prompts.getByRole('button', { name:'提示词与回答限制', exact:true })).toBeVisible()
+  await prompts.getByRole('button', { name:'人工留言', exact:true }).click()
+  await expect(prompts.getByRole('heading', { name:'人工留言', exact:true })).toBeVisible()
+  await prompts.getByRole('button', { name:'操作记录', exact:true }).click()
+  await expect(prompts.getByRole('heading', { name:'操作记录', exact:true })).toBeVisible()
+  await page.screenshot({ path:path.join(evidence,'20-restored-prompt-navigation.png'), fullPage:true })
+  await navigation.getByRole('link', { name:'考务管理', exact:true }).click()
   await expect(page.getByRole('heading', { name:'考试列表', exact:true })).toBeVisible()
   await expect(page.locator('.wb-tabs')).toHaveCount(0)
   await page.reload()

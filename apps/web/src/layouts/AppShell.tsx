@@ -15,6 +15,7 @@ const schoolNavItems: NavItem[] = [
   { path: '/admin/school?tab=students', label: '学生档案', icon: 'users' },
   examNavItem,
   { path: '/admin/reports', label: '报告管理', icon: 'file' },
+  { path: '/admin/prompts', label: '提示词及人工', icon: '✦' },
 ]
 
 export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' {
@@ -65,7 +66,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
   const user = getUserInfo()
   const role = roleOf(user)
   const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
-  const baseNavItems = examAdminOnly ? [examNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [examNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, ...schoolNavItems, { path: '/admin/prompts', label: '提示词及人工', icon: '✦' }] : navByRole[role]
+  const baseNavItems = examAdminOnly ? [examNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [examNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, ...schoolNavItems] : navByRole[role]
   const unfilteredNavItems = role === 'city' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
   const navItems = unfilteredNavItems.filter(item => (item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA'].includes(r))) && (item.path !== '/admin/prompts' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN'].includes(r))))
   const schoolTab = location.pathname === '/admin/school' ? new URLSearchParams(location.search).get('tab') : location.pathname.startsWith('/admin/school/') ? location.pathname.split('/')[3] : null
