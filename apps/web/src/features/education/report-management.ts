@@ -1,6 +1,7 @@
 import { apiFetch, apiError } from '../../services/api'
 
 export const REPORT_ROOT = '/platform/education/report-management'
+export const ESSAY_SUBJECTS: string[] = ['语文', '英语']
 export const REPORT_TYPES: Record<string, string> = { student: '个人学情诊断', classAll: '班级综合诊断', classSubject: '班级单科诊断', gradeAll: '年级综合诊断', gradeSubject: '年级单科诊断', school: '全校学情诊断', essay: '个人作文批改报告' }
 export const REPORT_KINDS: Record<string, string> = { student: 'student', essay: 'student', classAll: 'class', classSubject: 'class', gradeAll: 'grade', gradeSubject: 'grade', school: 'school' }
 export type ReportCategory = 'diagnostic' | 'essay'
@@ -37,7 +38,7 @@ export const fileSize = (n: number) => n > 1024 * 1024 ? (n / 1024 / 1024).toFix
 export const reportClass = (person: ReportPerson) => person.grade + '|' + person.class_number
 export const categoryName = (value: string) => value === 'essay' ? '作文批改报告' : '诊断报告'
 export const subjectLabel = (scope: ExamScope, row: Classification) => row.subject_ids.map(id => scope.subjects.find(s => s.subject_id === id)?.name || id).join('、')
-export const availableSubjects = (scope: ExamScope, row: Classification) => scope.subjects.filter(s => s.student_ids.length && (row.category !== 'essay' || ['语文', '英语'].includes(s.name)))
+export const availableSubjects = (scope: ExamScope, row: Classification) => scope.subjects.filter(s => s.student_ids.length && (row.category !== 'essay' || ESSAY_SUBJECTS.includes(s.name)))
 
 export function targetsFor(scope: ExamScope, row: Classification): PickerItem[] {
   const rosters = row.subject_ids.map(id => scope.subjects.find(s => s.subject_id === id)?.student_ids || [])

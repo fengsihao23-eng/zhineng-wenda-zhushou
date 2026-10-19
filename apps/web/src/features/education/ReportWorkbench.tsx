@@ -7,7 +7,7 @@ import { randomKey } from '../../utils/id'
 import { ApiError } from '../../services/http'
 import { canWrite } from './shared'
 import {
-  REPORT_ROOT, REPORT_TYPES, REPORT_KINDS, reportRequest, reportBlob, downloadBlob, reportDate, fileSize, reportClass,
+  REPORT_ROOT, REPORT_TYPES, REPORT_KINDS, ESSAY_SUBJECTS, reportRequest, reportBlob, downloadBlob, reportDate, fileSize, reportClass,
   categoryName, subjectLabel, availableSubjects, targetsFor, targetLabel, filenamePattern, filenameFor, parseReportFilename,
   fuzzyMatches, readPdfFile, type Classification, type ReportCategory, type ReportRecord, type ReportFile, type ReportExam,
   type ExamScope, type PickerItem, type PdfUpload, type UploadRow,
@@ -137,11 +137,17 @@ export function ReportWorkbenchPage({ view = 'list' }: { view?: 'list' | 'create
   const close = () => { setModal(null); if (view === 'create') navigate('/admin/reports', { replace: true }) }
   const changed = async (message: string) => { close(); setNotice(message); setSelection(new Map()); await cache.invalidateQueries({ predicate: query => query.queryKey.some(key => typeof key === 'string' && (key.includes('report-management') || key.includes('exam-management'))) }) }
   const filter = (key: keyof typeof filters, value: string) => { setFilters(previous => ({ ...previous, [key]: value, ...(key === 'exam_id' ? { grade: '', cls: '', subject: '' } : key === 'grade' ? { cls: '' } : {}) })); setPage(1) }
+  const changeCategory = (next: string) => {
+    setCategory(next)
+    setFilters(previous => ({ ...previous, report_type: '', subject: (next === 'essay' ? ESSAY_SUBJECTS : reportSubjects).includes(previous.subject) ? previous.subject : '' }))
+    setPage(1); setSelection(new Map())
+  }
   const switchTab = (next: string) => { setTab(next); setPage(1); setSelection(new Map()); setNotice('') }
   const reset = () => { setFilters(emptyFilters); setPage(1) }
   const toggle = (report: ReportRecord, checked: boolean) => setSelection(previous => { const next = new Map(previous); if (checked) next.set(report.id, report); else next.delete(report.id); return next })
   const examFacets = options.data?.exams.filter(exam => !filters.exam_id || exam.id === filters.exam_id) || []
-  const subjects = [...new Set([...(list.data?.facets.subjects || []), ...examFacets.flatMap(exam => exam.subject_names || [])])].sort()
+  const reportSubjects = [...new Set([...(list.data?.facets.subjects || []), ...examFacets.flatMap(exam => exam.subject_names || [])])].sort()
+  const subjects = category === 'essay' ? ESSAY_SUBJECTS : reportSubjects
   const grades = [...new Set([...(list.data?.facets.grades || []), ...examFacets.flatMap(exam => exam.grades || [])])].sort()
   const classes = [...new Set([...(list.data?.facets.classes || []), ...examFacets.flatMap(exam => exam.classes || [])])].filter(cls => !filters.grade || cls.startsWith(filters.grade + '|')).sort()
   return <AppShell eyebrow="业务生产 / 学校范围"><section className="report-workbench" aria-label="报告管理"><div className="shell">
@@ -149,7 +155,7 @@ export function ReportWorkbenchPage({ view = 'list' }: { view?: 'list' | 'create
     <nav className="nav" aria-label="报告管理页面"><Link to="/admin/school?tab=exam-management">考务管理</Link><button className={tab === 'reports' ? 'active' : ''} onClick={() => switchTab('reports')}>报告维护</button><button className={tab === 'logs' ? 'active' : ''} onClick={() => switchTab('logs')}>操作记录</button></nav>
     <Notice kind="success">{notice}</Notice><div className="card">
       {tab === 'reports' ? <><div className="toolbar"><div className="actions"><h2>报告维护</h2><span className="stat-inline">共 {list.data?.counts.all || 0} 份报告</span></div><div className="actions"><button className="btn" onClick={() => setModal({ kind: 'access' })}>核对查询权限</button>{writable && <button className="btn primary" onClick={() => { setNotice(''); setModal({ kind: 'upload' }) }}>＋ 上传报告</button>}</div></div>
-        <div className="segmented" role="tablist" aria-label="报告类别">{[['', '全部报告'], ['diagnostic', '诊断报告'], ['essay', '作文批改报告']].map(([key, label]) => <button key={key} role="tab" aria-selected={category === key} className={category === key ? 'on' : ''} onClick={() => { setCategory(key); filter('report_type', ''); setSelection(new Map()) }}>{label} <span className="muted">{list.data?.counts[key || 'all'] || 0}</span></button>)}</div>
+        <div className="segmented" role="tablist" aria-label="报告类别">{[['', '全部报告'], ['diagnostic', '诊断报告'], ['essay', '作文批改报告']].map(([key, label]) => <button key={key} role="tab" aria-selected={category === key} className={category === key ? 'on' : ''} onClick={() => changeCategory(key)}>{label} <span className="muted">{list.data?.counts[key || 'all'] || 0}</span></button>)}</div>
         <div className="filters"><input className="control search" aria-label="搜索报告" placeholder="搜索报告ID / 对象 / 文件名" value={filters.search} onChange={e => filter('search', e.target.value)} /><select className="control" aria-label="考试筛选" value={filters.exam_id} onChange={e => filter('exam_id', e.target.value)}><option value="">全部考试</option>{options.data?.exams.map(exam => <option key={exam.id} value={exam.id}>{exam.name} · {exam.exam_code}</option>)}</select>
           <select className="control" aria-label="报告类型筛选" value={filters.report_type} onChange={e => filter('report_type', e.target.value)}><option value="">全部报告类型</option>{Object.entries(REPORT_TYPES).filter(([key]) => category === 'essay' ? key === 'essay' : category === 'diagnostic' ? key !== 'essay' : true).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
           {(['subject', 'grade', 'cls'] as const).map((key, i) => <select key={key} className="control" aria-label={['全部科目', '全部年级', '全部班级'][i]} value={filters[key]} onChange={e => filter(key, e.target.value)}><option value="">{['全部科目', '全部年级', '全部班级'][i]}</option>{[subjects, grades, classes][i].map(value => <option key={value} value={value}>{value.replace('|', ' ')}</option>)}</select>)}<button className="btn small" onClick={reset}>重置</button>
