@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/exam-permission-filter-fix",
+  "backend_sqlite": {"passed": 319, "skipped": 8, "failed": 0, "seconds": 79.72},
+  "backend_postgresql": {"passed": 327, "skipped": 0, "failed": 0, "seconds": 132.06},
+  "frontend_unit_tests": {"passed": 31, "failed": 0, "files": 9},
+  "real_api_chromium": {"passed": 17, "failed": 0, "seconds": 37.3, "specs": ["tests/education/exam-v17.spec.ts", "tests/education/exam-permission-filter.spec.ts"]},
+  "typescript_production_build": "passed",
+  "eslint": "passed",
+  "python_static_quality_gate": "passed",
+  "deployment_script_bash_syntax": "passed",
+  "business_data_tests": "isolated synthetic PostgreSQL and SQLite only",
+  "real_screenshot_exam_audit": "read-only, no business writes",
+  "known_nonblocking_warnings": ["Existing Vite CJS deprecation and bundle size warning", "Existing Python JWT/passlib datetime and hashing deprecations"],
+  "covered_cases": [
+    "Teacher filter options include grades, classes and subjects outside the exam",
+    "Grade, class, subject and duty must match the same responsibility",
+    "Unmatched roles cannot contribute other subjects, classes or default query types",
+    "Full-width roster punctuation and numeric class normalization",
+    "Teacher UUID, platform ID and account stay bound to each independent draft",
+    "Filtering preserves selections, warns about hidden recipients and supports clearing",
+    "Unavailable scores and essay languages are disabled",
+    "Per-teacher preview shows student identities and subject counts",
+    "Invalid subject/student intersections cannot be saved",
+    "Teacher and student upload names must match their immutable person IDs",
+    "Save, reload, batch operations, retries, duplicate-submit prevention and revision conflicts",
+    "Teacher/student query isolation and authorization revocation"
+  ]
+}

@@ -26,7 +26,7 @@ async def main():
             roles[code] = role.id
         users, students = {}, []
         for key, role in [("admin","SCHOOL_ADMIN"), ("teacher","TEACHER"), ("teacher2","TEACHER"), ("teacherexam","TEACHER"),
-                          ("teacherleader","TEACHER"), ("teachermixed","TEACHER"), ("teacherschool","TEACHER"),
+                          ("teacherleader","TEACHER"), ("teachermixed","TEACHER"), ("teacherschool","TEACHER"), ("teacheroutside","TEACHER"),
                           ("viewer","SCHOOL_VIEWER"), ("examadmin","EXAM_ADMIN"),
                           ("student","STUDENT"), ("student2","STUDENT"), ("student3","STUDENT"), ("inactive","STUDENT")]:
             user = User(id=uuid4(), school_id=school.id, username="exam-"+key+"-"+uuid4().hex[:8],
@@ -69,6 +69,7 @@ async def main():
         for key, fields, duties in [
             ("teacherleader", {"任课年级班级":"英语:10.22", "教研组长负责年级科目":"10.英语"}, ["TEACHER","SUBJECT_LEADER"]),
             ("teachermixed", {"任课年级班级":"数学:10.1;语文:10.2"}, ["TEACHER"]),
+            ("teacheroutside", {"任课年级班级":"物理：１１.０１；化学：１２.２"}, ["TEACHER"]),
             ("teacherschool", {"任课年级班级":"英语:10.22", "是否教务主任":"是"}, ["TEACHER","ACADEMIC_DIRECTOR"]),
         ]:
             db.add(TeacherProfile(id=users[key].id, school_id=school.id, fields=fields, duties=duties))

@@ -21,7 +21,7 @@ from app.db.models.exam_management import (ExamAdministration, ExamParticipant, 
 from app.services.education_common import data, digest, owned, claim, audit, now
 from app.services import student_roster
 from app.services.roster_excel import workbook_bytes
-from app.services.exam_permission_defaults import DEFAULT_RULES, teacher_defaults
+from app.services.exam_permission_defaults import DEFAULT_RULES, class_reference, teacher_defaults
 
 SCORE_TYPES = {"student": "个人单科成绩", "classSubject": "班级单科成绩", "gradeSubject": "年级单科成绩",
                "classAll": "班级综合成绩", "gradeAll": "年级综合成绩", "school": "全校综合成绩"}
@@ -89,12 +89,20 @@ async def teacher_options(db, actor):
     assignments = (await db.scalars(select(TeachingAssignment).where(TeachingAssignment.school_id == actor.school_id,
         TeachingAssignment.status == "active", TeachingAssignment.starts_at <= current_time,
         (TeachingAssignment.expires_at.is_(None) | (TeachingAssignment.expires_at > current_time))))).all()
+    classes = await student_roster.class_map(db, actor.school_id)
+    subjects = {subject.id: subject.name for subject in (await db.scalars(select(Subject).where(Subject.school_id == actor.school_id))).all()}
+    def assignment_view(assignment):
+        classroom = classes.get(assignment.class_id)
+        grade, number = class_reference(classroom.external_class_id) if classroom else ("", "")
+        if classroom and not grade:
+            grade, number = class_reference(classroom.name)
+        return {"class_id": str(assignment.class_id), "subject_id": str(assignment.subject_id),
+                "grade": grade, "class_number": number, "subject": subjects.get(assignment.subject_id, "")}
     return [{"id": str(user.id), "platform_id": str(user.platform_id), "name": user.display_name or user.username,
              "account": user.username, "fields": profile.fields if profile else {}, "duties": profile.duties if profile else ["TEACHER"],
              "class_ids": unique(a.class_id for a in assignments if a.teacher_user_id == user.id),
              "subject_ids": unique(a.subject_id for a in assignments if a.teacher_user_id == user.id),
-             "assignments": [{"class_id": str(assignment.class_id), "subject_id": str(assignment.subject_id)}
-                             for assignment in assignments if assignment.teacher_user_id == user.id]} for user, profile in rows]
+             "assignments": [assignment_view(assignment) for assignment in assignments if assignment.teacher_user_id == user.id]} for user, profile in rows]
 
 
 async def teacher_permission_options(db, actor, identifier):
@@ -119,11 +127,11 @@ def teacher_default_rules_file():
     for values in [
         ["事项", "说明"],
         ["使用时机", "首次勾选未授权教师时生成默认选项；已保存、上传或手动编辑的配置优先保留。"],
-        ["兼任角色", "多个角色的类型、科目和学生范围取并集。"],
+        ["兼任角色", "仅对与本次考试科目及参试学生同时匹配的职责生成建议；这些职责的类型、科目和学生范围取并集。未匹配职责不会扩大默认范围。"],
         ["成绩与诊断", "成绩科目只默认勾选已导入科目；诊断科目限本次已配置科目，是否能查看具体报告取决于实际报告文件。"],
         ["作文报告", "作文批改报告默认不勾选，可按需手动选择。"],
         ["学生范围", "仅匹配本次考试的参试名单；无法匹配时请核对教师档案并手动补选。"],
-        ["教师筛选", "班级筛选只匹配实际任课或班主任班级，默认授权范围不用于扩大筛选结果。年级、班级、学科同时筛选时须匹配同一档案职责。"],
+        ["教师筛选", "筛选选项来自本校有效教师的档案职责及有效任教记录，包含本次考试以外的年级、班级和学科。年级、班级、学科与职务须匹配同一条职责。筛选保留已选教师与各人草稿，保存前请核对已选人数。"],
         ["保存生效", "默认选项可手动调整，确认保存后才生效。下载本规则文件或授权预览均不会修改查询权限。"],
     ]:
         notes.append(values)
@@ -647,6 +655,11 @@ async def permission_preview(db, actor, identifier, body, kind):
                               if name in {"语文", "英语"} and ("chinese" if name == "语文" else "english") in permission.essay_types}
             if set(permission.essay_types) - set(essay_subjects.values()):
                 fail("本次考试未配置所选语种的作文科目。")
+            requested_subjects = set(unique(permission.score_subjects)) | set(unique(permission.diagnosis_subjects)) | set(essay_subjects)
+            empty_subjects = [subject["name"] for subject in config["subjects"]
+                              if subject["subject_id"] in requested_subjects and not set(subject["student_ids"]).intersection(selected)]
+            if empty_subjects:
+                fail("、".join(empty_subjects) + "在当前学生范围内没有参试学生，请核对科目和学生范围。")
             for subject in config["subjects"]:
                 sid = subject["subject_id"]
                 content = (["score:"+t for t in set(permission.score_types)] if sid in unique(permission.score_subjects) else [])
@@ -742,8 +755,11 @@ async def permission_upload(db, actor, identifier, body, kind):
     header_index = next((i for i, (_, row) in enumerate(rows[:6]) if row == expected), -1)
     if header_index < 0:
         fail("请使用本页下载的新版授权预览表，列名与顺序须一致。")
-    people = {t["platform_id"]: t["id"] for t in await teacher_options(db, actor)} if kind == "teacher" else {
+    teacher_rows = await teacher_options(db, actor) if kind == "teacher" else []
+    people = {t["platform_id"]: t["id"] for t in teacher_rows} if kind == "teacher" else {
         s["platform_id"]: sid for sid, s in item.configuration["snapshots"].items()}
+    person_names = {t["id"]: t["name"] for t in teacher_rows} if kind == "teacher" else {
+        sid: s["name"] for sid, s in item.configuration["snapshots"].items()}
     names = {s["name"]: s["subject_id"] for s in item.configuration["subjects"]}
     exam = await owned(db, Exam, identifier, actor)
     result, seen = [], set()
@@ -762,6 +778,8 @@ async def permission_upload(db, actor, identifier, body, kind):
         person = people.get(row["教师ID" if kind == "teacher" else "学生ID"])
         if not person or person in seen:
             fail(f"第 {line} 行人员ID无效或重复。")
+        if row["姓名"].strip() != person_names[person]:
+            fail(f"第 {line} 行姓名与人员ID不匹配，请核对后重新上传。")
         seen.add(person)
         if kind == "teacher":
             try:

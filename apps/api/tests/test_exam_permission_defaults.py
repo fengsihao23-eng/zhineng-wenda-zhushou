@@ -68,11 +68,14 @@ def test_school_roles_have_complete_defaults(configuration, role):
     assert form["diagnosis_subjects"] == ["chinese", "math", "history"]
 
 
-def test_combined_roles_include_homeroom_types_when_homeroom_not_in_exam(configuration):
-    form = recommend(configuration, {"任课年级班级": "历史:10.5", "班主任年级班级": "10.99"})["recommendation"]
-    assert "classAll" in form["score_types"] and "classAll" in form["diagnosis_types"]
+def test_unmatched_homeroom_duty_does_not_expand_types_or_subjects(configuration):
+    result = recommend(configuration, {"任课年级班级": "历史:10.5", "班主任年级班级": "10.99"})
+    form = result["recommendation"]
+    assert form["score_types"] == []
+    assert form["diagnosis_types"] == ["student", "classSubject"]
     assert form["classes"] == ["高中一年级 / 5"]
-    assert form["score_subjects"] == ["chinese", "math"]
+    assert form["diagnosis_subjects"] == ["history"]
+    assert result["matched_roles"] == ["任课教师"]
 
 
 def test_combined_class_and_grade_roles_keep_the_exact_union_of_student_ranges(configuration):
@@ -101,7 +104,8 @@ def test_no_imported_scores_does_not_generate_invalid_score_defaults(configurati
 
 def test_filter_classes_do_not_inherit_subject_leader_authorization(configuration):
     result = recommend(configuration, {"任课年级班级": "英语:10.22", "教研组长负责年级科目": "10.英语"})
-    assert set(result["scope_classes"]) == {"高中一年级 / 5", "高中一年级 / 26班"}
+    assert not result["scope_classes"]
+    assert not result["recommendation"]["diagnosis_subjects"]
     direct = [scope for scope in result["filter_scopes"] if scope["class_number"]]
     assert direct == [{"role": "TEACHER", "grade": "高中一年级", "class_number": "22", "subject": "英语"}]
 
@@ -127,3 +131,42 @@ def test_filter_scope_fallback_uses_only_explicit_legacy_assignments(configurati
     assert result["filter_scopes"] == [{"role": "TEACHER", "grade": "高中一年级", "class_number": "5", "subject": "数学"}]
     leader = recommend(configuration, duties=["TEACHER", "PRINCIPAL"], assignments=assignments)
     assert not leader["filter_scopes"]
+
+
+def test_outside_exam_references_remain_available_to_teacher_filters(configuration):
+    result = recommend(configuration, {"任课年级班级": "物理：１１.０１；数学：１２.２", "班主任年级班级": "10.09"})
+    assert result["filter_scopes"] == [
+        {"role": "TEACHER", "grade": "高中二年级", "class_number": "1", "subject": "物理"},
+        {"role": "TEACHER", "grade": "高中三年级", "class_number": "2", "subject": "数学"},
+        {"role": "HOMEROOM_TEACHER", "grade": "高中一年级", "class_number": "9", "subject": ""},
+    ]
+    assert result["recommendation"]["classes"] == []
+    assert result["recommendation"]["diagnosis_subjects"] == []
+
+
+def test_subject_and_class_must_belong_to_the_same_teaching_responsibility(configuration):
+    result = recommend(configuration, {"任课年级班级": "数学:12.9;物理:10.5"})
+    assert not result["scope_classes"]
+    assert not result["recommendation"]["score_subjects"]
+    assert not result["recommendation"]["diagnosis_types"]
+
+
+def test_subject_teacher_only_uses_classes_participating_in_the_taught_subject(configuration):
+    configuration["subjects"][0]["student_ids"] = ["student-11"]
+    result = recommend(configuration, {"任课年级班级": "语文:10.5;数学:11.1"})
+    assert result["scope_classes"] == ["高中二年级 / 1"]
+    assert result["recommendation"]["score_subjects"] == ["math"]
+
+
+def test_legacy_filters_include_assignments_outside_exam_without_guessing_subject(configuration):
+    result = recommend(configuration, assignments=[{"class_id": "outside-class", "subject_id": "physics",
+        "grade": "12", "class_number": "03", "subject": "物理"}])
+    assert result["filter_scopes"] == [{"role": "TEACHER", "grade": "高中三年级", "class_number": "3", "subject": "物理"}]
+    assert not result["recommendation"]["classes"]
+
+
+def test_unmatched_grade_leader_does_not_promote_a_class_teacher_to_grade_scope(configuration):
+    result = recommend(configuration, {"任课年级班级": "数学:10.5", "年级长负责年级": "12"})
+    assert result["recommendation"]["range_type"] == "class"
+    assert result["recommendation"]["score_types"] == ["student", "classSubject"]
+    assert result["recommendation"]["score_subjects"] == ["math"]

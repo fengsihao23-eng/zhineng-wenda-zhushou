@@ -1,0 +1,56 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/hao/智能问答助手-exam-permissions/apps/api
+configfile: pytest.ini
+plugins: mock-3.15.1, cov-7.1.0, asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 327 items
+
+apps/api/tests/integration/test_permissions.py ......................    [  6%]
+apps/api/tests/test_alignment_access.py .................                [ 11%]
+apps/api/tests/test_alignment_workflows.py .......                       [ 14%]
+apps/api/tests/test_answer_workbench.py ..........                       [ 17%]
+apps/api/tests/test_auth_security.py ...........                         [ 20%]
+apps/api/tests/test_chat_api.py ......                                   [ 22%]
+apps/api/tests/test_create_school_account.py ......                      [ 24%]
+apps/api/tests/test_csv_importer.py ..                                   [ 24%]
+apps/api/tests/test_education_boundaries.py ............................ [ 33%]
+.....                                                                    [ 34%]
+apps/api/tests/test_education_workbench.py ............                  [ 38%]
+apps/api/tests/test_exam_management.py .........................         [ 46%]
+apps/api/tests/test_exam_permission_defaults.py ......................   [ 52%]
+apps/api/tests/test_flash_and_roster_roles.py .....                      [ 54%]
+apps/api/tests/test_gateway.py ..                                        [ 55%]
+apps/api/tests/test_import_service.py ..                                 [ 55%]
+apps/api/tests/test_logging.py ..                                        [ 56%]
+apps/api/tests/test_message_evidence_feedback.py .                       [ 56%]
+apps/api/tests/test_platform_api.py ...                                  [ 57%]
+apps/api/tests/test_prompt_registry.py .......                           [ 59%]
+apps/api/tests/test_qa_recheck.py .......                                [ 61%]
+apps/api/tests/test_report_management.py .........                       [ 64%]
+apps/api/tests/test_response_guard.py .........                          [ 67%]
+apps/api/tests/test_roster_changes.py .....                              [ 68%]
+apps/api/tests/test_roster_student_requirements.py ..................... [ 75%]
+....                                                                     [ 76%]
+apps/api/tests/test_roster_workflows.py .................                [ 81%]
+apps/api/tests/test_short_person_ids.py ......                           [ 83%]
+apps/api/tests/test_student_r79.py .....................                 [ 89%]
+apps/api/tests/test_teacher_r79.py ...........................           [ 98%]
+apps/api/tests/test_trace.py ......                                      [100%]
+
+=============================== warnings summary ===============================
+tests/integration/test_permissions.py: 1 warning
+tests/test_auth_security.py: 21 warnings
+tests/test_roster_student_requirements.py: 2 warnings
+tests/test_roster_workflows.py: 11 warnings
+tests/test_student_r79.py: 2 warnings
+tests/test_teacher_r79.py: 8 warnings
+  /Users/hao/智能问答助手/.venv/lib/python3.13/site-packages/jose/jwt.py:311: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = timegm(datetime.utcnow().utctimetuple())
+
+tests/test_student_r79.py::test_unrestricted_student_optional_fields_and_long_utf8_initial_account_remain_usable
+  /Users/hao/智能问答助手/.venv/lib/python3.13/site-packages/passlib/context.py:2251: DeprecationWarning: CryptContext.hash(): 'scheme' keyword is deprecated as of Passlib 1.7, and will be removed in Passlib 2.0
+    warn("CryptContext.hash(): 'scheme' keyword is deprecated as of "
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 327 passed, 46 warnings in 132.06s (0:02:12) =================

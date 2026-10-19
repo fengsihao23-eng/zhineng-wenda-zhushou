@@ -1,0 +1,30 @@
+{
+  "real_screenshot_exam_found": true,
+  "teachers": 73,
+  "participant_classes": 6,
+  "teacher_filter_grades": [
+    "高中一年级",
+    "高中三年级",
+    "高中二年级"
+  ],
+  "teacher_filter_class_count": 48,
+  "teacher_filter_subjects": [
+    "体育",
+    "信息",
+    "化学",
+    "历史",
+    "地理",
+    "心理",
+    "政治",
+    "数学",
+    "物理",
+    "生物",
+    "美术",
+    "英语",
+    "语文",
+    "音乐"
+  ],
+  "teachers_with_matched_exam_defaults": 7,
+  "outside_exam_teachers_require_manual_configuration": 66,
+  "no_business_writes": true
+}

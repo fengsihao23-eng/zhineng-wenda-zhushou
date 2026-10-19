@@ -6,6 +6,7 @@ import { jsonQueryKey, scopedQueryKey, useJsonQuery } from '../../hooks/useApi'
 import { apiFetch, apiError } from '../../services/api'
 import { randomKey } from '../../utils/id'
 import { QueryState, Table, Pager, usePagination, type Row } from './shared'
+import { EMPTY_TEACHER_FILTERS, matchesTeacher, permissionDraft, permissionIssues, permissionPeople, sortTeacherOptions, teacherFilterOptions, type PermissionTeacher, type TeacherPermission, type TeacherFilters } from './teacher-permissions'
 import './exam-workbench.css'
 
 export const EXAM_ROOT = '/platform/education/exam-management'
@@ -193,41 +194,29 @@ function Checks({ title, catalog, selected, onChange, disabled }: { title: strin
 }
 
 function TeacherPermissions({ exam, onChanged }: { exam: ExamData; onChanged: ExamChanged }) {
-  const teachers = useJsonQuery<{ items: Row[]; default_rules: Array<{ role: string; label: string; types: string[]; subjects: string; scope: string }> }>(`${EXAM_ROOT}/teachers?exam_id=${exam.id}`)
-  const [selected, setSelected] = useState<string[]>([]), [active, setActive] = useState(''), [drafts, setDrafts] = useState<Record<string, any>>({})
-  const [filters, setFilters] = useState({ search: '', grade: '', classroom: '', subject: '', duty: '' }), [notice, setNotice] = useState(''), [revoking, setRevoking] = useState(''), job = useJob()
+  const teachers = useJsonQuery<{ items: PermissionTeacher[]; default_rules: Array<{ role: string; label: string }> }>(`${EXAM_ROOT}/teachers?exam_id=${exam.id}`)
+  const [selected, setSelected] = useState<string[]>([]), [active, setActive] = useState(''), [drafts, setDrafts] = useState<Record<string, TeacherPermission>>({})
+  const [sources, setSources] = useState<Record<string, string>>({})
+  const [filters, setFilters] = useState<TeacherFilters>(EMPTY_TEACHER_FILTERS), [notice, setNotice] = useState(''), [revoking, setRevoking] = useState(''), job = useJob()
   const feedbackRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (job.error || notice || revoking) feedbackRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [job.error, notice, revoking])
   const teacherRows = teachers.data?.items || []
   const snapshots = Object.values(exam.snapshots).filter(p => exam.subjects.some(s => s.student_ids.includes(p.id)))
-  const grades = unique(snapshots.map(p => p.grade)), classes = unique(snapshots.map(groupKey)), filterClasses = classes.filter(value => !filters.grade || value.startsWith(filters.grade + ' / '))
+  const grades = sortTeacherOptions(snapshots.map(p => p.grade)), classes = sortTeacherOptions(snapshots.map(groupKey))
+  const filterOptions = teacherFilterOptions(teacherRows, filters)
   const subjectCatalog = Object.fromEntries(exam.subjects.map(s => [s.subject_id!, s.name]))
   const ready = Object.keys(exam.score_files)
-  const matchesFilters = (teacher: Row, values: typeof filters) => {
-    if (!`${teacher.name} ${teacher.platform_id} ${teacher.account}`.toLowerCase().includes(values.search.trim().toLowerCase()) || (values.duty && !teacher.duties.includes(values.duty))) return false
-    const [classGrade = '', classNumber = ''] = values.classroom.split(' / ')
-    const number = classNumber.replace(/班$/, '').trim()
-    return !(values.grade || values.classroom || values.subject) || teacher.filter_scopes.some((scope: Row) =>
-      (!values.grade || scope.grade === gradeLabel(values.grade))
-      && (!values.classroom || (scope.grade === gradeLabel(classGrade) && scope.class_number === (/^\d+$/.test(number) ? String(Number(number)) : number)))
-      && (!values.subject || scope.subject === subjectCatalog[values.subject]))
-  }
-  const visible = teacherRows.filter(teacher => matchesFilters(teacher, filters))
-  const teacher = visible.find(teacher => teacher.id === active), form = drafts[active]
-  const changeFilters = (values: typeof filters) => {
-    const visibleIds = new Set(teacherRows.filter(teacher => matchesFilters(teacher, values)).map(teacher => teacher.id))
-    const remaining = selected.filter(id => visibleIds.has(id))
-    setFilters(values); setSelected(remaining); setActive(remaining.includes(active) ? active : remaining[0] || ''); setNotice(''); job.setError(null)
-  }
-  const defaultForm = (teacher: Row) => teacher.recommendation
+  const availableEssay = Object.keys(ESSAY_TYPES).filter(key => exam.subjects.some(subject => subject.name === ESSAY_TYPES[key]))
+  const visible = teacherRows.filter(teacher => matchesTeacher(teacher, filters))
+  const hiddenSelected = selected.filter(id => !visible.some(teacher => teacher.id === id)).length
+  const teacher = teacherRows.find(teacher => teacher.id === active), form = drafts[active]
+  const scopedPeople = form ? permissionPeople(snapshots, form) : []
+  const changeFilters = (values: TeacherFilters) => { setFilters(values); setNotice(''); job.setError(null) }
+  const defaultForm = (teacher: PermissionTeacher) => permissionDraft(teacher)
   const incomplete = selected.flatMap(id => {
-    const draft = drafts[id]
-    const missing = []
-    if (!draft || !(draft.score_types.length || draft.diagnosis_types.length || draft.essay_types.length)) missing.push('未选择查询内容')
-    if (draft && !!draft.score_types.length !== !!draft.score_subjects.length) missing.push('成绩类型与成绩科目需要同时选择')
-    if (draft && !!draft.diagnosis_types.length !== !!draft.diagnosis_subjects.length) missing.push('诊断类型与诊断科目需要同时选择')
-    if (!draft || (draft.range_type === 'grade' && !draft.grades.length) || (draft.range_type === 'class' && !draft.classes.length)) missing.push('未选择授权年级或班级')
-    return missing.length ? [{ id, missing, teacher: teacherRows.find(teacher => teacher.id === id) }] : []
+    const draft = drafts[id], teacher = teacherRows.find(teacher => teacher.id === id)
+    const missing = !teacher ? ['教师账号已不可用，请取消勾选'] : draft ? permissionIssues(draft, snapshots, exam.subjects, ready) : ['未选择查询内容', '未选择授权年级或班级']
+    return missing.length ? [{ id, missing, teacher }] : []
   })
   const validate = () => {
     if (!incomplete.length) return
@@ -235,32 +224,56 @@ function TeacherPermissions({ exam, onChanged }: { exam: ExamData; onChanged: Ex
     const details = incomplete.slice(0, 5).map(item => `${item.teacher?.name || item.id}（${item.teacher?.platform_id || item.id}）：${item.missing.join('、')}`).join('；')
     throw new Error(`有 ${incomplete.length} 位教师的配置尚未完整：${details}${incomplete.length > 5 ? `；另有 ${incomplete.length - 5} 位待补全` : ''}。已定位首位教师，请补全后重试。`)
   }
-  const pick = (t: Row, checked: boolean) => {
-    setSelected(toggle(selected, t.id, checked)); setNotice(''); job.setError(null)
-    if (checked) { setDrafts({ ...drafts, [t.id]: drafts[t.id] || exam.teacher_permissions[t.id] || defaultForm(t) }); setActive(t.id) }
-    else if (active === t.id) setActive(selected.find(id => id !== t.id) || '')
+  const addTeachers = (rows: PermissionTeacher[]) => {
+    const next = { ...drafts }, origins = { ...sources }
+    rows.forEach(t => {
+      if (!next[t.id]) { next[t.id] = permissionDraft(t, exam.teacher_permissions[t.id]); origins[t.id] = exam.teacher_permissions[t.id] ? '已保存的授权' : '教师档案默认建议' }
+    })
+    setDrafts(next); setSources(origins); setSelected(unique([...selected, ...rows.map(t => t.id)])); setActive(rows[0]?.id || active); setNotice(''); job.setError(null)
   }
-  const change = (values: Record<string, unknown>) => { setDrafts({ ...drafts, [active]: { ...form, ...values } }); setNotice(''); job.setError(null) }
-  const body = () => ({ expected_revision: exam.revision, teachers: selected.map(id => Object.fromEntries(Object.entries(drafts[id]).filter(([key]) => key !== 'frozen_student_ids'))) })
+  const pick = (t: PermissionTeacher, checked: boolean) => {
+    if (checked) { addTeachers([t]); return }
+    setSelected(toggle(selected, t.id, false)); setNotice(''); job.setError(null)
+    if (active === t.id) setActive(selected.find(id => id !== t.id) || '')
+  }
+  const clearSelected = (ids: string[]) => {
+    const remaining = selected.filter(id => !ids.includes(id))
+    setSelected(remaining); if (!remaining.includes(active)) setActive(remaining[0] || ''); setNotice(''); job.setError(null)
+  }
+  const change = (values: Partial<TeacherPermission>) => { setDrafts({ ...drafts, [active]: { ...form, ...values, teacher_id: active } }); setSources({ ...sources, [active]: '手动调整的草稿' }); setNotice(''); job.setError(null) }
+  const body = () => ({ expected_revision: exam.revision, teachers: selected.map(id => permissionDraft(teacherRows.find(t => t.id === id)!, drafts[id])) })
   const batch = (mode: string) => {
-    const next = { ...drafts }
+    const next = { ...drafts }, origins = { ...sources }
     for (const id of selected) {
-      const teacher = teacherRows.find(teacher => teacher.id === id)!, f = { ...next[id] }
-      if (mode === 'content') for (const field of ['score_types', 'score_subjects', 'diagnosis_types', 'diagnosis_subjects', 'essay_types']) f[field] = [...form[field]]
-      if (mode === 'current') for (const field of ['range_type', 'grades', 'classes']) f[field] = form[field]
+      const teacher = teacherRows.find(teacher => teacher.id === id)
+      if (!teacher) continue
+      const f = permissionDraft(teacher, next[id])
+      if (mode === 'content') for (const field of ['score_types', 'score_subjects', 'diagnosis_types', 'diagnosis_subjects', 'essay_types'] as const) f[field] = [...form[field]]
+      if (mode === 'current') Object.assign(f, { range_type: form.range_type, grades: [...form.grades], classes: [...form.classes] })
       if (mode === 'all') Object.assign(f, { range_type: 'all', grades: [], classes: [] })
-      if (mode === 'class') Object.assign(f, { range_type: 'class', grades: [], classes: teacher.scope_classes })
-      if (mode === 'grade') Object.assign(f, { range_type: 'grade', classes: [], grades: teacher.scope_grades })
-      next[id] = f
+      if (mode === 'class') Object.assign(f, { range_type: 'class', grades: [], classes: [...teacher.scope_classes] })
+      if (mode === 'grade') Object.assign(f, { range_type: 'grade', classes: [], grades: [...teacher.scope_grades] })
+      next[id] = mode === 'defaults' ? defaultForm(teacher) : f
+      origins[id] = mode === 'defaults' ? '教师档案默认建议' : '批量调整的草稿'
     }
-    setDrafts(next); setNotice('已更新所选教师的待保存配置。'); job.setError(null)
+    setDrafts(next); setSources(origins); setNotice('已更新所选教师的待保存配置。'); job.setError(null)
   }
-  const upload = (file: File) => job.run(async () => { const data = await examRequest<{ items: any[] }>(`/${exam.id}/permissions/teacher/upload`, await uploadBody(file)); const next = { ...drafts }; data.items.forEach(p => { next[p.teacher_id] = p }); setDrafts(next); setSelected(unique([...selected, ...data.items.map(p => p.teacher_id)])); setFilters({ search: '', grade: '', classroom: '', subject: '', duty: '' }); setActive(data.items[0].teacher_id); setNotice('授权信息已载入，教师筛选已重置，核对后可直接确认保存。') })
+  const resetDefaults = () => {
+    if (!teacher) return
+    setDrafts({ ...drafts, [active]: defaultForm(teacher) }); setSources({ ...sources, [active]: '教师档案默认建议' }); setNotice('已重新按当前教师档案预选，请核对后保存。'); job.setError(null)
+  }
+  const upload = (file: File) => job.run(async () => {
+    const data = await examRequest<{ items: TeacherPermission[] }>(`/${exam.id}/permissions/teacher/upload`, await uploadBody(file))
+    const next = { ...drafts }, origins = { ...sources }
+    data.items.forEach(p => { const t = teacherRows.find(t => t.id === p.teacher_id); if (!t) throw new Error('上传教师已不可用，请核对教师ID。'); next[t.id] = permissionDraft(t, p); origins[t.id] = '上传的授权草稿' })
+    setDrafts(next); setSources(origins); setSelected(unique([...selected, ...data.items.map(p => p.teacher_id)])); setFilters(EMPTY_TEACHER_FILTERS); setActive(data.items[0].teacher_id); setNotice('授权信息已载入，教师筛选已重置，核对后可直接确认保存。')
+  })
   const save = () => job.run(async () => {
     setNotice('')
     validate()
     const saved = await examRequest<ExamData>(`/${exam.id}/permissions/teacher`, body())
-    setDrafts(previous => ({ ...previous, ...Object.fromEntries(selected.map(id => [id, saved.teacher_permissions[id]])) }))
+    setDrafts(previous => ({ ...previous, ...Object.fromEntries(selected.map(id => [id, permissionDraft(teacherRows.find(t => t.id === id)!, saved.teacher_permissions[id])])) }))
+    setSources(previous => ({ ...previous, ...Object.fromEntries(selected.map(id => [id, '已保存的授权'])) }))
     setNotice(`保存成功，已更新 ${selected.length} 位教师的查询权限。`)
     await onChanged(saved)
   })
@@ -274,14 +287,49 @@ function TeacherPermissions({ exam, onChanged }: { exam: ExamData; onChanged: Ex
     setNotice(`已取消${name}对本次考试的查询授权。`)
     await onChanged(saved)
   })
-  return <QueryState query={teachers}><fieldset className="exam-permission-controls" disabled={job.busy}><div ref={feedbackRef}><JobError job={job} />{notice && <p className="exam-success" role="status">{notice}</p>}{revoking && <section className="exam-warning" aria-label="取消授权确认"><p>确认取消{teacherRows.find(t => t.id === revoking)?.name}对本次考试的查询授权？取消后，该教师将无法查询本次考试已授权的成绩和报告。</p><div className="exam-actions"><button onClick={() => setRevoking('')}>保留授权</button><button onClick={revoke}>{job.busy ? '正在取消…' : '确认取消授权'}</button></div></section>}</div><div className="exam-filters exam-teacher-filters"><input aria-label="搜索授权教师" placeholder="搜索姓名 / 教师ID / 账号" value={filters.search} onChange={e => changeFilters({ ...filters, search: e.target.value })} /><select aria-label="授权教师年级筛选" value={filters.grade} onChange={e => changeFilters({ ...filters, grade: e.target.value, classroom: '' })}><option value="">全部年级</option>{grades.map(g => <option key={g} value={g}>{gradeLabel(g)}</option>)}</select><select aria-label="授权教师班级筛选" value={filters.classroom} onChange={e => changeFilters({ ...filters, classroom: e.target.value })}><option value="">全部班级</option>{filterClasses.map(c => <option key={c} value={c}>{classLabel(c)}</option>)}</select><select aria-label="授权教师学科筛选" value={filters.subject} onChange={e => changeFilters({ ...filters, subject: e.target.value })}><option value="">全部学科</option>{Object.entries(subjectCatalog).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select><select aria-label="授权教师职务筛选" value={filters.duty} onChange={e => changeFilters({ ...filters, duty: e.target.value })}><option value="">全部职务</option>{teachers.data?.default_rules.map(rule => <option key={rule.role} value={rule.role}>{rule.label}</option>)}</select><button onClick={() => { const next = { ...drafts }; visible.forEach(t => { next[t.id] ||= exam.teacher_permissions[t.id] || defaultForm(t) }); setDrafts(next); setSelected(unique([...selected, ...visible.map(t => t.id)])); setActive(active || visible[0]?.id || ''); setNotice('') }}>勾选筛选结果</button></div><div className="exam-permission-layout"><aside className="exam-teachers"><h3>教师列表</h3>
-      {!visible.length && <p className="inline-empty">暂无匹配的有效教师。</p>}{visible.map(t => <div key={t.id} className={`exam-teacher-row ${active === t.id ? 'active' : ''}`}><input type="checkbox" aria-label={`选择教师 ${t.name} ${t.platform_id}`} checked={selected.includes(t.id)} onChange={e => pick(t, e.target.checked)} /><button className="exam-teacher-name" onClick={() => selected.includes(t.id) ? setActive(t.id) : pick(t, true)}><strong>{t.name}</strong><span>{t.platform_id} · {t.account}</span><span>{t.role_labels.join('、')}</span>{['任课年级班级', '班主任年级班级', '教研组长负责年级科目', '年级长负责年级'].filter(key => t.fields?.[key]).map(key => <span key={key}>{key}：{t.fields[key]}</span>)}<span>{exam.teacher_permissions[t.id] ? '已授权' : '未授权'}</span></button>{exam.teacher_permissions[t.id] && <button className="exam-revoke-button" title={`取消${t.name}对本次考试的查询授权`} onClick={() => { setRevoking(t.id); setNotice(''); job.setError(null) }}>取消授权</button>}</div>)}</aside>
-      <div className="exam-permission-editor"><div className="exam-permission-heading"><div className="exam-tabs">{selected.map(id => <button key={id} className={active === id ? 'active' : ''} onClick={() => setActive(id)}>{teacherRows.find(teacher => teacher.id === id)?.name}</button>)}</div><button disabled={job.busy} onClick={() => job.run(() => examDownload('/teacher-default-rules', '教师默认选项规则.xlsx'))}>下载默认选项规则（Excel）</button></div>{!teacher || !form ? <p className="inline-empty">请选择需配置权限的教师。</p> : <><h3>当前编辑：{teacher.name}（{teacher.platform_id}）</h3>{teacher.default_warnings.map((warning: string) => <p key={warning} className="exam-warning">{warning}</p>)}<section className="exam-permission-section"><MixedCheck checked={!!form.score_types.length} onChange={checked => change({ score_types: checked ? (defaultForm(teacher).score_types.length ? defaultForm(teacher).score_types : ['student','classSubject']) : [], score_subjects: checked ? defaultForm(teacher).score_subjects : [] })}><strong>成绩数据</strong></MixedCheck>{!!form.score_types.length && <><Checks title="成绩类型" catalog={SCORE_TYPES} selected={form.score_types} onChange={score_types => change({ score_types, ...(!score_types.length ? { score_subjects: [] } : {}) })} /><Checks title="成绩科目" catalog={Object.fromEntries(Object.entries(subjectCatalog).map(([key, value]) => [key, value+(ready.includes(key) ? '' : '（未导入）')]))} selected={form.score_subjects} disabled={key => !ready.includes(key)} onChange={score_subjects => change({ score_subjects })} /></>}</section>
-      <section className="exam-permission-section"><MixedCheck checked={!!form.diagnosis_types.length} onChange={checked => change({ diagnosis_types: checked ? (defaultForm(teacher).diagnosis_types.length ? defaultForm(teacher).diagnosis_types : ['student']) : [], diagnosis_subjects: checked ? defaultForm(teacher).diagnosis_subjects : [] })}><strong>诊断报告</strong></MixedCheck>{!!form.diagnosis_types.length && <><Checks title="报告类型" catalog={DIAG_TYPES} selected={form.diagnosis_types} onChange={diagnosis_types => change({ diagnosis_types, ...(!diagnosis_types.length ? { diagnosis_subjects: [] } : {}) })} /><Checks title="报告科目" catalog={subjectCatalog} selected={form.diagnosis_subjects} onChange={diagnosis_subjects => change({ diagnosis_subjects })} /></>}</section>
-      <section className="exam-permission-section"><MixedCheck label="全选作文报告语种" checked={form.essay_types.length === 2} mixed={form.essay_types.length === 1} onChange={checked => change({ essay_types: checked ? Object.keys(ESSAY_TYPES) : [] })}><strong>作文批改报告</strong></MixedCheck><Checks title="语种 · 个人报告" catalog={ESSAY_TYPES} selected={form.essay_types} onChange={essay_types => change({ essay_types })} /></section><h3>学生范围（仅当前教师）</h3><div className="exam-option-grid">{[['all','全部参试学生'],['grade','按年级'],['class','按班级']].map(([value,label]) => <label key={value} className="exam-check"><input type="radio" name="teacher-range" checked={form.range_type === value} onChange={() => change({ range_type: value })} />{label}</label>)}</div>{form.range_type === 'grade' && <Checks title="授权年级" catalog={Object.fromEntries(grades.map(g => [g,gradeLabel(g)]))} selected={form.grades} onChange={grades => change({ grades })} />}{form.range_type === 'class' && <Checks title="授权班级" catalog={Object.fromEntries(classes.map(c => [c,classLabel(c)]))} selected={form.classes} onChange={classes => change({ classes })} />}
-      {selected.length > 1 && <div className="exam-card"><h4>批量设置已选 {selected.length} 位教师</h4><div className="exam-actions">{[['class','各人任教班级'],['grade','各人负责年级'],['all','全部参试学生'],['current','应用当前学生范围'],['content','应用当前类型和科目']].map(([mode,label]) => <button key={mode} onClick={() => batch(mode)}>{label}</button>)}</div></div>}
-      <div className="exam-footer">{!!incomplete.length && <span className="exam-validation-summary" role="status">已选 {selected.length} 位教师，{incomplete.length} 位待补全</span>}<button disabled={job.busy || !selected.length} onClick={() => job.run(async () => { validate(); await examDownload(`/${exam.id}/permissions/teacher/preview`, `教师授权预览_${exam.exam_id}.xlsx`, body()); setNotice('授权预览已下载，核对后可确认保存。') })}>下载授权预览（Excel）</button><label className="exam-file-button">上传授权信息<input aria-label="上传教师授权信息" type="file" accept=".xlsx,.xls" disabled={job.busy} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file); e.target.value = '' }} /></label><button className="primary-button" disabled={job.busy || !selected.length} onClick={save}>{job.busy ? '正在处理…' : '确认保存生效'}</button></div>
-      </>}</div></div></fieldset></QueryState>
+  return <QueryState query={teachers}><fieldset className="exam-permission-controls" disabled={job.busy}>
+    <div ref={feedbackRef}><JobError job={job} />{notice && <p className="exam-success" role="status">{notice}</p>}{revoking && <section className="exam-warning" aria-label="取消授权确认"><p>确认取消{teacherRows.find(t => t.id === revoking)?.name}对本次考试的查询授权？取消后，该教师将无法查询本次考试已授权的成绩和报告。</p><div className="exam-actions"><button onClick={() => setRevoking('')}>保留授权</button><button onClick={revoke}>{job.busy ? '正在取消…' : '确认取消授权'}</button></div></section>}</div>
+    <div className="exam-filters exam-teacher-filters">
+      <input aria-label="搜索授权教师" placeholder="搜索姓名 / 教师ID / 账号" value={filters.search} onChange={e => changeFilters({ ...filters, search: e.target.value })} />
+      <select aria-label="授权教师年级筛选" value={filters.grade} onChange={e => changeFilters({ ...filters, grade: e.target.value, classroom: '' })}><option value="">全部年级</option>{filterOptions.grades.map(g => <option key={g} value={g}>{g}</option>)}</select>
+      <select aria-label="授权教师班级筛选" value={filters.classroom} onChange={e => changeFilters({ ...filters, classroom: e.target.value })}><option value="">全部班级</option>{filterOptions.classes.map(c => <option key={c} value={c}>{classLabel(c)}</option>)}</select>
+      <select aria-label="授权教师学科筛选" value={filters.subject} onChange={e => changeFilters({ ...filters, subject: e.target.value })}><option value="">全部学科</option>{filterOptions.subjects.map(name => <option key={name} value={name}>{name}</option>)}</select>
+      <select aria-label="授权教师职务筛选" value={filters.duty} onChange={e => changeFilters({ ...filters, duty: e.target.value })}><option value="">全部职务</option>{teachers.data?.default_rules.map(rule => <option key={rule.role} value={rule.role}>{rule.label}</option>)}</select>
+      <button disabled={!visible.length} onClick={() => addTeachers(visible)}>勾选筛选结果</button><button onClick={() => changeFilters(EMPTY_TEACHER_FILTERS)}>重置筛选</button>
+    </div>
+    <div className="exam-selection-summary" role="status"><span>匹配 {visible.length} / {teacherRows.length} 位教师，已选 {selected.length} 位{hiddenSelected > 0 ? `（其中 ${hiddenSelected} 位不在当前筛选内）` : ''}。筛选保留各人草稿。</span><div className="exam-actions"><button disabled={!visible.some(t => selected.includes(t.id))} onClick={() => clearSelected(visible.map(t => t.id))}>取消勾选筛选结果</button><button disabled={!selected.length} onClick={() => clearSelected(selected)}>清空已选教师</button></div></div>
+    <div className="exam-permission-layout"><aside className="exam-teachers"><h3>教师列表</h3>
+      {!visible.length && <p className="inline-empty">暂无匹配的有效教师，请调整或重置筛选。</p>}{visible.map(t => <div key={t.id} className={`exam-teacher-row ${active === t.id ? 'active' : ''}`}>
+        <input type="checkbox" aria-label={`选择教师 ${t.name} ${t.platform_id}`} checked={selected.includes(t.id)} onChange={e => pick(t, e.target.checked)} />
+        <button className="exam-teacher-name" onClick={() => selected.includes(t.id) ? setActive(t.id) : pick(t, true)}><strong>{t.name}</strong><span>{t.platform_id} · {t.account}</span><span>{t.role_labels.join('、')}</span>{['任课年级班级', '班主任年级班级', '教研组长负责年级科目', '年级长负责年级'].filter(key => t.fields?.[key]).map(key => <span key={key}>{key}：{t.fields[key]}</span>)}<span>{exam.teacher_permissions[t.id] ? '已授权' : '未授权'}</span><span>{t.default_warnings.length ? '本次考试需手动配置' : '可按档案预选'}</span></button>
+        {exam.teacher_permissions[t.id] && <button className="exam-revoke-button" title={`取消${t.name}对本次考试的查询授权`} onClick={() => { setRevoking(t.id); setNotice(''); job.setError(null) }}>取消授权</button>}
+      </div>)}
+    </aside><div className="exam-permission-editor">
+      <div className="exam-permission-heading"><div className="exam-tabs">{selected.map(id => { const t = teacherRows.find(t => t.id === id); return <button key={id} className={active === id ? 'active' : ''} title={`${t?.name} · ${t?.platform_id} · ${t?.account}`} onClick={() => setActive(id)}>{t?.name || '账号已不可用'}<span className="exam-selected-id" aria-hidden="true">{t?.platform_id}</span></button> })}</div><button onClick={() => job.run(() => examDownload('/teacher-default-rules', '教师默认选项规则.xlsx'))}>下载默认选项规则（Excel）</button></div>
+      {!teacher || !form ? <p className="inline-empty">请选择需配置权限的教师。</p> : <>
+        <section className="exam-teacher-identity" aria-label="当前教师信息"><h3>当前编辑：{teacher.name}（{teacher.platform_id}）</h3><p>账号：{teacher.account} · 职务：{teacher.role_labels.join('、') || '教师'}</p><p>配置来源：{sources[active]}{sources[active] !== '已保存的授权' ? '（待保存）' : ''}</p><button onClick={resetDefaults}>重新按档案预选</button></section>
+        {sources[active] === '教师档案默认建议' && !!teacher.default_warnings.length && <p className="exam-warning">{teacher.default_warnings.join(' ')}</p>}
+        <section className="exam-permission-section"><MixedCheck checked={!!form.score_types.length} onChange={checked => change({ score_types: checked ? (defaultForm(teacher).score_types.length ? defaultForm(teacher).score_types : ['student', 'classSubject']) : [], score_subjects: checked ? defaultForm(teacher).score_subjects : [] })}><strong>成绩数据</strong></MixedCheck>
+          <Checks title="成绩类型" catalog={SCORE_TYPES} selected={form.score_types} onChange={score_types => change({ score_types, ...(!score_types.length ? { score_subjects: [] } : {}) })} />
+          <Checks title="成绩科目" catalog={Object.fromEntries(Object.entries(subjectCatalog).map(([key, value]) => [key, value + (ready.includes(key) ? '' : '（未导入）')]))} selected={form.score_subjects} disabled={key => !ready.includes(key)} onChange={score_subjects => change({ score_subjects, ...(score_subjects.length && !form.score_types.length ? { score_types: defaultForm(teacher).score_types.length ? defaultForm(teacher).score_types : ['student', 'classSubject'] } : {}) })} />
+        </section>
+        <section className="exam-permission-section"><MixedCheck checked={!!form.diagnosis_types.length} onChange={checked => change({ diagnosis_types: checked ? (defaultForm(teacher).diagnosis_types.length ? defaultForm(teacher).diagnosis_types : ['student']) : [], diagnosis_subjects: checked ? defaultForm(teacher).diagnosis_subjects : [] })}><strong>诊断报告</strong></MixedCheck>
+          <Checks title="报告类型" catalog={DIAG_TYPES} selected={form.diagnosis_types} onChange={diagnosis_types => change({ diagnosis_types, ...(!diagnosis_types.length ? { diagnosis_subjects: [] } : {}) })} />
+          <Checks title="报告科目" catalog={subjectCatalog} selected={form.diagnosis_subjects} onChange={diagnosis_subjects => change({ diagnosis_subjects, ...(diagnosis_subjects.length && !form.diagnosis_types.length ? { diagnosis_types: defaultForm(teacher).diagnosis_types.length ? defaultForm(teacher).diagnosis_types : ['student'] } : {}) })} />
+        </section>
+        <section className="exam-permission-section"><MixedCheck label="全选作文报告语种" checked={availableEssay.length > 0 && availableEssay.every(key => form.essay_types.includes(key))} mixed={form.essay_types.length > 0 && !availableEssay.every(key => form.essay_types.includes(key))} disabled={!availableEssay.length} onChange={checked => change({ essay_types: checked ? [...availableEssay] : [] })}><strong>作文批改报告</strong></MixedCheck><Checks title="语种 · 个人报告" catalog={Object.fromEntries(Object.entries(ESSAY_TYPES).map(([key, name]) => [key, name + (availableEssay.includes(key) ? '' : '（本次考试未配置）')]))} selected={form.essay_types} disabled={key => !availableEssay.includes(key)} onChange={essay_types => change({ essay_types })} /></section>
+        <h3>学生范围（仅当前教师）</h3><div className="exam-option-grid">{([['all', '全部参试学生'], ['grade', '按年级'], ['class', '按班级']] as const).map(([value, label]) => <label key={value} className="exam-check"><input type="radio" name={`teacher-range-${active}`} checked={form.range_type === value} onChange={() => change({ range_type: value })} />{label}</label>)}</div>
+        {form.range_type === 'grade' && <Checks title="授权年级" catalog={Object.fromEntries(grades.map(g => [g, gradeLabel(g)]))} selected={form.grades} onChange={grades => change({ grades })} />}{form.range_type === 'class' && <Checks title="授权班级" catalog={Object.fromEntries(classes.map(c => [c, classLabel(c)]))} selected={form.classes} onChange={classes => change({ classes })} />}
+        <section className="exam-authorization-preview" aria-label="当前教师授权预览"><h4>{teacher.name}（{teacher.platform_id}）的授权预览</h4><p>当前范围覆盖 {scopedPeople.length} 名参试学生；{form.range_type === 'all' ? '全部参试学生' : form.range_type === 'grade' ? form.grades.map(gradeLabel).join('、') || '尚未选择年级' : form.classes.map(classLabel).join('、') || '尚未选择班级'}。</p>
+          <p>成绩：{form.score_types.map(key => SCORE_TYPES[key]).join('、') || '未选择'} · {form.score_subjects.map(id => subjectCatalog[id] || '已移除科目').join('、') || '未选择科目'}</p><p>诊断：{form.diagnosis_types.map(key => DIAG_TYPES[key]).join('、') || '未选择'} · {form.diagnosis_subjects.map(id => subjectCatalog[id] || '已移除科目').join('、') || '未选择科目'}</p><p>作文：{form.essay_types.map(key => ESSAY_TYPES[key]).join('、') || '未选择'}</p>
+          <details><summary>查看范围内的参试学生与科目人数</summary><p>{exam.subjects.map(s => `${s.name} ${s.student_ids.filter(id => scopedPeople.some(p => p.id === id)).length} 人`).join(' · ')}</p><Table paginate headers={['学生ID', '姓名', '考试年级 / 班级']}>{scopedPeople.map(p => { const person = exam.snapshots[p.id]; return <tr key={p.id}><td>{person.platform_id}</td><td>{person.name}</td><td>{classLabel(groupKey(person))}</td></tr> })}</Table></details>
+          {incomplete.some(item => item.id === active) && <p className="exam-validation-summary">待补全：{incomplete.find(item => item.id === active)!.missing.join('；')}</p>}
+        </section>
+        {selected.length > 1 && <div className="exam-card"><h4>批量设置已选 {selected.length} 位教师</h4><p className="exam-muted">以下操作应用于全部已选教师，包括不在当前筛选内的教师。</p><div className="exam-actions">{[['defaults', '各人按档案重新预选'], ['class', '各人默认班级'], ['grade', '各人负责年级'], ['all', '全部参试学生'], ['current', '应用当前学生范围'], ['content', '应用当前类型和科目']].map(([mode, label]) => <button key={mode} onClick={() => batch(mode)}>{label}</button>)}</div></div>}
+      </>}
+      <div className="exam-footer">{incomplete.length > 0 ? <span className="exam-validation-summary" role="status">已选 {selected.length} 位教师，{incomplete.length} 位待补全</span> : !!selected.length && <span>本次保存 {selected.length} 位教师</span>}<button disabled={!selected.length} onClick={() => job.run(async () => { validate(); await examDownload(`/${exam.id}/permissions/teacher/preview`, `教师授权预览_${exam.exam_id}.xlsx`, body()); setNotice('授权预览已下载，核对后可确认保存。') })}>下载授权预览（Excel）</button><label className="exam-file-button">上传授权信息<input aria-label="上传教师授权信息" type="file" accept=".xlsx,.xls" disabled={job.busy} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file); e.target.value = '' }} /></label><button className="primary-button" disabled={!selected.length} onClick={save}>{job.busy ? '正在处理…' : '确认保存生效'}</button></div>
+    </div></div>
+  </fieldset></QueryState>
 }
 
 function StudentPermissions({ exam, onChanged }: { exam: ExamData; onChanged: ExamChanged }) {

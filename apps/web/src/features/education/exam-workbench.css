@@ -39,6 +39,13 @@
 .exam-card { border: 1px solid var(--color-hairline); border-radius: 7px; padding: 0 18px 18px; margin: 16px 0; }.exam-filename { overflow-wrap: anywhere; }
 .exam-teacher-filters { padding: 14px; background: var(--color-wash); border: 1px solid var(--color-hairline); border-radius: 7px; }.exam-teacher-filters select { max-width: 100%; }
 .exam-permission-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.exam-selection-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 16px; color: var(--color-muted); font-size: 13px; }
+.exam-selection-summary .exam-actions { margin: 0; }
+.exam-teacher-identity, .exam-authorization-preview { border: 1px solid var(--color-hairline); border-radius: 7px; background: var(--color-wash); padding: 14px 16px; margin: 14px 0; overflow-wrap: anywhere; }
+.exam-teacher-identity h3, .exam-authorization-preview h4 { margin: 0 0 10px; }
+.exam-teacher-identity p, .exam-authorization-preview p { margin: 8px 0; font-size: 13px; }
+.exam-selected-id { display: block; font-size: 11px; opacity: .8; }
+.exam-permission-heading .exam-tabs { max-width: 100%; }
 .exam-revoke-button { flex-shrink: 0; white-space: nowrap; }
 .exam-permission-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 25px; align-items: start; }.exam-teachers { background: var(--color-canvas); border: 1px solid var(--color-hairline); border-radius: 7px; padding: 14px; max-height: 68vh; overflow-y: auto; }.exam-teachers h3 { margin-top: 0; }
 .exam-permission-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }.exam-permission-heading > button { margin-left: auto; }

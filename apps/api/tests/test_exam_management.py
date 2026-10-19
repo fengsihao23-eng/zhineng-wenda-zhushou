@@ -475,3 +475,51 @@ async def test_whole_exam_report_stays_hidden_until_every_participating_subject_
     exam = await permission(client, exam, "student", {**body,"subject_ids":[second]})
     switch(actors, test_db, "student")
     assert (await client.get(ROOT+f"/my-exams/{exam['id']}")).json()["reports"][0]["id"] == report_id
+
+
+@pytest.mark.asyncio
+async def test_teacher_authorization_rejects_subjects_with_no_selected_participants_atomically(client, test_db, actors, exam_people):
+    placement = await test_db.scalar(select(StudentYearClass).where(StudentYearClass.student_id == exam_people[1].id))
+    placement.class_number = "2班"
+    await test_db.commit()
+    body = draft(exam_people)
+    body["subjects"][0]["student_ids"] = [str(exam_people[0].id)]
+    body["subjects"][1]["student_ids"] = [str(exam_people[1].id)]
+    checked = await post(client, "/preview", body)
+    exam = await post(client, "", {**body, "preview_hash": checked["preview_hash"]})
+    exam, _, _ = await import_score(client, exam)
+    invalid = {"expected_revision": exam["revision"], "teachers": [{"teacher_id": str(actors["teacher"].id),
+        "score_types": ["student"], "score_subjects": [exam["subjects"][0]["subject_id"]],
+        "range_type": "class", "classes": ["高中一年级 / 2班"]}]}
+    response = await client.post(ROOT+f"/{exam['id']}/permissions/teacher", json=invalid)
+    assert response.status_code == 422 and "没有参试学生" in response.text
+    assert await test_db.scalar(select(func.count()).select_from(ExamQueryGrant)) == 0
+    current = (await client.get(ROOT+f"/{exam['id']}")).json()
+    assert current["revision"] == exam["revision"] and not current["teacher_permissions"]
+    invalid["teachers"][0]["classes"] = ["高中一年级 / 1班"]
+    saved = await post(client, f"/{exam['id']}/permissions/teacher", invalid)
+    assert saved["teacher_permissions"][str(actors["teacher"].id)]["frozen_student_ids"] == [str(exam_people[0].id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["teacher", "student"])
+async def test_authorization_upload_rejects_name_and_person_id_mismatches(client, test_db, actors, exam_people, kind):
+    exam = await create(client, exam_people)
+    exam, _, _ = await import_score(client, exam)
+    subject = exam["subjects"][0]["subject_id"]
+    body = {"expected_revision": exam["revision"]}
+    if kind == "teacher":
+        body["teachers"] = [{"teacher_id": str(actors["teacher"].id), "score_types": ["student"], "score_subjects": [subject], "range_type": "all"}]
+    else:
+        body.update(student_ids=[str(exam_people[0].id)], subject_ids=[subject], mode="open")
+    response = await client.post(ROOT+f"/{exam['id']}/permissions/{kind}/preview", json=body)
+    assert response.status_code == 200, response.text
+    book = load_workbook(io.BytesIO(response.content))
+    sheet = book.active
+    header_row = next(row[0].row for row in sheet if any(cell.value == "姓名" for cell in row))
+    sheet.cell(header_row+1, 3, "另一个人的姓名")
+    output = io.BytesIO(); book.save(output); book.close()
+    result = await post(client, f"/{exam['id']}/permissions/{kind}/upload", {
+        "filename": "错误姓名授权.xlsx", "content_base64": base64.b64encode(output.getvalue()).decode()}, 422)
+    assert "姓名与人员ID不匹配" in str(result)
+    assert await test_db.scalar(select(func.count()).select_from(ExamQueryGrant)) == 0

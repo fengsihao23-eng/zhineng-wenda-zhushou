@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 from app.services.roster_excel import GRADE_NAMES, duty_codes, subject_leadership, teaching_pairs
 
@@ -23,14 +24,31 @@ DEFAULT_RULES = [
 ]
 
 
+def normalized(value):
+    return unicodedata.normalize("NFKC", str(value or "")).strip()
+
+
 def grade_name(value):
-    value = str(value).strip()
+    value = normalized(value)
     return GRADE_NAMES.get(int(value), value) if value.isdigit() else value
 
 
 def class_number(value):
-    value = str(value).strip().removesuffix("班").strip()
+    value = normalized(value).removesuffix("班").strip()
     return str(int(value)) if value.isdigit() else value
+
+
+def class_reference(value):
+    """Read the same numeric or displayed class references used by roster imports."""
+    value = normalized(value)
+    match = re.fullmatch(r"(\d+)\.(\d+)", value)
+    if match:
+        return grade_name(match[1]), class_number(match[2])
+    for grade in GRADE_NAMES.values():
+        match = re.fullmatch(re.escape(grade) + r"\s*(\d+)\s*班", value)
+        if match:
+            return grade, class_number(match[1])
+    return "", ""
 
 
 def class_matches(person, grade, number):
@@ -38,25 +56,24 @@ def class_matches(person, grade, number):
 
 
 def teacher_defaults(teacher, config, ready):
-    fields = teacher.get("fields") or {}
+    fields = {key: normalized(value) for key, value in (teacher.get("fields") or {}).items()}
     duties = set(teacher.get("duties") or []) | set(duty_codes(fields))
     rules = [rule for rule in DEFAULT_RULES if rule["role"] in duties]
     participant_ids = {identifier for subject in config["subjects"] for identifier in subject["student_ids"]}
-    people = [person for identifier, person in config["snapshots"].items() if identifier in participant_ids]
-    class_keys = {person["grade"] + " / " + person["class_number"] for person in people}
-    subject_ids = {subject["subject_id"] for subject in config["subjects"]}
-    subjects, classes, types, role_labels = set(), set(), set(), []
+    people = {identifier: person for identifier, person in config["snapshots"].items() if identifier in participant_ids}
+    classes_by_student = {identifier: person["grade"] + " / " + person["class_number"] for identifier, person in people.items()}
+    subjects, classes, types = set(), set(), set()
     has_grade_scope, has_school_scope = False, False
-    teaching = teaching_pairs(fields.get("任课年级班级", "").replace("；", ";").replace("，", ","))
-    homerooms = [tuple(map(int, match)) for match in re.findall(r"(?<!\d)(\d+)\.(\d+)(?!\d)", fields.get("班主任年级班级", ""))]
+    teaching = teaching_pairs(fields.get("任课年级班级", "").replace("\n", ";"))
+    homerooms = [tuple(match) for match in re.findall(r"(?<!\d)(\d+)\.(\d+)(?!\d)", fields.get("班主任年级班级", ""))]
     for label in GRADE_NAMES.values():
-        homerooms.extend((label, int(number)) for number in re.findall(re.escape(label) + r"\s*(\d+)班", fields.get("班主任年级班级", "")))
+        homerooms.extend((label, number) for number in re.findall(re.escape(label) + r"\s*(\d+)\s*班", fields.get("班主任年级班级", "")))
     leaders = subject_leadership(fields.get("教研组长负责年级科目", ""))
-    grade_values = {grade_name(value) for value in re.split(r"[,，;；\s]+", fields.get("年级长负责年级", "")) if value}
+    grade_values = {grade_name(value) for value in re.split(r"[,;、\s]+", fields.get("年级长负责年级", "")) if value}
     filter_scopes = []
 
     def add_filter_scope(role, grade, number="", subject=""):
-        scope = {"role": role, "grade": grade_name(grade), "class_number": class_number(number), "subject": subject}
+        scope = {"role": role, "grade": grade_name(grade), "class_number": class_number(number), "subject": normalized(subject)}
         if scope not in filter_scopes:
             filter_scopes.append(scope)
 
@@ -69,57 +86,69 @@ def teacher_defaults(teacher, config, ready):
     for grade in sorted(grade_values):
         add_filter_scope("GRADE_LEADER", grade)
     expanded_roles = {rule["role"] for rule in DEFAULT_RULES if rule["role"] != "TEACHER"}
-    if not teaching and not duties.intersection(expanded_roles):
+    legacy = not teaching and not duties.intersection(expanded_roles)
+    assignments = teacher.get("assignments") or []
+    if legacy:
         subject_names = {subject["subject_id"]: subject["name"] for subject in config["subjects"]}
-        for assignment in teacher.get("assignments") or []:
-            for person in people:
-                if person.get("class_id") == assignment["class_id"]:
-                    add_filter_scope("TEACHER", person["grade"], person["class_number"], subject_names.get(assignment["subject_id"], ""))
+        for assignment in assignments:
+            grade, number = assignment.get("grade", ""), assignment.get("class_number", "")
+            name = assignment.get("subject", subject_names.get(assignment["subject_id"], ""))
+            if grade and number:
+                add_filter_scope("TEACHER", grade, number, name)
+            else:
+                for person in people.values():
+                    if person.get("class_id") == assignment["class_id"]:
+                        add_filter_scope("TEACHER", person["grade"], person["class_number"], name)
+
+    matched_roles = []
     for rule in rules:
         role = rule["role"]
-        role_classes, role_subjects = set(), set()
-        if role == "TEACHER":
-            role_subjects = {subject["subject_id"] for subject in config["subjects"] if any(subject["name"] == name for name, _, _ in teaching)}
-            role_classes = {person["grade"] + " / " + person["class_number"] for person in people
-                            if any(class_matches(person, grade, number) for _, grade, number in teaching)}
-            if not teaching and not duties.intersection({"HOMEROOM_TEACHER", "SUBJECT_LEADER", "GRADE_LEADER"}):
-                assignments = teacher.get("assignments") or []
-                role_subjects = subject_ids.intersection(assignment["subject_id"] for assignment in assignments)
-                role_classes = {person["grade"] + " / " + person["class_number"] for person in people
-                                if any(person.get("class_id") == assignment["class_id"] for assignment in assignments)}
-        elif role == "HOMEROOM_TEACHER":
-            role_subjects = subject_ids
-            role_classes = {person["grade"] + " / " + person["class_number"] for person in people
-                            if any(class_matches(person, grade, number) for grade, number in homerooms)}
-        elif role == "SUBJECT_LEADER":
-            role_subjects = {subject["subject_id"] for subject in config["subjects"] if any(subject["name"] == name for _, name in leaders)}
-            role_classes = {person["grade"] + " / " + person["class_number"] for person in people
-                            if any(grade_name(person["grade"]) == grade_name(grade) for grade, _ in leaders)}
-            has_grade_scope = True
-        elif role == "GRADE_LEADER":
-            role_subjects = subject_ids
-            role_classes = {person["grade"] + " / " + person["class_number"] for person in people if grade_name(person["grade"]) in grade_values}
-            has_grade_scope = True
-        else:
-            role_subjects, role_classes = subject_ids, class_keys
-            has_school_scope = True
-        role_labels.append(rule["label"])
-        subjects.update(role_subjects)
-        classes.update(role_classes)
-        types.update(rule["types"])
-    grades = {person["grade"] for person in people if person["grade"] + " / " + person["class_number"] in classes}
-    full_grades = {person["grade"] + " / " + person["class_number"] for person in people if person["grade"] in grades}
+        role_subjects, role_classes = set(), set()
+        for subject in config["subjects"]:
+            name = normalized(subject["name"])
+            for identifier in subject["student_ids"]:
+                person = people.get(identifier)
+                if person is None:
+                    continue
+                if role == "TEACHER":
+                    matches = any(name == taught and class_matches(person, grade, number) for taught, grade, number in teaching)
+                    if legacy:
+                        matches = any(subject["subject_id"] == assignment["subject_id"]
+                                      and (person.get("class_id") == assignment["class_id"] if person.get("class_id") else
+                                           class_matches(person, assignment.get("grade", ""), assignment.get("class_number", "")))
+                                      for assignment in assignments)
+                elif role == "HOMEROOM_TEACHER":
+                    matches = any(class_matches(person, grade, number) for grade, number in homerooms)
+                elif role == "SUBJECT_LEADER":
+                    matches = any(name == taught and grade_name(person["grade"]) == grade_name(grade) for grade, taught in leaders)
+                elif role == "GRADE_LEADER":
+                    matches = grade_name(person["grade"]) in grade_values
+                else:
+                    matches = True
+                if matches:
+                    role_subjects.add(subject["subject_id"])
+                    role_classes.add(classes_by_student[identifier])
+        # An unmatched duty must not contribute other subjects, classes or query types.
+        if role_subjects and role_classes:
+            subjects.update(role_subjects)
+            classes.update(role_classes)
+            types.update(rule["types"])
+            matched_roles.append(rule["label"])
+            has_grade_scope |= role in {"SUBJECT_LEADER", "GRADE_LEADER"}
+            has_school_scope |= role in {"ACADEMIC_DIRECTOR", "PRINCIPAL", "GENERAL_DIRECTOR", "SCHOOL_VIEWER"}
+    grades = {person["grade"] for identifier, person in people.items() if classes_by_student[identifier] in classes}
+    full_grades = {classes_by_student[identifier] for identifier, person in people.items() if person["grade"] in grades}
     range_type = "all" if has_school_scope else "grade" if has_grade_scope and classes and classes == full_grades else "class"
     ordered_types = [value for value in DEFAULT_RULES[-1]["types"] if value in types]
     ordered_subjects = [subject["subject_id"] for subject in config["subjects"] if subject["subject_id"] in subjects]
     score_subjects = [identifier for identifier in ordered_subjects if identifier in ready]
     warnings = []
     if not classes:
-        warnings.append("角色负责范围与本次参试名单没有匹配，请手动选择学生范围。")
+        warnings.append("教师职责与本次考试的科目、参试班级没有有效交集，请核对档案或手动选择学生范围。")
     if not subjects:
-        warnings.append("角色学科与本次考试科目没有匹配，请手动选择查询类型与科目。")
-    return {"duties": sorted(duties), "role_labels": role_labels,
-            "filter_scopes": filter_scopes,
+        warnings.append("没有可按教师职责预选的考试科目，请手动选择查询类型与科目。")
+    return {"duties": sorted(duties), "role_labels": [rule["label"] for rule in rules],
+            "filter_scopes": filter_scopes, "matched_roles": matched_roles,
             "scope_classes": sorted(classes), "scope_grades": sorted(grades), "scope_subject_ids": ordered_subjects,
             "default_warnings": warnings,
             "recommendation": {"teacher_id": teacher["id"], "score_types": ordered_types if score_subjects else [],
