@@ -1,0 +1,70 @@
+{
+  "counts-before": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 2
+  },
+  "counts-after": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 2
+  },
+  "fingerprints-before": {
+    "administration": "8f48fd3ef045fde477135fc3909cea2f",
+    "policies": "6c2d5bf52c9c87d02eb2dacf6f56fc00",
+    "grants": "fea2fe644c6cfe47a4be6ef8273c78db"
+  },
+  "fingerprints-after": {
+    "administration": "8f48fd3ef045fde477135fc3909cea2f",
+    "policies": "6c2d5bf52c9c87d02eb2dacf6f56fc00",
+    "grants": "fea2fe644c6cfe47a4be6ef8273c78db"
+  },
+  "frontend-after": {
+    "verified_assets": [
+      "/assets/index-Bjdmt7yS.css",
+      "/assets/index-DokaKihz.js"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/admin/prompts",
+      "/mini"
+    ],
+    "saved_teacher_permission_ui_verified": true
+  },
+  "date": "2026-10-19",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/fix-saved-teacher-permissions",
+  "release_commit": "403266f8bc2ea4ec29ca14928fcddf5254bfccf9",
+  "previous_commit": "ab0e100f124dd91c1e44b5d9d7c74c530f826aa0",
+  "release_directory": "/srv/backups/saved-teacher-permissions-20261019-092448Z",
+  "database_backup_catalog_verified": true,
+  "business_data_counts_unchanged": true,
+  "exam_config_and_permission_fingerprints_unchanged": true,
+  "database_migrations_run": false,
+  "services_rebuilt": [
+    "web"
+  ],
+  "api_container_unchanged": true,
+  "environment_hash_unchanged": true,
+  "rollback_image_retained": true,
+  "production_health": "ok",
+  "real_model_ready": true,
+  "ci_url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39229830841"
+}
