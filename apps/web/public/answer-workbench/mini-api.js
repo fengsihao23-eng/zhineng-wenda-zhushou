@@ -11,7 +11,7 @@ function ensureLogin() { if (!identity) {
     return false;
 } return true; }
 function closeModal() { $('modal').innerHTML = ''; }
-async function refreshBackend() { const next = await rpc('/mini/state'); identity = next.identity; BACKEND = { school: identity.school, exams: next.exams }; reports = next.reports; model = { sessions: next.sessions, tickets: next.tickets, audit: next.audit }; return next; }
+async function refreshBackend() { const next = await rpc('/mini/state'); identity = next.identity; BACKEND = { school: identity.school, exams: next.exams }; reports = next.reports; model = { sessions: next.sessions, tickets: next.tickets.slice().reverse(), audit: next.audit }; return next; }
 const syncSharedModel = refreshBackend;
 async function boot() { try {
     const session = await rpc('@session');

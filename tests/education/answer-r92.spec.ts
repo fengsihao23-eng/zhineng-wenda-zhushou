@@ -170,10 +170,12 @@ o=io.BytesIO();b.save(o);sys.stdout.buffer.write(o.getvalue())`],{input:await te
 })
 
 test('提交响应丢失后保留输入并以同一请求重试，留言只建立一次', async ({ page, request }) => {
+  const oldAuth=await auth(request,'teacher2');await post(request,base+'/tickets',oldAuth,{question:'合成旧问题，用于检查新留言排序'})
   const f=await miniLogin(page,'teacher2');await f.getByRole('button',{name:'留言',exact:true}).click();await f.getByRole('button',{name:'＋ 新建留言',exact:true}).click();await f.getByLabel('留言问题').fill('合成响应丢失重试验收')
   let lost=false
   await page.route('**/api/v1/answer-workbench/tickets',async route=>{if(route.request().method()==='POST'&&!lost){lost=true;await route.fetch();await route.abort('failed')}else await route.continue()})
   await f.getByRole('button',{name:'确认提交留言',exact:true}).click();await expect(f.getByText(/留言未提交，编辑内容保留/)).toBeVisible();await expect(f.getByLabel('留言问题')).toHaveValue('合成响应丢失重试验收')
   await f.getByRole('button',{name:'确认提交留言',exact:true}).click();await expect(f.getByText('待处理',{exact:true})).toBeVisible()
   const h=await auth(request,'teacher2'),tickets=await(await request.get(base+'/tickets',{headers:h})).json();expect(tickets.filter((t:any)=>t.question==='合成响应丢失重试验收')).toHaveLength(1)
+  await f.getByLabel('返回',{exact:true}).click();await expect(f.locator('#screen button.card').first()).toContainText('合成响应丢失重试验收')
 })
