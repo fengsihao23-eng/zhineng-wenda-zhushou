@@ -1,0 +1,21 @@
+{
+  "public_assets_verified": [
+    "admin-api.js",
+    "admin-view.js",
+    "admin.css",
+    "admin.html",
+    "bridge.js",
+    "icons.js",
+    "mini-api.js",
+    "mini-view.js",
+    "mini.css",
+    "mini.html",
+    "rules.js",
+    "web-view.js",
+    "web.css",
+    "web.html"
+  ],
+  "health": "ok",
+  "real_model_ready": true,
+  "backend_unchanged_from_latest_other_window_fix": true
+}

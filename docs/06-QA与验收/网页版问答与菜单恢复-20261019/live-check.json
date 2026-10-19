@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "管理员五项菜单、单一高亮、提示词与留言页签",
+    "已登录师生桌面问答：原有导航、问候语、宽输入框、紫色主题、无手机外框",
+    "网页版报告与人工留言入口",
+    "响应式网页导航",
+    "旧mini入口兼容跳转网页版"
+  ],
+  "recipient_probe_available": true,
+  "page_errors": [],
+  "business_write_requests": []
+}

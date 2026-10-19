@@ -1,0 +1,9 @@
+{
+  "code_commit": "c04836d19822536dbb5076265ab0ebe2377f0e6f",
+  "previous_commit": "cdab529fdef3e335929fae49b8d2ec792dd51a6e",
+  "backup_directory": "/srv/backups/restore-answer-navigation-20261019-085506Z",
+  "business_data_counts_unchanged": true,
+  "api_container_unchanged": true,
+  "schema_migrations_run": false,
+  "health": "ok"
+}

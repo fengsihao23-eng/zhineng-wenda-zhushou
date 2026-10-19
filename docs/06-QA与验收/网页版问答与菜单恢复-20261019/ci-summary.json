@@ -1,0 +1,18 @@
+{
+  "headSha": "c04836d19822536dbb5076265ab0ebe2377f0e6f",
+  "status": "completed",
+  "conclusion": "success",
+  "url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39226076469",
+  "jobs": [
+    {
+      "name": "frontend",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "backend",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ]
+}
