@@ -1,0 +1,12 @@
+{
+  "origin": "http://43.161.195.51",
+  "exam_management_entry_removed": true,
+  "standalone_report_maintenance_button_removed": true,
+  "report_list_preserved": true,
+  "operations_button_precedes_access_and_upload": true,
+  "operations_log_and_return_work": true,
+  "read_only_requests": true,
+  "page_errors": [],
+  "failed_api_responses": [],
+  "blocked_writes": []
+}

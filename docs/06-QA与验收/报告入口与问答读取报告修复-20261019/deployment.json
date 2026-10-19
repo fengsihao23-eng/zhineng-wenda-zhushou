@@ -1,0 +1,76 @@
+{
+  "counts-before": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 25
+  },
+  "counts-after": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 25
+  },
+  "fingerprints-before": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "e39db73d0d89c6cea92ac0f48075b92a",
+    "grants": "e4f103083cd91cb1d238dc25cff002b4",
+    "administration": "6904c4b3b4d59f6d5261bcb77eaf66db"
+  },
+  "fingerprints-after": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "e39db73d0d89c6cea92ac0f48075b92a",
+    "grants": "e4f103083cd91cb1d238dc25cff002b4",
+    "administration": "6904c4b3b4d59f6d5261bcb77eaf66db"
+  },
+  "frontend-after": {
+    "verified_assets": [
+      "/assets/index-COcmTyMB.js",
+      "/assets/index-CP7ed7XL.css"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/mini"
+    ],
+    "report_navigation_and_answer_source_ui_verified": true
+  },
+  "date": "2026-10-19",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/fix-report-chat-reading",
+  "release_commit": "eecdf54c2c53bbb2e03fd93d9d6dd0a70743c901",
+  "previous_commit": "07d026df3d3840d14f7e02937ce17d0ff12ef6ec",
+  "release_directory": "/srv/backups/report-chat-reading-20261019-101938Z",
+  "database_backup_catalog_verified": true,
+  "business_data_counts_unchanged": true,
+  "exam_config_and_permission_fingerprints_unchanged": true,
+  "database_migrations_run": false,
+  "services_rebuilt": [
+    "api",
+    "web"
+  ],
+  "environment_hash_unchanged": true,
+  "rollback_images_retained": true,
+  "production_health": "ok",
+  "real_model_ready": true,
+  "schema_before": "024_answer_workbench",
+  "schema_after": "024_answer_workbench",
+  "active_api_source_sha256": "38af3e2ff6272b727eb5a5d15751b0c82f3406b6181c792d41d2fc515984cea3  answer_workbench.py",
+  "ci_url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39236611975"
+}

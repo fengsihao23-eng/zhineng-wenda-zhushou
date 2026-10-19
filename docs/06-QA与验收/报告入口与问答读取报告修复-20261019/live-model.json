@@ -1,0 +1,31 @@
+{
+  "captured": {
+    "report_status": {
+      "status": "available",
+      "matchedReports": 1,
+      "readPages": 6
+    },
+    "readable_report_pages": 6,
+    "report_text_characters": 15278,
+    "score_rows": 1
+  },
+  "model_answer_succeeded": true,
+  "has_score_table": true,
+  "report_source_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "reports_only_belong_to_question_owner": true,
+  "false_report_missing_phrase_absent": true,
+  "read_only_transaction": true,
+  "chat_history_written": false,
+  "source_kind_counts": {
+    "score": 1,
+    "report": 6
+  },
+  "answer_text_length": 370
+}
