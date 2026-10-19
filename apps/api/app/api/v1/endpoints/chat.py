@@ -161,6 +161,9 @@ async def _save_user_message(
     request_data: MessageCreateRequest,
     db: AsyncSession,
 ) -> tuple[ChatMessage, bool]:
+    from app.db.models.answer_workbench import AnswerScope
+    if await db.scalar(select(AnswerScope.id).where(AnswerScope.school_id == session.school_id).limit(1)):
+        raise ApiError(409, 'CHAT_WORKFLOW_UPGRADED', '问答流程已升级，请进入智能问答小程序重新提问。')
     session = await db.scalar(select(ChatSession).where(ChatSession.id == session.id).with_for_update().execution_options(populate_existing=True))
     if session.status != 'active':
         raise ApiError(409, 'SESSION_INACTIVE', '会话已归档，请新建会话。')

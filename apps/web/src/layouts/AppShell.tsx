@@ -36,7 +36,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
     { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' },
     { path: '/teacher/analysis', label: '班级学科分析', icon: 'chart', group: '教学分析' },
     { path: '/teacher/students', label: '学生学情', icon: 'users' },
-    { path: '/teacher/handoffs', label: '人工转接', icon: '↗' },
+    { path: '/teacher/chat', label: '智能问答与留言', icon: '✦' },
     { path: '/teacher/risks', label: '风险事件', icon: '△' },
     { path: '/teacher/feedback', label: '反馈运营', icon: '♡' },
   ],
@@ -53,7 +53,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
     { path: '/admin/knowledge', label: '知识文档治理', icon: 'file', group: '运营治理' },
     { path: '/admin/feedback', label: '反馈运营', icon: '♡' },
     { path: '/admin/risks', label: '风险看板', icon: '△' },
-    { path: '/admin/handoffs', label: '转接队列', icon: '↗' },
+    { path: '/admin/prompts', label: '提示词及人工', icon: '✦' },
   ],
   city: [
     { path: '/ops', label: '市级总览', icon: '◈' },
@@ -72,9 +72,9 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
   const user = getUserInfo()
   const role = roleOf(user)
   const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
-  const baseNavItems = examAdminOnly ? [schoolWorkbenchNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [schoolWorkbenchNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, schoolWorkbenchNavItem] : navByRole[role]
+  const baseNavItems = examAdminOnly ? [schoolWorkbenchNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [schoolWorkbenchNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, schoolWorkbenchNavItem, { path: '/admin/prompts', label: '提示词及人工', icon: '✦' }] : navByRole[role]
   const unfilteredNavItems = role !== 'teacher' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
-  const navItems = unfilteredNavItems.filter(item => item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA'].includes(r)))
+  const navItems = unfilteredNavItems.filter(item => (item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA'].includes(r))) && (item.path !== '/admin/prompts' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN'].includes(r))))
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
   const serviceState = health.isLoading ? 'loading' : health.error ? 'unavailable' : health.data?.model?.real_model_ready ? 'ready' : 'model_pending'
   const [collapsed, setCollapsed] = useState(() => {

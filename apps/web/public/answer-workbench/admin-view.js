@@ -1,0 +1,172 @@
+// Display templates adapted from the supplied r92 prototype. API mutations live in admin-api.js.
+function rolesOf(account) { if (account.role === 'student')
+    return ['学生']; const a = BACKEND.teacherArchives.find(a => a.id === account.id), fields = a?.fields || {}; const roles = ROLE_FIELDS.filter(([_, field], i) => i < 4 ? !!String(fields[field] || '').trim() : fields[field] === '是').map(([role]) => role); return roles.length ? roles : ['教师']; }
+function actor(id) { return ENGINE.accounts.find(a => a.id === id); }
+function activeVersion(s = stage, type = maintenanceType) { const b = maintenanceBucket(s, type); return b?.versions.find(v => v.id === b.activeId) || null; }
+function pill(text) { const tone = text === '已发布' || text === '已回复' || text === '通过' ? 'green' : text === '待处理' || text === '未保存' ? 'amber' : text === '未通过' ? 'red' : text === '已关闭' ? 'grey' : ''; return '<span class="pill ' + tone + '">' + esc(text) + '</span>'; }
+function setWorking() { const b = maintenanceBucket(), v = activeVersion(); working = b.draft ? copy(b.draft) : maintenanceType === 'limits' ? { ...copy(v || window.AnswerPolicy.defaults()), id: uid(), revision: 0, number: undefined, reason: '', by: OP.name, at: now() } : { id: uid(), revision: 0, content: v?.content || '', format: v?.format || '', reason: '', by: OP.name, at: now() }; dirty = false; tester.result = null; }
+async function switchPage(next) { if (dirty && page === 'prompts') {
+    toast('请先保存当前草稿，再切换页签');
+    return;
+} page = next; for (const name of ['prompts', 'tickets', 'audit'])
+    $('tab-' + name).className = name === page ? 'on' : ''; if (page === 'tickets')
+    try {
+        await refreshTickets();
+    }
+    catch (e) {
+        toast('读取留言失败：' + e.message);
+    } render(); }
+function render() { if (page === 'prompts')
+    renderPrompts();
+else if (page === 'tickets')
+    renderQueue();
+else
+    renderAudit(); }
+function changeStage(next) { changeMaintenance('prompt', next); }
+function editDraft(key, value) { working[key] = value; dirty = true; $('draftState').innerHTML = pill('未保存'); $('draftNotice').textContent = '修改尚未保存，试问和发布前请先保存草稿。'; }
+function currentTests() { return state.tests.filter(t => (t.maintenanceType || 'prompt') === maintenanceType && (maintenanceType === 'limits' || t.stage === stage) && t.draftId === working.id && t.revision === working.revision); }
+function readiness() {
+    const rows = currentTests(), fresh = rows.filter(recordIsCurrent), tests = fresh.filter(t => t.accepted && t.reviewed && !t.serviceFailure), requiredStages = maintenanceType === 'limits' ? Object.keys(state.stages) : [stage], missing = [];
+    for (const s of requiredStages) {
+        if (!companionStamp(s)) {
+            missing.push(s + '：' + (maintenanceType === 'limits' ? '暂无生效学段提示词' : '暂无全校生效回答限制'));
+            continue;
+        }
+        for (const k of ['authorized', 'limited', 'unauthorized', 'missing'])
+            if (!tests.some(t => (t.testStage || t.stage) === s && t.kind === k))
+                missing.push(s + ' · ' + caseLabel(k));
+    }
+    const blocked = fresh.filter(t => !t.reviewed || !t.accepted || t.serviceFailure);
+    return { ok: !dirty && working.revision > 0 && validWorking() && !missing.length && !blocked.length, missing, tests, blocked, stale: rows.filter(t => !recordIsCurrent(t)) };
+}
+function renderPrompts() {
+    if (!working)
+        setWorking();
+    const v = activeVersion(), r = readiness(), other = maintenanceType === 'limits' ? '各学段生效提示词' : '全校回答限制 ' + (liveLimits() ? 'V' + liveLimits().number : '（暂无生效版）');
+    $('main').innerHTML = `<div class="columns"><aside class="stages"><h3>维护内容</h3><p class="meta">版本分别保存，回答共同使用</p><button class="stage ${maintenanceType === 'limits' ? 'on' : ''}" onclick="changeMaintenance('limits')"><b>全校回答限制</b><small>适用本校所有学段 · ${liveLimits() ? '生效 V' + liveLimits().number : '暂无生效版'}</small></button><div class="subtle-section">学段提示词</div>${Object.keys(state.stages).map(s => { const a = livePrompt(s); return `<button class="stage ${maintenanceType === 'prompt' && stage === s ? 'on' : ''}" onclick="changeStage('${s}')"><b>${s}</b><small>${a ? '生效版本 V' + a.number : '暂无生效版本'}</small><small>${state.stages[s].draft ? '有草稿' : '可创建新草稿'}</small></button>`; }).join('')}</aside><section><div class="card"><div class="between"><div><h2>${maintenanceName()}</h2><div class="meta">${v ? '当前生效 V' + v.number + ' · ' + v.by + ' · ' + v.at : '暂无生效版本，发布前不用于正式回答'}</div></div><div class="flex"><button class="small" onclick="showPublished()">查看生效内容</button><button class="small" onclick="openHistory()">历史版本</button></div></div><div class="progress"><span class="on">1. 编辑草稿</span><span>2. 联合试问与核对</span><span>3. 预览发布</span></div><div class="between"><h3 style="margin:0">编辑草稿 <span id="draftState">${pill(dirty || !working.revision ? '未保存' : 'D' + working.revision)}</span></h3><span class="meta" id="draftNotice">只替换当前维护范围，其他生效内容保持原版。</span></div><div class="hint">本草稿将与${other}联合试问。${maintenanceType === 'limits' ? '修改全校限制需覆盖本校各适用学段。' : '回答同时遵循本学段提示词和全校回答限制。'}限制、问题或报告文本均不能扩大查询权限。</div>${maintenanceType === 'limits' ? limitFields(working) : `<label class="label" for="promptContent">回答要求 <span class="required">*</span></label><textarea class="prompt-text" id="promptContent" oninput="editDraft('content',this.value)">${esc(working.content)}</textarea><label class="label" for="promptFormat">输出格式 <span class="required">*</span></label><textarea class="format-text" id="promptFormat" oninput="editDraft('format',this.value)">${esc(working.format)}</textarea>`}<label class="label" for="promptReason">变更说明 <span class="required">*</span></label><input id="promptReason" value="${esc(working.reason)}" placeholder="说明本次调整的目标，发布时留档" oninput="editDraft('reason',this.value)">${coverageHTML()}<div class="between" style="margin-top:18px"><span class="meta">${r.ok ? '联合测试已核对，可预览发布。' : r.stale.length ? '对照生效版本有变动，请重新联合测试。' : r.missing.length ? '尚有未完成的联合验证或前置生效版本。' : '存在未通过或待核对的测试。'}</span><div class="flex"><button onclick="saveDraft()">保存草稿</button><button onclick="openTester()">联合试问</button><button class="primary" onclick="previewPublish()">预览发布</button></div></div></div><div class="card"><div class="between"><h3 style="margin:0">本草稿测试记录 <span class="meta">${currentTests().length} 条</span></h3><span class="meta">不写入用户正式会话</span></div>${testsTable(currentTests())}</div></section></div>`;
+}
+function testsTable(rows, historical = false) { return rows.length ? `<div class="tablewrap"><table><tr><th>测试账号 / 角色</th><th>试问 / 场景</th><th>联合版本</th><th>核对结果</th><th></th></tr>${rows.slice().reverse().map(t => `<tr><td>${esc(t.accountName)}<div class="meta">${esc(t.accountDisplayId || t.accountId)} · ${esc(t.roles.join('、'))}</div></td><td>${esc(t.query)}<div class="meta">${esc(t.testStage || t.stage)} · ${caseLabel(t.kind)}</div></td><td class="meta">${t.jointVersion === 92 ? esc(jointLabel(t)) : (historical ? '旧版测试记录' : '旧版测试，需联合重测')}</td><td>${pill(!historical && !recordIsCurrent(t) ? '待重测' : t.accepted ? '通过' : t.reviewed ? '未通过' : '待核对')}</td><td><button class="link" onclick="showTest('${t.id}')">查看</button></td></tr>`).join('')}</table></div>` : '<div class="empty">保存草稿后，选择具体账号及已有角色联合试问。<br>覆盖正常问题、限制命中、未授权和数据不足。</div>'; }
+function overlay(title, body, foot = '', wide = false) { $('overlay').innerHTML = '<div class="drawer-cover"><section class="drawer ' + (wide ? 'wide' : '') + '" role="dialog" aria-label="' + esc(title) + '"><header class="drawer-head"><h2>' + esc(title) + '</h2><button class="close" aria-label="关闭面板" onclick="closePanel()">×</button></header><div class="drawer-body" id="panelBody">' + body + '</div><footer class="drawer-foot">' + foot + '</footer></section></div>'; }
+function closePanel() { if (acting) {
+    toast('正在保存，请稍候');
+    return;
+} $('overlay').innerHTML = ''; ticketUI = null; }
+function modal(title, body, foot = '') { $('dialog').innerHTML = '<div class="modal-cover"><section class="modal" role="dialog" aria-label="' + esc(title) + '"><div class="between"><h2>' + esc(title) + '</h2><button class="close" aria-label="关闭弹窗" onclick="closeDialog()">×</button></div>' + body + '<div class="flex" style="justify-content:flex-end;margin-top:20px">' + foot + '</div></section></div>'; }
+function closeDialog() { $('dialog').innerHTML = ''; }
+function showPublished() { const v = activeVersion(); modal('当前生效内容', v ? `<p class="meta">${maintenanceName()} V${v.number} · ${esc(v.by)} · ${esc(v.at)}</p>${maintenanceType === 'limits' ? limitFields(v, true) : `<h3>回答要求</h3><div class="code">${esc(v.content)}</div><h3 style="margin-top:18px">输出格式</h3><div class="code">${esc(v.format)}</div>`}` : '<div class="empty">当前维护范围尚无生效版本。</div>'); }
+function openHistory() { const b = maintenanceBucket(); overlay(maintenanceName() + ' · 历史版本', b.versions.length ? b.versions.slice().reverse().map(v => `<div class="history-item"><div class="between"><h3>V${v.number} ${pill(v.id === b.activeId ? '已发布' : '历史')}</h3><button class="small" onclick="restoreVersion('${v.id}')">恢复为新草稿</button></div><p class="meta">${esc(v.by)} · ${esc(v.at)}<br>${esc(v.reason)}</p><details><summary>查看版本内容</summary>${maintenanceType === 'limits' ? limitFields(v, true) : `<div class="code">${esc(v.content)}\n\n输出格式：${esc(v.format)}</div>`}</details>${v.tests?.length ? `<details style="margin-top:12px"><summary>发布时的联合测试（只读）</summary>${testsTable(state.tests.filter(t => v.tests.includes(t.id)), true)}</details>` : ''}</div>`).join('') : '<div class="empty">暂无发布历史</div>', '<span class="meta">仅恢复当前范围为新草稿，重新联合测试后再发布。</span>'); }
+function testAccount() { return actor(tester.accountId); }
+function openTester() { if (dirty || !working.revision) {
+    toast('请先保存草稿，再开始联合试问');
+    return;
+} tester.testStage = testStage(); tester.result = null; selectStageAccount(); setTestKind(tester.kind, false); renderTester(); }
+function renderTester() { const p = testAccount(), roles = rolesOf(p), s = testStage(), joint = jointBundle(s), other = companionStamp(s); tester.roles = tester.roles.filter(r => roles.includes(r)); if (!tester.roles.length)
+    tester.roles = [roles[0]]; overlay(maintenanceName() + ' · 联合试问', `<div class="hint amber">已连接学校真实数据和模型服务。测试始终读取具体账号实际授权，不使用运营管理员权限。</div><div class="joint-summary"><b>本次联合版本</b><div>${s}学段提示词 ${versionLabel(joint.prompts[s])} ＋ 全校回答限制 ${versionLabel(joint.limits)}</div><small>${maintenanceType === 'limits' ? '正在测试全校限制草稿，学段提示词取生效版。' : '正在测试本学段提示词草稿，全校限制取生效版。'}</small></div>${!other ? `<div class="hint red">${s}缺少${maintenanceType === 'limits' ? '生效学段提示词' : '全校生效回答限制'}。可记录缺失结果，但不能标记通过，请先完成另一类内容发布。</div>` : ''}${maintenanceType === 'limits' ? `<label class="label" for="testStageSelect">测试学段</label><select id="testStageSelect" style="width:100%" onchange="changeTestStage(this.value)">${Object.keys(state.stages).map(g => `<option ${g === s ? 'selected' : ''}>${g}</option>`).join('')}</select>` : ''}<div class="formgrid"><div><label class="label" for="accountSearch">测试账号 <span class="required">*</span></label><input id="accountSearch" placeholder="输入姓名、账号或教师 / 学生ID，支持模糊搜索" value="${esc(tester.search)}" oninput="searchAccounts(this.value)"><div id="accountMatches"></div><div class="selected-account">已选 ${esc(p.name)} · ${esc(p.stableId || p.id)} · ${esc(p.account)}</div></div><div><label class="label">测试角色（可兼任）</label>${roles.map(r => `<label class="check"><input type="checkbox" ${tester.roles.includes(r) ? 'checked' : ''} onchange="toggleRole('${r}',this.checked)">${r}</label>`).join('')}<button class="link" style="display:block;margin-top:8px" onclick="showRoleFields()">查看档案字段依据</button></div></div><div class="hint">${esc(ENGINE.scope(p).map(e => e.name + '：' + e.subjects.join('、')).join('；') || '该账号没有已开放的考试数据。正常问题可验证澄清与引导，数据问题应说明资料不足。')}<br>角色视角不增加查询权限，也不能放宽全校回答限制。</div><label class="label" for="testKind">本次验证场景</label><select id="testKind" style="width:100%" onchange="setTestKind(this.value)">${['authorized', 'limited', 'unauthorized', 'missing'].map(k => `<option value="${k}" ${tester.kind === k ? 'selected' : ''}>${caseLabel(k)}</option>`).join('')}</select><label class="label" for="testQuestion">试问内容</label><textarea id="testQuestion" oninput="tester.query=this.value">${esc(tester.query)}</textarea><div class="flex" style="justify-content:flex-end;margin-top:13px"><button class="primary" onclick="runTest()">开始联合试问</button></div><div id="testResult">${tester.result ? testResultHTML(tester.result) : ''}</div>`, `<span class="meta">记录维护类型、学段、联合版本、账号、角色及结果。</span><button onclick="closePanel()">完成本次测试</button>`, true); }
+function searchAccounts(q) { tester.search = q; const hits = ENGINE.accounts.filter(p => (p.name + ' ' + p.id + ' ' + p.stableId + ' ' + p.account).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 12); $('accountMatches').innerHTML = q ? '<div class="matches">' + hits.map(p => '<button onclick="selectAccount(\'' + p.id + '\')">' + esc(p.name) + ' · ' + esc(p.stableId || p.id) + '<span class="meta"> · ' + esc(p.account) + ' · ' + (p.role === 'teacher' ? '教师' : '学生') + '</span></button>').join('') + (!hits.length ? '<div class="empty">没有匹配账号</div>' : '') + '</div>' : ''; }
+function selectAccount(id) { if (!actor(id))
+    return; tester.accountId = id; tester.roles = rolesOf(actor(id)); tester.search = ''; tester.result = null; setTestKind(tester.kind, false); renderTester(); }
+function toggleRole(role, on) { if (!rolesOf(testAccount()).includes(role))
+    return; tester.roles = on ? [...new Set([...tester.roles, role])] : tester.roles.filter(r => r !== role); tester.result = null; $('testResult').innerHTML = ''; }
+function showRoleFields() { const p = testAccount(), fields = BACKEND.teacherArchives.find(t => t.id === p.id)?.fields || {}; modal('测试身份的档案依据', p.role === 'student' ? '<div class="hint">按学生ID ' + esc(p.stableId || p.id) + ' 定位，只读取本人已开放考试数据。</div>' : '<p class="meta">兼任保留所有命中角色；说明和备注不参与角色生成。</p><table><tr><th>角色</th><th>档案字段</th><th>字段值</th></tr>' + ROLE_FIELDS.map(([r, f]) => '<tr><td>' + r + '</td><td>' + f + '</td><td>' + esc(fields[f] || '—') + '</td></tr>').join('') + '</table>'); }
+function testResultHTML(t) { return `<div class="divider"></div><div class="between"><h3 style="margin:0">联合试问结果</h3>${pill(!recordIsCurrent(t) ? '待重测' : t.accepted ? '通过' : t.reviewed ? '未通过' : '待核对')}</div><p class="meta">${esc(jointLabel(t))}<br>账号 ${esc(t.accountName)} · ${esc(t.accountDisplayId || t.accountId)} · 角色 ${esc(t.roles.join('、'))}</p>${t.answer.restrictionHit ? '<div class="hint amber">命中回答限制：' + esc(t.answer.restrictionReason) + '。未向用户展示受限数据或内容。</div>' : ''}<div class="result">${esc(t.answer.text)}${t.answer.table ? '\n\n' + t.answer.table.map(r => r.subject + '：' + r.score + ' / ' + r.max + (r.count > 1 ? ' · ' + r.count + '人平均' : '')).join('\n') : ''}</div>${sourceButtons(t.answer.sources, 'test', t.id)}<label class="label" for="testReviewNote">核对说明（未通过时必填）</label><input id="testReviewNote" value="${esc(t.note || '')}" placeholder="核对正常问题无误拦截、限制生效、权限及数据来源"><div class="flex" style="margin-top:14px"><button onclick="reviewTest('${t.id}',false)">记录问题，继续修改</button><button class="primary" onclick="reviewTest('${t.id}',true)" ${t.serviceFailure || !recordIsCurrent(t) ? 'disabled' : ''}>核对通过</button></div>`; }
+function showTest(id) { const t = state.tests.find(t => t.id === id); if (!t)
+    return; modal('联合测试记录', `<div class="summary-row"><span>维护范围</span><span>${t.maintenanceType === 'limits' ? '全校回答限制（所有学段）' : (t.stage || '') + '学段提示词'}</span></div><div class="summary-row"><span>测试身份</span><span>${esc(t.accountName)} · ${esc(t.accountDisplayId || t.accountId)} · ${esc(t.roles.join('、'))}</span></div><div class="summary-row"><span>联合版本</span><span>${t.jointVersion === 92 ? esc(jointLabel(t)) : '旧版记录，发布前需重新联合测试'}</span></div><div class="summary-row"><span>试问</span><span>${esc(t.query)}</span></div><div class="result">${esc(t.answer.text)}${t.answer.table ? '\n' + t.answer.table.map(r => r.subject + ' ' + r.score + '/' + r.max).join('；') : ''}</div>${sourceButtons(t.answer.sources, 'test', t.id)}<p class="meta">${t.at} · 核对：${t.accepted ? '通过' : t.reviewed ? '未通过' : '待核对'} · ${esc(t.note || '')}</p>`); }
+function sourceButtons(refs, context, id) { return (refs || []).map((ref, index) => '<button class="source" onclick="openSource(\'' + context + '\',\'' + id + '\',' + index + ')">↗ ' + esc(ref.kind === 'report' ? '报告 ' + ref.reportId + ' · v' + ref.version : '考务管理 · ' + ref.examId + ' · ' + (BACKEND.exams.find(e => e.id === ref.examId)?.subjects.find(s => s.k === ref.subject)?.n || ref.subject)) + '</button>').join(''); }
+function filteredTickets() { return tickets.filter(t => (!filters.status || t.status === filters.status) && (!filters.query || (t.id + ' ' + t.question + ' ' + (actor(t.actorId)?.name || t.actorId)).toLowerCase().includes(filters.query.toLowerCase()))); }
+function renderQueue() { const rows = filteredTickets(); $('main').innerHTML = '<div class="between" style="margin-bottom:20px"><div><h2>人工留言</h2><p class="meta" style="margin:0">核对提交人当前权限后回复，用户可在小程序查看办理进度。</p></div><button onclick="reloadQueue()">刷新留言</button></div><div class="queue-stats">' + ['待处理', '处理中', '已回复', '已关闭'].map(s => '<div class="stat"><b>' + tickets.filter(t => t.status === s).length + '</b><span>' + s + '</span></div>').join('') + '</div><div class="card" style="margin-top:20px"><div class="toolbar"><input aria-label="搜索留言" style="width:340px" placeholder="搜索留言ID、提交人、问题关键词" value="' + esc(filters.query) + '" oninput="filterQueue(\'query\',this.value)"><select aria-label="留言状态" onchange="filterQueue(\'status\',this.value)"><option value="">全部状态</option>' + ['待处理', '处理中', '已回复', '已关闭'].map(s => '<option ' + (filters.status === s ? 'selected' : '') + '>' + s + '</option>').join('') + '</select><span class="meta">共 ' + rows.length + ' 条 · 本校范围</span></div><div class="tablewrap"><table><thead><tr><th>问题 / 留言ID</th><th>提交人</th><th>关联考试与对象</th><th>状态 / 领取人</th><th>更新时间</th><th>操作</th></tr></thead><tbody>' + rows.map(t => { const a = actor(t.actorId), examIds = [...new Set((t.sources || []).map(r => r.examId))]; return '<tr><td style="min-width:220px;max-width:360px"><strong>' + esc(flags.revoked || t.currentAllowed === false ? '权限已变化，仅可核对办理状态' : t.question.slice(0, 70)) + '</strong><div class="meta">' + esc(t.id) + ' ' + (t.demo ? pill('演示') : '') + '</div></td><td>' + esc(a?.name || t.actorName || t.actorId) + '<div class="meta">' + esc(t.role === 'teacher' ? '教师' : '学生') + ' · ' + esc(t.stableId || t.actorId) + '</div></td><td class="meta">' + esc(examIds.map(id => BACKEND.exams.find(e => e.id === id)?.name || id).join('；') || '待核对具体考试') + '<div>' + esc((t.sources || []).map(r => r.target || r.reportId || '').filter(Boolean).join('、')) + '</div></td><td>' + pill(t.status) + '<div class="meta">' + esc(t.assignee?.name || '未领取') + '</div></td><td class="meta">' + esc(t.updatedAt) + '</td><td><button class="link" onclick="openTicket(\'' + t.id + '\')">' + (t.status === '待处理' ? '查看并领取' : '查看详情') + '</button></td></tr>'; }).join('') + '</tbody></table></div>' + (!rows.length ? '<div class="empty">没有匹配的本校留言。<br>点击刷新读取本校最新留言。</div>' : '') + '</div>'; }
+function filterQueue(key, value) { filters[key] = value; renderQueue(); if (key === 'query') {
+    const input = document.querySelector('[aria-label="搜索留言"]');
+    input?.focus();
+    input?.setSelectionRange(value.length, value.length);
+} }
+async function reloadQueue() { try {
+    await refreshTickets();
+    renderQueue();
+    toast('已读取当前留言与办理状态');
+}
+catch (e) {
+    toast('刷新失败：' + e.message);
+} }
+function uniqueRefs(refs) { const m = new Map(); for (const ref of refs)
+    m.set(JSON.stringify(ref), ref); return [...m.values()]; }
+function currentTicket() { return tickets.find(t => t.id === ticketUI?.id); }
+function ticketRefs(t = currentTicket()) { return uniqueRefs([...(t?.sources || []), ...(t?.context || []).flatMap(m => m.sources || []), ...(ticketUI?.extraRefs || [])]); }
+function canHandle(t) { return t.status === '处理中' && t.assignee?.id === OP.id; }
+function feedbackPair(t) { let q = (t.context || []).find(m => m.role === 'user'), a = (t.context || []).find(m => m.role === 'assistant'); if (t.feedbackMessageId && (!q || !a)) {
+    const s = miniState?.sessions.find(s => s.id === t.sessionId && s.owner === t.owner), i = s?.messages.findIndex(m => m.id === t.feedbackMessageId) ?? -1;
+    if (i > 0) {
+        q = s.messages[i - 1];
+        a = s.messages[i];
+    }
+} return { question: q?.text, answer: a?.text }; }
+function protectReplyDraft() { if (!ticketUI)
+    return; if (!ticketUI.allowed && ticketUI.replyKind === 'data') {
+    ticketUI.restrictedDraft = { reply: ticketUI.reply, selected: copy(ticketUI.selected), replyKind: ticketUI.replyKind };
+    ticketUI.reply = '';
+    ticketUI.selected = [];
+    ticketUI.replyKind = 'permission';
+}
+else if (ticketUI.allowed && ticketUI.restrictedDraft && !ticketUI.reply.trim()) {
+    Object.assign(ticketUI, ticketUI.restrictedDraft);
+    delete ticketUI.restrictedDraft;
+} }
+function renderTicketPanel() { protectReplyDraft(); const t = currentTicket(); if (!t)
+    return; const a = actor(t.actorId), allowed = ticketUI.allowed, pair = allowed ? feedbackPair(t) : {}, handle = canHandle(t), refs = ticketRefs(t); overlay('人工留言 · ' + t.id, '<div class="between"><div class="flex">' + pill(t.status) + (t.demo ? pill('演示留言') : '') + '</div><span class="meta">' + esc(t.assignee?.name || '尚未领取') + '</span></div><div class="formgrid" style="margin:18px 0"><div><h3>' + esc(a?.name || t.actorName || t.actorId) + ' <span class="meta">' + (t.role === 'teacher' ? '教师' : '学生') + '</span></h3><div class="meta">' + esc(t.stableId || t.actorId) + ' · ' + esc(a?.account || '未知账号') + '<br>' + esc(t.createdAt) + '</div></div><div><div class="meta">关联会话：' + esc(t.sessionId || '无') + '<br>学校：' + esc(OP.school) + '</div></div></div><div class="hint ' + (allowed ? 'green' : 'red') + '">' + (allowed ? '当前按提交人 ' + esc(a?.name || t.actorName || t.actorId) + ' 的权限核对。运营管理员自身范围不用于答复。' : '提交人已无相关数据权限或来源版本已变化。相关问题、上下文及数据型回复已隐藏，只保留办理状态。') + '</div>' + (allowed ? '<h3>核查问题</h3><div class="code">' + esc(t.question) + '</div>' + ((pair.question || pair.answer) ? '<div class="hint"><b>关联原问题与回答摘要</b><p>原问题：' + esc(pair.question || '未附带') + '</p><p>回答摘要：' + esc((pair.answer || '未附带').slice(0, 240)) + '</p></div>' : '') + ((t.context || []).length && !t.feedbackMessageId ? '<details><summary>查看提交时附带的上下文</summary><div class="code">' + t.context.map(m => esc((m.role === 'user' ? '用户：' : '助手：') + m.text)).join('\n\n') + '</div></details>' : '') : '') + '<div class="divider"></div><h3>办理记录</h3>' + t.events.map(e => '<div class="event"><b>' + esc(e.role === 'operator' ? (e.by || '运营管理员') : e.role === 'system' ? '状态记录' : '提交人') + '</b><time>' + esc(e.at) + '</time>' + esc(allowed || e.role === 'system' ? e.text : '数据内容已隐藏') + '</div>').join('') + (handle ? '<div class="divider"></div><h3>查阅来源</h3><p class="meta">只查阅该提交人当前获准的成绩与报告。此处不修改原数据及授权。</p>' + (allowed ? sourceButtons(refs, 'ticket', t.id) + '<div class="toolbar"><input id="ticketQuery" style="flex:1" aria-label="核查数据问题" placeholder="例如：我期中语文成绩或诊断报告" value="' + esc(ticketUI.query) + '" oninput="ticketUI.query=this.value"><button onclick="queryTicketData()">按提交人权限查询</button></div><div id="ticketQueryResult">' + (ticketUI.queryResult ? '<div class="result">' + esc(ticketUI.queryResult.text) + (ticketUI.queryResult.table ? '\n' + ticketUI.queryResult.table.map(r => r.subject + ' ' + r.score + '/' + r.max).join('；') : '') + '</div>' : '') + '</div>' : '<div class="hint">可说明权限或资料缺失情况，引导用户到对应模块办理；不得补写被隐藏的数据。</div>') + '<div class="divider"></div><h3>编辑人工回复</h3><label class="label" for="replyKind">回复说明类型</label><select id="replyKind" style="width:100%" onchange="ticketUI.replyKind=this.value">' + [['data', '数据核查结论'], ['insufficient', '资料不足，说明缺少内容'], ['permission', '权限范围说明'], ['routing', '指引对应模块办理']].map(([k, n]) => '<option value="' + k + '" ' + (ticketUI.replyKind === k ? 'selected' : '') + '>' + n + '</option>').join('') + '</select><label class="label" for="replyText">回复内容 <span class="required">*</span></label><textarea id="replyText" style="min-height:170px" placeholder="针对本次问题回复；数据结论须写明考试、科目和成绩或报告来源。" oninput="ticketUI.reply=this.value">' + esc(ticketUI.reply) + '</textarea>' + (allowed && refs.length ? '<div class="label">本次回复引用来源（数据结论必选）</div>' + refs.map((r, i) => '<label class="check" style="display:flex"><input type="checkbox" ' + (ticketUI.selected.includes(JSON.stringify(r)) ? 'checked' : '') + ' onchange="toggleReplyRef(' + i + ',this.checked)">' + esc(r.kind === 'report' ? '报告 ' + r.reportId : r.examId + ' · ' + (BACKEND.exams.find(e => e.id === r.examId)?.subjects.find(s => s.k === r.subject)?.n || r.subject)) + '</label>').join('') : '') + '<div class="hint amber">涉及成绩、报告或档案更正时，请说明“考务管理／报告管理／教师档案／学生档案”办理入口，不在此处修改。</div>' : '') + (t.status === '已关闭' ? '<div class="hint">用户已结束本次办理，记录保留。后台不能代用户重新打开。</div>' : t.status === '已回复' ? '<div class="hint">已回复，等待用户查看。用户追加问题会回到待处理；用户确认后为已关闭。</div>' : ''), '<span class="meta">' + (handle ? '先预览核对，再保存发送。' : '领取人：' + esc(t.assignee?.name || '无')) + '</span><div class="flex">' + (t.status === '待处理' || t.status === '处理中' && !t.assignee ? '<button class="primary" onclick="claimTicket()">' + (t.status === '待处理' ? '领取并处理' : '接手无领取记录的留言') + '</button>' : handle ? '<button onclick="saveReplyDraft()">保存回复草稿</button><button class="primary" onclick="previewReply()">预览并核对回复</button>' : '<button onclick="closePanel()">关闭</button>') + '</div>', true); }
+async function refreshTicket() { if (!ticketUI)
+    return; ticketUI.allowed = await ticketPermission(currentTicket()); renderTicketPanel(); }
+function toggleReplyRef(index, on) { const ref = ticketRefs()[index]; if (!ref)
+    return; const key = JSON.stringify(ref); ticketUI.selected = on ? [...new Set([...ticketUI.selected, key])] : ticketUI.selected.filter(r => r !== key); }
+function selectedReplyRefs() { return ticketRefs().filter(r => ticketUI.selected.includes(JSON.stringify(r))); }
+async function validateReply() { const t = currentTicket(); if (!t || !canHandle(t))
+    throw new Error('仅当前领取人可回复处理中的留言'); if (!ticketUI.reply.trim())
+    throw new Error('请填写回复内容'); if (ticketUI.reply.trim().length > 4000)
+    throw new Error('回复请控制在4000字以内'); const refs = selectedReplyRefs(), allowed = await ticketPermission(t); if (ticketUI.replyKind === 'data' && !allowed)
+    throw new Error('提交人权限或来源已变化，不能发送数据型结论'); if (ticketUI.replyKind === 'data' && !refs.length)
+    throw new Error('数据结论请关联至少一项可核对来源'); const checks = await ENGINE.inspect(actor(t.actorId), refs, { revoked: flags.revoked }); if (checks.some(r => !r.allowed))
+    throw new Error('所选来源当前不可访问，请刷新并重新核对'); return { refs, allowed }; }
+async function previewReply() { if (acting)
+    return; try {
+    const { refs } = await validateReply(), t = currentTicket();
+    modal('核对人工回复', '<p class="meta">' + esc(t.id) + ' · 提交人 ' + esc(actor(t.actorId)?.name || t.actorId) + '</p><h3>回复内容</h3><div class="code">' + esc(ticketUI.reply) + '</div><p class="meta">关联来源：' + (refs.length ? refs.map(r => esc(r.examId + ' · ' + (r.reportId || r.subject))).join('；') : '无数据结论，仅作权限、资料或办理说明') + '</p><label class="check" style="margin-top:15px"><input type="checkbox" id="replyReviewed">已核对回复对象、数据来源及提交人当前权限</label>', '<button onclick="closeDialog()">继续编辑</button><button class="primary" onclick="sendReply()">确认保存并回复</button>');
+}
+catch (e) {
+    toast(e.message);
+} }
+function renderAudit() { const rows = [...state.audit, ...tickets.flatMap(t => t.adminAudit || [])].sort((a, b) => b.at.localeCompare(a.at)); $('main').innerHTML = '<div class="card"><div class="between"><h2>操作记录</h2><span class="meta">操作人、版本、测试和留言状态可追溯</span></div><div class="tablewrap"><table><tr><th>时间</th><th>操作人</th><th>操作</th><th>关联内容</th></tr>' + rows.map(r => '<tr><td>' + r.at + '</td><td>' + esc(r.by) + '<div class="meta">' + esc(r.operatorId) + '</div></td><td>' + esc(r.action) + '</td><td>' + esc(r.detail) + '</td></tr>').join('') + '</table></div>' + (!rows.length ? '<div class="empty">暂无操作记录</div>' : '') + '</div>'; }
+function showRules() { modal('r90 流程与规则', Object.entries(FLOW_RULES).map(([name, flow]) => '<h3 style="margin-top:22px">' + esc(name) + '</h3>' + flow.tabs.flatMap(t => t.rules).map(([title, text]) => '<details style="margin:12px 0"><summary>' + esc(title) + '</summary><p class="meta">' + esc(text) + '</p></details>').join('')).join('')); }
+function maintenanceBucket(s = stage, type = maintenanceType) { return type === 'limits' ? state.limits : state.stages[s]; }
+function maintenanceName() { return maintenanceType === 'limits' ? '全校回答限制' : stage + '学段提示词'; }
+function liveLimits() { return activeVersion(stage, 'limits'); }
+function livePrompt(s) { return activeVersion(s, 'prompt'); }
+function changeMaintenance(type, nextStage = stage) { if (dirty) {
+    toast('请先保存当前草稿，再切换维护内容');
+    return;
+} maintenanceType = type; stage = nextStage; tester.testStage = stage; setWorking(); renderPrompts(); }
+function validWorking() { return maintenanceType === 'limits' ? (working.topics?.length > 0 && String(working.boundaryMessage || '').trim()) : !!working.content?.trim() && !!working.format?.trim(); }
+function editLimitChoice(group, value, on) { const values = new Set(working[group] || []); on ? values.add(value) : values.delete(value); editDraft(group, [...values]); }
+function jointBundle(testStage = tester.testStage || stage) { return { testStage, prompts: Object.fromEntries(Object.keys(state.stages).map(s => [s, maintenanceType === 'prompt' && s === stage ? { ...copy(working), mode: 'draft' } : livePrompt(s)])), limits: maintenanceType === 'limits' ? { ...copy(working), mode: 'draft' } : liveLimits() }; }
+function companionStamp(testStage = tester.testStage || stage) { const other = maintenanceType === 'limits' ? livePrompt(testStage) : liveLimits(); return other ? { maintenanceType: maintenanceType === 'limits' ? 'prompt' : 'limits', stage: maintenanceType === 'limits' ? testStage : null, id: other.id, number: other.number } : null; }
+function recordIsCurrent(t) { const other = companionStamp(t.testStage || t.stage); return !!other && t.jointVersion === 92 && t.companion?.id === other.id; }
+function coverageHTML() { const r = readiness(), stages = maintenanceType === 'limits' ? Object.keys(state.stages) : [stage]; return `<div class="coverage"><table><tr><th>测试学段</th>${['authorized', 'limited', 'unauthorized', 'missing'].map(k => `<th>${caseLabel(k)}</th>`).join('')}</tr>${stages.map(s => `<tr><td>${s}</td>${['authorized', 'limited', 'unauthorized', 'missing'].map(k => `<td>${r.tests.some(t => (t.testStage || t.stage) === s && t.kind === k) ? pill('通过') : pill('待测试')}</td>`).join('')}</tr>`).join('')}</table></div>`; }
+function limitFields(v, readonly = false) {
+    if (readonly)
+        return `<h3>可答主题</h3><div class="code">${esc(window.AnswerPolicy.topics.filter(t => v.topics?.includes(t.id)).map(t => t.name).join('、') || '无')}</div><h3 style="margin-top:18px">禁止输出内容</h3><div class="code">${esc(window.AnswerPolicy.prohibitions.filter(t => v.prohibitions?.includes(t.id)).map(t => t.name).join('\n') + (v.customProhibited ? '\n' + v.customProhibited : ''))}</div><h3 style="margin-top:18px">边界提示语</h3><div class="code">${esc(v.boundaryMessage)}</div>`;
+    return `<label class="label">可答主题 <span class="required">*</span></label><div class="topic-options">${window.AnswerPolicy.topics.map(t => `<label class="check"><input type="checkbox" ${v.topics?.includes(t.id) ? 'checked' : ''} onchange="editLimitChoice('topics','${t.id}',this.checked)">${t.name}</label>`).join('')}</div><label class="label">禁止输出内容</label><div class="topic-options">${window.AnswerPolicy.prohibitions.map(t => `<label class="check" style="display:flex"><input type="checkbox" ${v.prohibitions?.includes(t.id) ? 'checked' : ''} onchange="editLimitChoice('prohibitions','${t.id}',this.checked)">${t.name}</label>`).join('')}</div><label class="label" for="customProhibited">补充禁止内容</label><textarea id="customProhibited" rows="3" placeholder="可补充本校禁止提供的内容，每行一项" oninput="editDraft('customProhibited',this.value)">${esc(v.customProhibited)}</textarea><label class="label" for="boundaryMessage">命中限制时的提示语 <span class="required">*</span></label><textarea id="boundaryMessage" rows="3" oninput="editDraft('boundaryMessage',this.value)">${esc(v.boundaryMessage)}</textarea>`;
+}
+function versionLabel(v) { if (!v)
+    return '缺少生效版'; return v.mode === 'draft' ? 'D' + v.revision : 'V' + v.number; }
+function jointLabel(t) { return `学段提示词 ${t.testStage || t.stage} ${versionLabel(t.versions?.prompt)} ＋ 全校限制 ${versionLabel(t.versions?.limits)}`; }
+function accountStages(p) { if (p.role === 'student')
+    return p.grade?.startsWith('初中') ? ['初中'] : p.grade?.startsWith('小学') ? ['小学'] : ['高中']; const f = BACKEND.teacherArchives.find(a => a.id === p.id)?.fields || {}, text = [f['任课年级班级'], f['班主任年级班级'], f['教研组长负责年级科目'], f['年级长负责年级'], p.grade].join(' '), a = []; if (/初中|初[一二三]|(?:^|[\s:,;])(?:7|8|9)\./.test(text))
+    a.push('初中'); if (/高中|高[一二三]|(?:^|[\s:,;])(?:10|11|12)\./.test(text))
+    a.push('高中'); return a; }
+function testStage() { return maintenanceType === 'prompt' ? stage : tester.testStage || stage; }
+function selectStageAccount() { const selected = testStage(), current = testAccount(); if (accountStages(current).length && !accountStages(current).includes(selected)) {
+    const candidate = ENGINE.accounts.find(p => p.status === '正常' && accountStages(p).includes(selected));
+    if (candidate) {
+        tester.accountId = candidate.id;
+        tester.roles = rolesOf(candidate);
+    }
+} }
+function changeTestStage(value) { if (maintenanceType !== 'limits' || !state.stages[value])
+    return; tester.testStage = value; tester.result = null; selectStageAccount(); setTestKind(tester.kind, false); renderTester(); }

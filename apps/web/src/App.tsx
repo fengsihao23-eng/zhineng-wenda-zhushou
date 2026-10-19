@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { ChatContainer } from './components/ChatContainer'
 import { Login } from './pages/Login'
 import { ChangePassword } from './pages/ChangePassword'
 import { RoleGate } from './components/RoleGate'
@@ -13,11 +12,11 @@ import { ImportWorkbenchPage } from './features/education/ImportWorkbench'
 import { PaperWorkbenchPage, PaperSplitPage } from './features/education/PaperWorkbench'
 import { QuestionWorkbenchPage } from './features/education/QuestionWorkbench'
 import { SourcesWorkbenchPage } from './features/education/EvidenceWorkbench'
+import { AnswerWorkbenchPage } from './features/education/AnswerWorkbench'
 import { ReportWorkbenchPage } from './features/education/ReportWorkbench'
-import { ErrorBoundary, ErrorDisplay } from './components/ErrorDisplay'
-import { AppShell } from './layouts/AppShell'
+import { ErrorBoundary } from './components/ErrorDisplay'
 import { getUserInfo } from './utils/auth'
-import { useAuthScope, useChatSessions, useCreateChatSession, useDeleteChatSession } from './hooks/useApi'
+import { useAuthScope } from './hooks/useApi'
 import {
   StudentDashboardPage,
   StudentDiagnosisPage,
@@ -38,74 +37,6 @@ import {
   StudentRosterPage,
 } from './pages/ManagementPages'
 
-function ChatPage() {
-  const { data: sessions, isLoading, error, refetch } = useChatSessions()
-  const createSession = useCreateChatSession()
-  const deleteSession = useDeleteChatSession()
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const creatingRef = useRef(false)
-  const createSessionMutation = createSession.mutate
-
-  // 没有会话时自动创建一个，保证聊天窗口可用。
-  useEffect(() => {
-    if (!sessions || sessions.length > 0 || sessionId || actionError || creatingRef.current) return
-    creatingRef.current = true
-    createSessionMutation({}, {
-      onSuccess: created => { creatingRef.current = false; setSessionId(created.id) },
-      onError: err => { creatingRef.current = false; setActionError(err.message || '无法创建会话') },
-    })
-  }, [sessions, sessionId, actionError, createSessionMutation])
-
-  const activeSessionId = sessionId || sessions?.[0]?.id || null
-
-  const handleNewSession = () => {
-    setActionError(null)
-    createSession.mutate({}, {
-      onSuccess: created => setSessionId(created.id),
-      onError: err => setActionError(err.message || '无法创建会话'),
-    })
-  }
-
-  const handleArchiveSession = () => {
-    if (!activeSessionId) return
-    setActionError(null)
-    deleteSession.mutate(activeSessionId, {
-      onSuccess: () => {
-        const remaining = (sessions || []).filter(session => session.id !== activeSessionId)
-        setSessionId(remaining[0]?.id ?? null)
-      },
-      onError: err => setActionError(err.message || '无法结束会话'),
-    })
-  }
-
-  if (isLoading) return <div className="loading-screen">正在准备你的学习会话…</div>
-
-  if (error) {
-    return <div className="chat-error-screen"><ErrorDisplay error={error} title="无法加载会话" onRetry={() => { void refetch() }} /></div>
-  }
-
-  if (!activeSessionId) return <AppShell bleed title="智能问答" eyebrow="学生空间 / 智能问答">
-    {actionError ? <ErrorDisplay error={actionError} title="无法创建会话" onRetry={handleNewSession} /> : <div className="loading-screen">正在准备你的学习会话…</div>}
-  </AppShell>
-
-  return (
-    <AppShell bleed title="智能问答" eyebrow="学生空间 / 智能问答">
-      <div className="chat-page-frame">
-        {actionError && <ErrorDisplay error={actionError} title="操作失败" onDismiss={() => setActionError(null)} variant="banner" />}
-        <ChatContainer
-          key={activeSessionId}
-          sessionId={activeSessionId}
-          sessions={sessions || []}
-          onSelectSession={setSessionId}
-          onNewSession={handleNewSession}
-          onArchiveSession={handleArchiveSession}
-        />
-      </div>
-    </AppShell>
-  )
-}
-
 function App() {
   const scope = useAuthScope()
   const HomeRedirect = () => {
@@ -122,7 +53,10 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<RoleGate><HomeRedirect /></RoleGate>} />
-            <Route path="/chat" element={<RoleGate allowed={STUDENT_ROLES}><ChatPage /></RoleGate>} />
+            <Route path="/mini" element={<AnswerWorkbenchPage />} />
+            <Route path="/chat" element={<RoleGate allowed={[...STUDENT_ROLES, ...TEACHER_ROLES]}><AnswerWorkbenchPage /></RoleGate>} />
+            <Route path="/teacher/chat" element={<RoleGate allowed={TEACHER_ROLES}><AnswerWorkbenchPage /></RoleGate>} />
+            <Route path="/admin/prompts" element={<RoleGate allowed={['SCHOOL_ADMIN', 'SUPER_ADMIN']}><AnswerWorkbenchPage mode="admin" /></RoleGate>} />
             <Route path="/profile" element={<RoleGate allowed={STUDENT_ROLES}><ProfilePage /></RoleGate>} />
             <Route path="/trends" element={<RoleGate allowed={STUDENT_ROLES}><StudentTrendsPage /></RoleGate>} />
             <Route path="/exam-results" element={<RoleGate allowed={STUDENT_ROLES}><ExamResultsPage /></RoleGate>} />

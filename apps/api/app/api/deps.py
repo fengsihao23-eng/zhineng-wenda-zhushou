@@ -135,7 +135,7 @@ async def get_current_user(
     if "TEACHER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR", "QA", "EXAM_ADMIN"}.intersection(roles):
         from app.core.exam_access import bind_teacher
         bind_teacher(db, user.school_id, user.id)
-    if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password":
+    if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password" and not request.url.path.startswith(("/api/v1/answer-workbench/mini/", "/api/v1/answer-workbench/tickets", "/api/v1/answer-workbench/sources/")):
         raise HTTPException(status_code=403, detail="当前职务仅有全校数据查看权限。", headers={"X-Error-Code": "SCHOOL_READ_ONLY"})
 
     return AuthenticatedUser(
