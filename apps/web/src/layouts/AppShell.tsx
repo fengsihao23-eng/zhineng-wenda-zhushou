@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { NavIcon } from '../components/NavIcon'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { clearAuth, getUserInfo, getToken, UserInfo } from '../utils/auth'
 import { logoutApi } from '../services/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
@@ -9,7 +9,13 @@ import './AppShell.css'
 
 type NavItem = { path: string; label: string; icon: string; group?: string }
 
-const schoolWorkbenchNavItem: NavItem = { path: '/admin/school', label: '师生班级与考试', icon: 'users', group: '业务生产' }
+const examNavItem: NavItem = { path: '/admin/school?tab=exam-management', label: '考务管理', icon: 'file' }
+const schoolNavItems: NavItem[] = [
+  { path: '/admin/school?tab=teachers', label: '教师档案', icon: 'users' },
+  { path: '/admin/school?tab=students', label: '学生档案', icon: 'users' },
+  examNavItem,
+  { path: '/admin/reports', label: '报告管理', icon: 'file' },
+]
 
 export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' {
   const roles = user?.roles || []
@@ -40,21 +46,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
     { path: '/teacher/risks', label: '风险事件', icon: '△' },
     { path: '/teacher/feedback', label: '反馈运营', icon: '♡' },
   ],
-  school: [
-    { path: '/admin', label: '学校总览', icon: '◈' },
-    schoolWorkbenchNavItem,
-    { path: '/admin/imports', label: '成绩导入', icon: 'upload' },
-    { path: '/admin/papers', label: '试卷与拆题', icon: 'file' },
-    { path: '/admin/questions', label: '题库与知识点', icon: 'tree' },
-    { path: '/admin/sources', label: '旧资料与来源', icon: 'file' },
-    { path: '/admin/analysis', label: '班级分析', icon: 'chart', group: '教学分析' },
-    { path: '/admin/students', label: '学生学情', icon: 'users' },
-    { path: '/admin/reports', label: '报告管理', icon: 'file' },
-    { path: '/admin/knowledge', label: '知识文档治理', icon: 'file', group: '运营治理' },
-    { path: '/admin/feedback', label: '反馈运营', icon: '♡' },
-    { path: '/admin/risks', label: '风险看板', icon: '△' },
-    { path: '/admin/prompts', label: '提示词及人工', icon: '✦' },
-  ],
+  school: schoolNavItems,
   city: [
     { path: '/ops', label: '市级总览', icon: '◈' },
     { path: '/ops/schools', label: '学校运营', icon: '⌁' },
@@ -69,12 +61,15 @@ const roleLabels = { student: '学生空间', teacher: '教师工作台', school
 
 export function AppShell({ children, title, eyebrow, bleed = false }: { children: React.ReactNode; title?: string; eyebrow?: string; bleed?: boolean }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = getUserInfo()
   const role = roleOf(user)
   const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
-  const baseNavItems = examAdminOnly ? [schoolWorkbenchNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [schoolWorkbenchNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, schoolWorkbenchNavItem, { path: '/admin/prompts', label: '提示词及人工', icon: '✦' }] : navByRole[role]
-  const unfilteredNavItems = role !== 'teacher' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
+  const baseNavItems = examAdminOnly ? [examNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [examNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, ...schoolNavItems, { path: '/admin/prompts', label: '提示词及人工', icon: '✦' }] : navByRole[role]
+  const unfilteredNavItems = role === 'city' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
   const navItems = unfilteredNavItems.filter(item => (item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA'].includes(r))) && (item.path !== '/admin/prompts' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN'].includes(r))))
+  const schoolTab = location.pathname === '/admin/school' ? new URLSearchParams(location.search).get('tab') : location.pathname.startsWith('/admin/school/') ? location.pathname.split('/')[3] : null
+  const currentSchoolPath = schoolTab ? `/admin/school?tab=${schoolTab}` : null
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
   const serviceState = health.isLoading ? 'loading' : health.error ? 'unavailable' : health.data?.model?.real_model_ready ? 'ready' : 'model_pending'
   const [collapsed, setCollapsed] = useState(() => {
@@ -146,7 +141,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
         <nav className="side-nav">
           {navItems.map(item => (
             <React.Fragment key={item.path}>{item.group && <div className="side-nav__group">{item.group}</div>}
-            <NavLink onClick={() => setMobileOpen(false)} to={item.path} end={['/', '/teacher', '/admin', '/ops'].includes(item.path)} title={item.label} className={({ isActive }) => `side-nav__item ${isActive ? 'is-active' : ''}`}>
+            <NavLink onClick={() => setMobileOpen(false)} to={item.path} end={['/', '/teacher', '/admin', '/ops'].includes(item.path)} title={item.label} aria-current={item.path.startsWith('/admin/school?') && item.path !== currentSchoolPath ? false : 'page'} className={({ isActive }) => `side-nav__item ${(item.path.startsWith('/admin/school?') ? item.path === currentSchoolPath : isActive) ? 'is-active' : ''}`}>
               <span className="side-nav__icon"><NavIcon name={({ '◈':'home', '📊':'chart', '⌁':'chart', '◎':'file', '◇':'file', '✦':'chat', '♡':'chat', '↗':'chat', '△':'alert', '▣':'file' } as Record<string,string>)[item.icon] || item.icon} /></span><span>{item.label}</span>
             </NavLink></React.Fragment>
           ))}

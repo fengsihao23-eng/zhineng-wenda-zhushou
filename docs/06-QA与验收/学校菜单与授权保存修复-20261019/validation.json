@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/school-menu-permissions-fix",
+  "frontend_production_build": "passed",
+  "frontend_unit_tests": { "files": 8, "passed": 26, "failed": 0 },
+  "browser_regression": {
+    "runner": "tests/education/run-exam-v17.mjs",
+    "suite": "tests/education/exam-v17.spec.ts",
+    "passed": 15,
+    "failed": 0,
+    "duration_seconds": 36.2,
+    "database": "isolated disposable PostgreSQL",
+    "identities": "synthetic teachers and students",
+    "coverage": [
+      "four direct school menu entries and single active menu",
+      "browser back and refresh",
+      "role visibility and read-only controls",
+      "exam creation, scope changes and score imports",
+      "teacher single and batch saves retain filters, selection and editor",
+      "busy controls prevent duplicate requests",
+      "server errors retain drafts and allow retries",
+      "concurrent revision conflicts remain visible without overwriting",
+      "teacher revocation requires confirmation and removes recipient access",
+      "student network errors retain selections",
+      "successive student open and close saves"
+    ]
+  },
+  "deployment_script_syntax": "passed",
+  "evidence_screenshots": [
+    "11-integrated-school-navigation.png",
+    "14-teacher-save-success-retains-editor.png",
+    "15-teacher-save-error-retains-editor.png",
+    "16-cancel-authorization-confirmation.png",
+    "17-student-save-success-retains-selection.png"
+  ]
+}

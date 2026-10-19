@@ -12,8 +12,7 @@ export function hasAnyRole(user: UserInfo | null, allowed: readonly string[]): b
 
 export function homePath(user: UserInfo | null): string {
   if (hasAnyRole(user, CITY_ROLES)) return '/ops'
-  if (hasAnyRole(user, SCHOOL_ROLES)) return '/admin'
-  if (hasAnyRole(user, ['EXAM_ADMIN'])) return '/admin/school'
+  if (hasAnyRole(user, [...SCHOOL_ROLES, 'EXAM_ADMIN'])) return '/admin/school?tab=exam-management'
   if (hasAnyRole(user, TEACHER_ROLES)) return '/teacher'
   return '/'
 }
