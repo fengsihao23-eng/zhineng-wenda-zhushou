@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "read_only": true,
+  "business_mutations_sent": 0,
+  "checks": [
+    "live module loaded: 教师档案",
+    "live module loaded: 学生档案",
+    "live module loaded: 报告管理",
+    "live module loaded: 考务管理",
+    "live authorized teacher has explained cancel/keep confirmation",
+    "live invalid configuration reports error and retains teacher without sending save",
+    "live student permission editor loads",
+    "live mobile menu opens, navigates and closes"
+  ],
+  "uncaught_browser_errors": 0
+}

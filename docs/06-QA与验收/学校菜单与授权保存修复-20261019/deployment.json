@@ -1,0 +1,26 @@
+{
+  "release_commit": "34e81b8742b6283c34bd2960780bae02293324c4",
+  "previous_commit": "98aa4a77b84b05643e008399b8c0a46f0592bc02",
+  "backup_directory": "/srv/backups/school-permissions-20261019-041302Z",
+  "database_counts_unchanged": true,
+  "health": {
+    "status": "ok",
+    "environment": "production",
+    "real_model_ready": true
+  },
+  "frontend": {
+    "verified_assets": [
+      "/assets/index-CI8cKaS-.css",
+      "/assets/index-NxI41G3e.js"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/admin/prompts",
+      "/mini"
+    ],
+    "new_ui_labels_verified": true
+  }
+}
