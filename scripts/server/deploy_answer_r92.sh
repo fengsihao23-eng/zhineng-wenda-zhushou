@@ -22,7 +22,7 @@ rollback() {
   trap - ERR
   set +e
   if "$source_switched"; then
-    git switch --detach "$previous_commit" > "$release_dir/rollback-source.log" 2>&1
+    (umask 022; git switch --detach "$previous_commit") > "$release_dir/rollback-source.log" 2>&1
   fi
   if "$activation_started"; then
     for service_name in api web; do
@@ -57,7 +57,8 @@ printf 'backup_verified=%s\n' "$release_dir"
 git fetch origin refs/heads/codex/prompt-mini-r92:refs/remotes/origin/codex/prompt-mini-r92 > "$release_dir/git-fetch.log" 2>&1
 git merge-base --is-ancestor "$previous_commit" "$release_commit"
 test "$(git rev-parse origin/codex/prompt-mini-r92)" = "$release_commit"
-git switch --detach "$release_commit" > "$release_dir/git-switch.log" 2>&1
+# Keep backups private, but make newly checked-out source readable in build images.
+(umask 022; git switch --detach "$release_commit") > "$release_dir/git-switch.log" 2>&1
 source_switched=true
 docker compose config > /dev/null
 docker compose build api web < /dev/null > "$release_dir/build.log" 2>&1
@@ -71,6 +72,32 @@ docker compose up -d --no-deps --wait --wait-timeout 180 api web < /dev/null > "
 docker compose exec -T nginx nginx -t < /dev/null >> "$release_dir/activate.log" 2>&1
 docker compose exec -T nginx nginx -s reload < /dev/null >> "$release_dir/activate.log" 2>&1
 curl --fail --silent --show-error --retry 8 --retry-delay 2 --retry-connrefused --max-time 10 http://127.0.0.1/api/v1/health > "$release_dir/health-after.json"
+# API health alone does not prove the iframe HTML, JavaScript and CSS are served.
+# Any missing, unreadable or stale asset fails the release and triggers rollback.
+python3 - <<'PY' > "$release_dir/frontend-assets-after.json"
+import hashlib
+import json
+from pathlib import Path
+from urllib.request import Request, urlopen
+
+assets = sorted(Path('apps/web/public/answer-workbench').iterdir())
+assert assets and {'admin.html', 'mini.html'} <= {p.name for p in assets}
+for asset in assets:
+    if not asset.is_file():
+        continue
+    request = Request('http://127.0.0.1/answer-workbench/' + asset.name,
+                      headers={'Accept-Encoding': 'identity'})
+    with urlopen(request, timeout=15) as response:
+        assert response.status == 200, asset.name
+        actual = hashlib.sha256(response.read()).hexdigest()
+    assert actual == hashlib.sha256(asset.read_bytes()).hexdigest(), asset.name
+for route in ['/admin/prompts', '/mini', '/chat', '/teacher/chat']:
+    with urlopen('http://127.0.0.1' + route, timeout=15) as response:
+        assert response.status == 200, route
+print(json.dumps({'assets_verified': len([p for p in assets if p.is_file()]),
+                  'routes_verified': 4}))
+PY
+printf 'production_frontend_assets_verified=true\n'
 docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$counts_sql" < /dev/null > "$release_dir/counts-after.json"
 docker compose exec -T db psql -U postgres -d intelligent_qa -Atc "$report_counts_sql" < /dev/null > "$release_dir/report-counts-after.json"
 expected_hash=$(sha256sum apps/api/app/services/answer_workbench.py | cut -d ' ' -f 1)
