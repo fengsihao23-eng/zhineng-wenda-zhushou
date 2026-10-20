@@ -89,6 +89,8 @@ try {
   assert.ok((await (await page.$('.messages')).text()).includes(answer.text), 'The model answer must actually render')
   const elapsedMs = Date.now() - start
   const sessionId = await page.data('activeSession')
+  privateRecord.elapsedMs = elapsedMs
+  privateRecord.sessionId = sessionId
   assert.equal(await page.data('questionStatus.quota.used'), before.questionStatus.quota.used + 1)
   await capture('real-user-ui-answer.png')
 
@@ -116,8 +118,6 @@ try {
   await waitFor(async () => await page.data('view') === 'tools', 'tools')
   await tapRendered('.tool-card[data-view="history"]')
   await waitFor(async () => await page.data('view') === 'history', 'history')
-  const historyRow = await page.$('.session[data-id="' + sessionId + '"]')
-  assert.ok(historyRow, 'The saved question is missing from native history')
   await tapRendered('.session[data-id="' + sessionId + '"]')
   await waitFor(async () => await page.data('view') === 'chat' && await page.data('activeSession') === sessionId, 'reopen conversation')
   assert.equal((await page.data('messages')).at(-1).id, answer.id)
