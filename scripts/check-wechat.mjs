@@ -22,7 +22,13 @@ async function walk(dir){
       const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'})
       if(result.status)throw new Error(result.stderr)
     }
-    if(name.endsWith('.wxml') && /<web-view\b/.test(await readFile(file,'utf8')))throw new Error('小程序需使用原生页面，禁止网页套壳')
+    if(name.endsWith('.wxml')){
+      const source=await readFile(file,'utf8')
+      if(/<web-view\b/.test(source))throw new Error('小程序需使用原生页面，禁止网页套壳')
+      for(const binding of source.matchAll(/wx:(?:if|elif|for)="([^"]*)"/g)){
+        if(!binding[1].startsWith('{{') || !binding[1].endsWith('}}'))throw new Error('WXML 动态条件或循环必须使用 {{ }}：'+path.relative(folder,file))
+      }
+    }
   }
 }
 await walk(folder)
