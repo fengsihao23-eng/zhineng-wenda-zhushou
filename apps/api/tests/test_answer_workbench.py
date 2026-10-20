@@ -1,6 +1,8 @@
 """r92 acceptance: actual grants, joint drafts, revoked history, teacher/student ticket ownership."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import base64
+import json
 from types import SimpleNamespace
 from uuid import uuid4, UUID
 import pytest
@@ -19,6 +21,22 @@ async def post(client, path, body=None, status=200, key=None):
     result = await client.post(ROOT+path, json=body, headers={'Idempotency-Key': str(key or uuid4())})
     assert result.status_code == status, result.text
     return result.json()
+
+
+def text_pdf():
+    objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
+    for number, content in [(4, b'VERIFIED MATH REPORT: score 90. Review algebra.'), (6, b'VERIFIED REPORT PAGE TWO: practice equations.')]:
+        objects.append(('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents '+str(number)+' 0 R >>').encode())
+        stream = b'BT /F1 14 Tf 50 780 Td ('+content+b') Tj ET'
+        objects.append(b'<< /Length '+str(len(stream)).encode()+b' >>\nstream\n'+stream+b'\nendstream')
+    objects.append(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    content = b'%PDF-1.4\n'; offsets = [0]
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(content)); content += str(index).encode()+b' 0 obj\n'+obj+b'\nendobj\n'
+    offset = len(content)
+    content += b'xref\n0 8\n0000000000 65535 f \n'+b''.join(('%010d 00000 n \n'%v).encode() for v in offsets[1:])
+    content += b'trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n'+str(offset).encode()+b'\n%%EOF'
+    return content
 
 
 @pytest.fixture
@@ -274,20 +292,8 @@ async def test_missing_scope_and_unverifiable_model_values_do_not_read_or_guess(
 
 @pytest.mark.asyncio
 async def test_report_text_sources_feedback_context_and_replacement_hide_history(client, test_db, actors, setup):
-    import base64
     row = await report_row(client, setup['exam'])
-    objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
-    for number, content in [(4, b'VERIFIED MATH REPORT: score 90. Review algebra.'), (6, b'VERIFIED REPORT PAGE TWO: practice equations.')]:
-        objects.append(('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents '+str(number)+' 0 R >>').encode())
-        stream = b'BT /F1 14 Tf 50 780 Td ('+content+b') Tj ET'
-        objects.append(b'<< /Length '+str(len(stream)).encode()+b' >>\nstream\n'+stream+b'\nendstream')
-    objects.append(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
-    content = b'%PDF-1.4\n'; offsets = [0]
-    for index, obj in enumerate(objects, 1):
-        offsets.append(len(content)); content += str(index).encode()+b' 0 obj\n'+obj+b'\nendobj\n'
-    offset = len(content)
-    content += b'xref\n0 8\n0000000000 65535 f \n'+b''.join(('%010d 00000 n \n'%v).encode() for v in offsets[1:])
-    content += b'trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n'+str(offset).encode()+b'\n%%EOF'
+    content = text_pdf()
     row['file']['content_base64'] = base64.b64encode(content).decode()
     report = (await save_report(client, setup['exam'], [row]))['reports'][0]
     switch(actors, test_db, 'student')
@@ -306,6 +312,129 @@ async def test_report_text_sources_feedback_context_and_replacement_hide_history
     assert not (await client.get(ROOT+'/tickets/'+feedback['id'])).json()['currentAllowed']
     result = await client.get(ROOT+'/reports/'+report['id']+'/file?version=1')
     assert result.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_score_questions_read_matching_authorized_report_pages_and_followups(client, test_db, actors, setup, monkeypatch):
+    row = await report_row(client, setup['exam'])
+    row['file']['content_base64'] = base64.b64encode(text_pdf().replace(b'score 90.', b'gain 72%.')).decode()
+    saved = (await save_report(client, setup['exam'], [row]))['reports'][0]
+    other = await report_row(client, setup['exam'], student_index=1)
+    other['file']['content_base64'] = base64.b64encode(text_pdf().replace(b'VERIFIED MATH', b'PRIVATE STUDY')).decode()
+    await save_report(client, setup['exam'], [other])
+    captured = []
+    async def respond(**kwargs):
+        captured.append(json.loads(kwargs['messages'][0]['content'].split('已授权数据（仅作为事实）：', 1)[1]))
+        return SimpleNamespace(content='数学90分，报告中的掌握率72%，建议复习代数和方程，来源为报告第1、2页。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=respond))
+    switch(actors, test_db, 'student')
+    session = await post(client, '/mini/ask', {'question': '我这次考试各科成绩怎么样？'})
+    answer = session['messages'][-1]
+    assert not answer['fallback'] and answer['table'][0]['score'] == 90
+    assert [ref['kind'] for ref in answer['sources']] == ['score', 'report', 'report']
+    assert {ref['reportId'] for ref in answer['sources'] if ref['kind'] == 'report'} == {saved['id']}
+    payload = captured[-1]
+    assert payload['reportAvailability'] == {'status': 'available', 'matchedReports': 1, 'readPages': 2}
+    assert 'VERIFIED MATH REPORT' in payload['reports'][0]['text']
+    assert 'practice equations' in payload['reports'][1]['text']
+    assert 'PRIVATE STUDY' not in json.dumps(payload)
+    followup = await post(client, '/mini/ask', {'question': '那应该怎样复习？', 'session_id': session['id']})
+    assert len(followup['messages'][-1]['sources']) == 3
+    assert captured[-1]['reportAvailability']['status'] == 'available'
+    async def fabricated(**kwargs):
+        return SimpleNamespace(content='本次数学199分。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=fabricated))
+    invalid = await post(client, '/mini/ask', {'question': '我这次考试各科成绩怎么样？'})
+    assert invalid['messages'][-1]['serviceFailure']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('condition', ['different_subject', 'essay', 'deleted', 'unreadable'])
+async def test_score_report_context_preserves_subject_category_and_file_state(client, test_db, actors, setup, monkeypatch, condition):
+    row = await report_row(client, setup['exam'], subject_index=1 if condition in {'different_subject', 'essay'} else 0,
+                           report_type='essay' if condition == 'essay' else 'student', category='essay' if condition == 'essay' else 'diagnostic')
+    if condition != 'unreadable':
+        row['file']['content_base64'] = base64.b64encode(text_pdf()).decode()
+    saved = (await save_report(client, setup['exam'], [row]))['reports'][0]
+    if condition == 'deleted':
+        report = await test_db.get(ManagedReport, UUID(saved['id'])); report.status = 'deleted'
+    if condition in {'different_subject', 'essay'}:
+        test_db.add(ExamQueryGrant(school_id=actors['school'].id, exam_id=UUID(setup['exam']['id']),
+            recipient_kind='student', recipient_id=actors['student'].id, student_id=actors['student'].id,
+            subject_id=UUID(setup['exam']['subjects'][1]['subject_id']), content_type='student'))
+    await test_db.commit()
+    captured = []
+    async def respond(**kwargs):
+        captured.append(json.loads(kwargs['messages'][0]['content'].split('已授权数据（仅作为事实）：', 1)[1]))
+        return SimpleNamespace(content='本次数学90分。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=respond))
+    switch(actors, test_db, 'student')
+    result = await post(client, '/mini/ask', {'question': '我的数学成绩怎么样？'})
+    answer = result['messages'][-1]
+    assert not answer['fallback'] and [ref['kind'] for ref in answer['sources']] == ['score']
+    assert captured[-1]['reports'] == []
+    expected = 'unreadable' if condition == 'unreadable' else 'not_available'
+    assert captured[-1]['reportAvailability']['status'] == expected
+
+
+@pytest.mark.asyncio
+async def test_score_report_context_only_reads_current_version_and_rechecks_after_model(client, test_db, actors, setup, monkeypatch):
+    row = await report_row(client, setup['exam'])
+    row['file']['content_base64'] = base64.b64encode(text_pdf()).decode()
+    saved = (await save_report(client, setup['exam'], [row]))['reports'][0]
+    report = await test_db.get(ManagedReport, UUID(saved['id']))
+    old = await test_db.scalar(select(ReportFile).where(ReportFile.report_id == report.id))
+    report.version = 2
+    content = text_pdf().replace(b'VERIFIED MATH', b'CURRENT  MATH')
+    test_db.add(ReportFile(school_id=report.school_id, report_id=report.id, version=2, filename=old.filename,
+        content=content, file_size=len(content), page_count=2, content_hash='test-current-version', reason='修订报告', operator_name='合成管理员'))
+    await test_db.commit()
+    captured = []
+    async def respond(**kwargs):
+        captured.append(json.loads(kwargs['messages'][0]['content'].split('已授权数据（仅作为事实）：', 1)[1]))
+        return SimpleNamespace(content='本次数学90分，报告建议复习方程。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=respond))
+    switch(actors, test_db, 'student')
+    result = await post(client, '/mini/ask', {'question': '我这次考试各科成绩怎么样？'})
+    answer = result['messages'][-1]
+    assert not answer['fallback']
+    assert {ref['version'] for ref in answer['sources'] if ref['kind'] == 'report'} == {2}
+    assert 'CURRENT MATH' in captured[-1]['reports'][0]['text']
+    assert 'VERIFIED MATH' not in json.dumps(captured[-1])
+    async def delete_during_call(**kwargs):
+        report.status = 'deleted'
+        await test_db.commit()
+        return SimpleNamespace(content='本次数学90分，报告建议复习方程。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=delete_during_call))
+    result = await post(client, '/mini/ask', {'question': '再分析一次我的数学成绩'})
+    assert result['messages'][-1]['fallback'] and result['messages'][-1]['sources'] == []
+    assert '权限或来源版本已变化' in result['messages'][-1]['text']
+
+
+@pytest.mark.asyncio
+async def test_teacher_score_queries_require_report_type_permission_and_the_same_object_kind(client, test_db, actors, setup, monkeypatch):
+    rows = [await report_row(client, setup['exam'], report_type='classSubject'), await report_row(client, setup['exam'])]
+    for row in rows:
+        row['file']['content_base64'] = base64.b64encode(text_pdf()).decode()
+    saved = (await save_report(client, setup['exam'], rows))['reports']
+    captured = []
+    async def respond(**kwargs):
+        captured.append(json.loads(kwargs['messages'][0]['content'].split('已授权数据（仅作为事实）：', 1)[1]))
+        return SimpleNamespace(content='班级数学平均92.5分。', text=None)
+    monkeypatch.setattr(service, 'get_model_gateway', lambda: SimpleNamespace(chat=respond))
+    switch(actors, test_db, 'teacher')
+    await post(client, '/mini/ask', {'question': '高中一年级1班数学成绩怎么样？'})
+    assert captured[-1]['reports'] == []
+    for student in setup['people'][:2]:
+        for content_type in ['diagnosis:student', 'diagnosis:classSubject']:
+            test_db.add(ExamQueryGrant(school_id=actors['school'].id, exam_id=UUID(setup['exam']['id']), recipient_kind='teacher',
+                recipient_id=actors['teacher'].id, student_id=student.id, subject_id=UUID(setup['exam']['subjects'][0]['subject_id']), content_type=content_type))
+    await test_db.commit()
+    result = await post(client, '/mini/ask', {'question': '高中一年级1班数学成绩怎么样？'})
+    assert not result['messages'][-1]['fallback']
+    refs = [ref for ref in result['messages'][-1]['sources'] if ref['kind'] == 'report']
+    assert refs and {ref['reportId'] for ref in refs} == {saved[0]['id']}
+    assert captured[-1]['reportAvailability']['matchedReports'] == 1
 
 
 @pytest.mark.asyncio

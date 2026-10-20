@@ -1,0 +1,15 @@
+{
+  "origin": "http://43.161.195.51",
+  "authentication": "short-lived server-signed session; real GET requests only",
+  "no_business_writes": true,
+  "saved_teacher_count": 1,
+  "configuration_count_matches_editor": true,
+  "auto_checked_all_saved_teachers": true,
+  "all_saved_types_subjects_essays_and_ranges_match_api": true,
+  "filtering_preserves_draft": true,
+  "reload_and_tab_return_restore_saved_permissions": true,
+  "saved_permissions_unchanged": true,
+  "page_errors": [],
+  "failed_api_responses": [],
+  "blocked_writes": []
+}

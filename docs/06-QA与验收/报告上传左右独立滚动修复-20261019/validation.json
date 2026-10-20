@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/fix-report-upload-scrolling",
+  "production_base_commit": "403266f8bc2ea4ec29ca14928fcddf5254bfccf9",
+  "frontend_lint": "passed",
+  "frontend_typescript_production_build": "passed",
+  "isolated_real_api_playwright": {
+    "passed": 7,
+    "failed": 0,
+    "duration_seconds": 21.5,
+    "spec": "report-r86.spec.ts",
+    "database": "exam_v17_browser_upload_scroll_20261019",
+    "scenarios": [
+      "桌面真实滚轮分别滚动文件列表和归属表单，另一侧及外层位置不变",
+      "滚至列表底部不触发外层或另一侧滚动",
+      "切换文件保留列表位置、归属表单回到顶部",
+      "标题步骤及底部操作按钮固定可见",
+      "390 像素窄屏文件列表横向独立滚动、归属配置纵向独立滚动",
+      "三步上传、预览、保存、替换、删除、授权查询、筛选分页、网络重试回归"
+    ]
+  },
+  "desktop_viewport": {
+    "width": 1600,
+    "height": 720
+  },
+  "mobile_viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "deployment_script_bash_syntax": "passed",
+  "database_migrations_required": false
+}

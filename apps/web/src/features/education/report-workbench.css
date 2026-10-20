@@ -202,3 +202,11 @@
 .report-workbench .access-table{table-layout:auto}}
 .report-workbench .panel{box-shadow:none}
 .report-workbench .btn.primary:hover:not(:disabled){color:#fff;border-color:var(--purple)}
+.report-workbench .drawer-body.upload-review-body{display:flex;flex-direction:column;overflow:hidden}
+.report-workbench .upload-review-body>.steps,.report-workbench .upload-review-body>.batch-summary,.report-workbench .upload-review-body>.notice{flex-shrink:0}
+.report-workbench .upload-review-body .queue-layout{flex:1;min-height:0;grid-template-columns:260px minmax(0,1fr);grid-template-rows:minmax(0,1fr);align-items:stretch;overflow:hidden}
+.report-workbench .upload-review-body .file-list,.report-workbench .upload-review-body .assignment{min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+@media(max-width:850px){
+.report-workbench .upload-review-body .queue-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:112px minmax(0,1fr);gap:12px}
+.report-workbench .upload-review-body .file-list{overflow:auto;scrollbar-gutter:auto}
+.report-workbench .upload-review-body .file-entry{flex:0 0 220px}}

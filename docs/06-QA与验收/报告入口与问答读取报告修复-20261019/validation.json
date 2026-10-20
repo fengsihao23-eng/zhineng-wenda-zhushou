@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-19",
+  "branch": "codex/fix-report-chat-reading",
+  "production_base_commit": "07d026df3d3840d14f7e02937ce17d0ff12ef6ec",
+  "frontend_lint": "passed",
+  "frontend_typescript_production_build": "passed",
+  "backend_static_quality": "passed",
+  "backend_api_tests": {
+    "sqlite": {
+      "passed": 26,
+      "failed": 0,
+      "duration_seconds": 7.64
+    },
+    "postgresql": {
+      "passed": 26,
+      "failed": 0,
+      "duration_seconds": 12.1
+    }
+  },
+  "isolated_real_api_playwright": {
+    "passed": 12,
+    "failed": 0,
+    "duration_seconds": 36.0,
+    "mode": "desktop web chat",
+    "specs": [
+      "answer-r92.spec.ts",
+      "report-r86.spec.ts"
+    ],
+    "score_question_reply_verified": {
+      "score_table_present": true,
+      "sources": [
+        "score",
+        "report",
+        "report"
+      ]
+    }
+  },
+  "production_case_audit": {
+    "current_report_count": 1,
+    "current_pdf_pages": 6,
+    "text_extractable_pages": 6,
+    "account_login_allowed": true,
+    "report_query_allowed": true
+  },
+  "deployment_script_bash_syntax": "passed",
+  "database_migrations_required": false
+}
