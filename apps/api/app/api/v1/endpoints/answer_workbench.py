@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db
 from app.services import answer_workbench as service
+from app.services import answer_capacity
 from app.api.v1.endpoints.education import write
 
 router = APIRouter(prefix='/answer-workbench', tags=['answer-workbench'])
@@ -92,6 +93,11 @@ class Sources(Payload):
     user_id: UUID | None = None
 
 
+class Presence(Payload):
+    client_id: UUID
+    present: bool = True
+
+
 @router.get('/admin/state')
 async def state(actor=Depends(get_current_user), db: AsyncSession=Depends(get_db)):
     return await service.state(db, actor)
@@ -136,6 +142,18 @@ async def mini(actor=Depends(get_current_user), db: AsyncSession=Depends(get_db)
 @router.post('/mini/ask')
 async def ask(body: Question, key: UUID=Header(alias='Idempotency-Key'), actor=Depends(get_current_user), db: AsyncSession=Depends(get_db)):
     return await write(db, service.ask(db, actor, body, key))
+
+
+@router.get('/mini/status')
+async def mini_status(actor=Depends(get_current_user), db: AsyncSession=Depends(get_db)):
+    await service.person(db, actor)
+    return await answer_capacity.status(db, actor)
+
+
+@router.post('/mini/presence')
+async def presence(body: Presence, actor=Depends(get_current_user), db: AsyncSession=Depends(get_db)):
+    await service.person(db, actor)
+    return await answer_capacity.presence(db, actor, body.client_id, body.present)
 
 
 @router.get('/tickets')

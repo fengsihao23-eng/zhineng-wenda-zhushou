@@ -1,5 +1,20 @@
 'use strict';
 let BACKEND = { school: '学校', exams: [] }, model = { sessions: [], tickets: [], audit: [] }, storageOK = true, reports = [], identity = null, view = 'chat', activeSession = null, activeTicket = null, chatDraft = '', ticketDraft = null, busy = false, reader = null, returnView = 'reports', reportFilters = { category: '', exam: '', subject: '', query: '' }, scenario = { disabled: false };
+let questionStatus = null;
+const presenceClient = uid();
+function questionStatusHTML() {
+    const q = questionStatus?.quota, t = questionStatus?.traffic;
+    if (!q) return '<div class="quota-line">正在核对今日提问次数…</div>';
+    return (t?.level ? '<div class="traffic-notice '+t.level+'" role="status"><b>'+esc(t.label)+'</b><span>'+esc(t.message)+'</span></div>' : '') +
+        '<div class="quota-line '+(q.remaining===0?'exhausted':q.remaining<=10?'low':'')+'"><span>今日剩余 <strong>'+q.remaining+'</strong> / '+q.limit+' 次</span><small>每日 00:00 重置</small></div>'+
+        (q.remaining===0?'<p class="quota-exhausted">今日次数已用完，明日再来提问。仍可查看报告或提交留言。</p>':'');
+}
+function updateQuestionStatus(next) {
+    if (next) questionStatus = next;
+    const node = $('questionStatus');
+    if (node) node.innerHTML = questionStatusHTML();
+    if ($('sendQuestion')) $('sendQuestion').disabled = busy || questionStatus?.quota.remaining===0 && !askDraft;
+}
 const TYPES = { student: ['个人学情诊断', 'student'], classAll: ['班级综合诊断', 'class'], classSubject: ['班级单科诊断', 'class'], gradeAll: ['年级综合诊断', 'grade'], gradeSubject: ['年级单科诊断', 'grade'], school: ['全校学情诊断', 'school'], essay: ['个人作文批改报告', 'student'] };
 const exById = id => BACKEND.exams.find(e => e.id === id) || { id, name: '相关考试', subjects: [] }, subjectName = (ex, k) => ex?.subjects?.find(s => s.k === k)?.n || BACKEND.exams.flatMap(e => e.subjects).find(s => s.k === k)?.n || k, typeInfo = r => TYPES[r.category === 'essay' ? 'essay' : r.type] || ['报告', 'student'], ownerKey = p => p.role + ':' + p.id;
 const subjectLabel = r => r.subjects.map(s => subjectName(exById(r.examId), s)).join('、'), objectLabel = r => r.target || '', sourceAllowed = ref => true, sourcesAllowed = refs => true, reportAllowed = r => !!r && reports.some(v => v.id === r.id), accountUsable = p => !!p && p.status === '正常';
@@ -11,7 +26,12 @@ function ensureLogin() { if (!identity) {
     return false;
 } return true; }
 function closeModal() { $('modal').innerHTML = ''; }
-async function refreshBackend() { const next = await rpc('/mini/state'); identity = next.identity; BACKEND = { school: identity.school, exams: next.exams }; reports = next.reports; model = { sessions: next.sessions.slice().reverse(), tickets: next.tickets.slice().reverse(), audit: next.audit }; return next; }
+async function refreshBackend() { const next = await rpc('/mini/state'); identity = next.identity; BACKEND = { school: identity.school, exams: next.exams }; reports = next.reports;
+    if (reader && !reports.some(r=>r.id===reader.reportId && r.version===reader.version)) {
+        closeReader();
+        if ($('pdfCanvasWrap')) $('pdfCanvasWrap').innerHTML='<div class="note error">报告不存在、版本已变化或当前无权查看。</div>';
+    }
+    model = { sessions: next.sessions.slice().reverse(), tickets: next.tickets.slice().reverse(), audit: next.audit }; updateQuestionStatus(next.questionStatus); return next; }
 const syncSharedModel = refreshBackend;
 async function boot() { try {
     const session = await rpc('@session');
@@ -26,6 +46,7 @@ async function boot() { try {
     else
         view = 'login';
     render();
+    if (identity) syncVisibleClient();
 }
 catch (e) {
     $('screen').innerHTML = '<div class="content"><div class="note error">' + esc(e.message) + '</div><button class="btn" onclick="logout()">返回登录</button></div>';
@@ -43,6 +64,7 @@ async function login() { if (busy)
     await refreshBackend();
     view = 'chat';
     render();
+    rpc('/mini/presence', {client_id:presenceClient}).then(updateQuestionStatus).catch(()=>{});
 }
 catch (e) {
     toast(e.message);
@@ -51,12 +73,13 @@ finally {
     busy = false;
 } }
 async function logout() { try {
+    if (identity) await rpc('/mini/presence', {client_id:presenceClient, present:false});
     await rpc('@logout', {});
 }
 catch (e) {
     toast(e.message);
     return;
-} closeReader(); identity = null; model = { sessions: [], tickets: [], audit: [] }; reports = []; activeSession = null; activeTicket = null; ticketDraft = null; chatDraft = ''; view = 'login'; render(); }
+} closeReader(); identity = null; questionStatus = null; askDraft = null; model = { sessions: [], tickets: [], audit: [] }; reports = []; activeSession = null; activeTicket = null; ticketDraft = null; chatDraft = ''; view = 'login'; render(); }
 let askDraft = null;
 async function ask(text) { if (!ensureLogin() || busy)
     return; const q = (text ?? $('question')?.value ?? chatDraft).trim(); if (!q)
@@ -64,21 +87,25 @@ async function ask(text) { if (!ensureLogin() || busy)
     askDraft = { question: q, session_id: existing?.id || null, key: uid() }; const button = $('sendQuestion'); if (button)
     button.disabled = true; try {
     const s = await rpc('/mini/ask', { question: q, session_id: askDraft.session_id }, 'POST', { requestKey: askDraft.key });
+    updateQuestionStatus(s.questionStatus);
     askDraft = null;
     activeSession = s.id;
     chatDraft = '';
-    await refreshBackend();
+    model.sessions = model.sessions.some(row=>row.id===s.id) ? model.sessions.map(row=>row.id===s.id?s:row) : [...model.sessions,s];
+    try { await refreshBackend(); } catch (_) { toast('回答已保存，其他数据暂未刷新。请稍后重试刷新。'); }
     view = 'chat';
     render();
     $('screen').scrollTop = $('screen').scrollHeight;
 }
 catch (e) {
+    if (e.code==='DAILY_QUESTION_LIMIT') askDraft=null;
     toast('本次提问未完成，问题已保留：' + e.message);
+    try { updateQuestionStatus(await rpc('/mini/status')); } catch (_) { /* A retry rechecks on the server. */ }
 }
 finally {
     busy = false;
     if ($('sendQuestion'))
-        $('sendQuestion').disabled = false;
+        $('sendQuestion').disabled = questionStatus?.quota.remaining===0 && !askDraft;
 } }
 async function navigate(next) { if (next !== 'login' && !ensureLogin())
     return; closeReader(); closeModal(); try {
@@ -151,16 +178,22 @@ async function submitTicket() { if (!ensureLogin() || busy || !ticketDraft)
     toast('请先填写问题');
     return;
 } busy = true; try {
-    let t;
+    let t, path='/tickets', payload;
     if (activeTicket) {
         const old = currentTicket();
-        t = await rpc('/tickets/' + activeTicket + '/append', { expected: old.revision, question, session_id: ticketDraft.sessionId, message_ids: ticketDraft.selected }, 'POST', { requestKey: ticketDraft.requestId });
+        path += '/'+activeTicket+'/append';
+        payload = { expected: ticketDraft.expected || old.revision, question, session_id: ticketDraft.sessionId, message_ids: ticketDraft.selected };
     }
     else
-        t = await rpc('/tickets', { question, session_id: ticketDraft.sessionId, message_ids: ticketDraft.selected, feedback_message_id: ticketDraft.kind === 'answerFeedback' ? ticketDraft.messageId : null }, 'POST', { requestKey: ticketDraft.requestId });
+        payload = { question, session_id: ticketDraft.sessionId, message_ids: ticketDraft.selected, feedback_message_id: ticketDraft.kind === 'answerFeedback' ? ticketDraft.messageId : null };
+    const signature=JSON.stringify([path,payload]);
+    if (ticketDraft.signature && ticketDraft.signature!==signature) ticketDraft.requestId=uid();
+    ticketDraft.signature=signature;
+    t=await rpc(path,payload,'POST',{requestKey:ticketDraft.requestId});
     activeTicket = t.id;
     ticketDraft = null;
-    await refreshBackend();
+    model.tickets=model.tickets.some(row=>row.id===t.id)?model.tickets.map(row=>row.id===t.id?t:row):[...model.tickets,t];
+    try { await refreshBackend(); } catch (_) { toast('留言已保存，列表暂未刷新，请稍后重试刷新。'); }
     view = 'ticket';
     render();
     toast('留言已提交，后续可回来查看回复');
@@ -210,4 +243,25 @@ catch (e) {
 } });
 document.addEventListener('keydown', e => { if (e.key === 'Escape')
     closeModal(); });
+let synchronizing = false;
+async function syncVisibleClient() {
+    if (!identity || document.hidden || busy || synchronizing) return;
+    synchronizing = true;
+    try {
+        updateQuestionStatus(await rpc('/mini/presence', {client_id:presenceClient}));
+        const before = JSON.stringify([model, reports, BACKEND]);
+        await refreshBackend();
+        if (before !== JSON.stringify([model, reports, BACKEND]) && !['ticketCompose','pdf'].includes(view)) render();
+    } catch (e) {
+        if (e.status===401 || e.status===403) {
+            identity = null; model = {sessions:[],tickets:[],audit:[]}; reports=[]; questionStatus=null;
+            view='login'; render(); toast(e.message);
+        }
+    } finally { synchronizing = false; }
+}
+setInterval(syncVisibleClient, 30000);
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && identity) rpc('/mini/presence', {client_id:presenceClient,present:false}).catch(()=>{});
+    else syncVisibleClient();
+});
 if (window.ANSWER_PRESENTATION !== 'web') boot();

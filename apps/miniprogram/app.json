@@ -1,0 +1,14 @@
+{
+  "pages": ["pages/workbench/index"],
+  "window": {
+    "navigationBarTitleText": "学科智能问答",
+    "navigationBarBackgroundColor": "#f5f7f4",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f7f4",
+    "backgroundTextStyle": "dark",
+    "enablePullDownRefresh": true
+  },
+  "networkTimeout": {"request": 60000, "downloadFile": 60000},
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

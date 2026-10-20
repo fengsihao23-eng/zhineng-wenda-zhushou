@@ -11,6 +11,8 @@ window.addEventListener('message', event => { if (event.origin !== location.orig
     return; clearTimeout(item.timer); pending.delete(event.data.id); if (event.data.error) {
     const error = new Error(event.data.error.message);
     error.status = event.data.error.status;
+    error.code = event.data.error.code;
+    error.details = event.data.error.details;
     item.reject(error);
 }
 else

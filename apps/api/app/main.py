@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.tools.registry import get_tool_registry
 from app.tools.init import init_tools
 from app.core.rate_limit import RateLimiter
+from app.core.security import decode_token
 from app.core.default_prompts import ensure_default_prompts
 from app.ai.gateway import ModelProviderUnavailableError
 
@@ -78,11 +79,14 @@ async def add_request_id(request: Request, call_next):
     start_time = time.perf_counter()
     try:
         response = None
-        # Keep health probes available while limiting other requests. The
-        # gateway supplies X-Real-IP so browsers have separate buckets.
+        # School networks share NAT addresses. Signed authenticated identities
+        # need separate buckets; anonymous/invalid credentials stay IP limited.
         if not request.url.path.startswith(("/api/v1/health", "/api/health")):
             client_host = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
-            allowed, retry_after = rate_limiter.allow(client_host)
+            token = request.headers.get("authorization", "")
+            payload = decode_token(token[7:], expected_type="access") if token.lower().startswith("bearer ") else None
+            bucket = f"user:{payload['school_id']}:{payload['sub']}" if payload and payload.get('school_id') and payload.get('sub') else client_host
+            allowed, retry_after = rate_limiter.allow(bucket)
             if not allowed:
                 response = JSONResponse(
                     status_code=429,

@@ -1,11 +1,22 @@
 {
   "devDependencies": {
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "miniprogram-automator": "^0.13.0"
   },
   "scripts": {
+    "mini:check": "node scripts/check-wechat.mjs",
+    "mini:configure": "node scripts/configure-wechat.mjs",
+    "test:mini:flows": "node tests/miniprogram/page-flow.mjs",
+    "test:mini:devtools": "node tests/miniprogram/devtools-smoke.mjs",
     "test:e2e": "playwright test --config=playwright.config.ts",
     "test:ui": "playwright test --config=tests/ui/playwright.config.ts",
     "test:e2e:ui": "playwright test --config=playwright.config.ts --ui",
     "test:e2e:report": "playwright show-report playwright-report"
+  },
+  "overrides": {
+    "miniprogram-automator": {
+      "debug": "^4.4.3",
+      "jimp": "^0.22.12"
+    }
   }
 }

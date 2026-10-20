@@ -65,6 +65,10 @@ docker compose exec api python scripts/init_test_data.py
 
 ## 项目结构
 
+### 微信小程序
+
+原生微信项目位于 [`apps/miniprogram`](apps/miniprogram/README.md)。使用微信开发者工具导入这个子目录；与网页共用账号、接口、权限、会话、报告及人工留言。两端合计每账号每天 100 次，服务端维护剩余额度与拥堵提醒。AppID、HTTPS 域名、启动与验收步骤见小程序说明。
+
 ```
 .
 ├── apps/

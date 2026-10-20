@@ -73,6 +73,8 @@ yarn-error.log*
 *.swo
 *~
 .DS_Store
+/apps/miniprogram/project.private.config.json
+/apps/miniprogram/config.local.js
 Thumbs.db
 
 # ==================== Alembic ====================

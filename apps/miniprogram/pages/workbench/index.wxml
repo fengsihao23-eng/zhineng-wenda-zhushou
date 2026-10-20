@@ -1,0 +1,126 @@
+<view class="app">
+  <view wx:if="canBack" class="page-back"><button class="quiet" bindtap="back" disabled="{{busy}}">‹ 返回</button></view>
+  <view wx:if="notice" class="notice {{offline ? 'offline' : ''}}" role="alert">{{notice}}</view>
+  <view wx:if="loading" class="loading-line">正在核对最新数据…</view>
+  <scroll-view class="screen" scroll-y scroll-into-view="{{scrollTo}}" enable-back-to-top>
+    <view wx:if="view === 'login'" class="content login">
+      <view class="brandmark">✦</view>
+      <view class="login-title">让每一次提问<view>都有真实的依据。</view></view>
+      <view class="small login-subtitle">学科智能问答助手<view>使用学校提供的原有账号登录</view></view>
+      <view class="field"><text>登录账号</text><input id="account" data-field="account" value="{{account}}" bindinput="input" placeholder="请输入教师或学生账号" maxlength="100" confirm-type="next" /></view>
+      <view class="field"><text>密码</text><input id="password" data-field="password" value="{{password}}" bindinput="input" password placeholder="请输入密码" maxlength="200" confirm-type="go" bindconfirm="login" /></view>
+      <button id="login" class="btn primary block" bindtap="login" loading="{{busy}}" disabled="{{busy}}">登录</button>
+      <view wx:if="identities.length" class="card"><view class="subtitle">请选择本次登录身份</view><button wx:for="{{identities}}" wx:key="id" class="menu-row" data-identity="{{item.id}}" bindtap="login">{{item.school_name}} · {{item.display_name}} · {{item.account_type === 'student' ? '学生' : item.account_type === 'teacher' ? '教师' : '学校账号'}}</button></view>
+      <view class="note">身份由账号自动识别，无需选择角色。<view>家长请使用子女的学生账号登录。</view></view>
+      <view class="small">首次登录需修改初始密码。账号问题请联系学校管理员。</view>
+    </view>
+
+    <view wx:elif="view === 'activate'" class="content login">
+      <view class="brandmark">♧</view><view class="title">首次登录，请先修改初始密码</view>
+      <view class="small">新密码至少8位，且不同于账号和当前密码。</view>
+      <view class="field"><text>当前密码</text><input id="oldPassword" data-field="oldPassword" value="{{oldPassword}}" bindinput="input" password maxlength="200" placeholder="请输入当前密码" /></view>
+      <view class="field"><text>新密码</text><input id="newPassword" data-field="newPassword" value="{{newPassword}}" bindinput="input" password maxlength="72" placeholder="请输入新密码" /></view>
+      <view class="field"><text>确认新密码</text><input id="repeatPassword" data-field="repeatPassword" value="{{repeatPassword}}" bindinput="input" password maxlength="72" placeholder="再次输入新密码" /></view>
+      <button id="activate" class="btn primary block" loading="{{busy}}" disabled="{{busy}}" bindtap="activate">保存并进入</button>
+      <button class="quiet block" disabled="{{busy}}" bindtap="logout">返回登录</button>
+    </view>
+
+    <view wx:elif="view === 'chat'">
+      <block wx:if="!messages.length">
+        <view class="home-welcome"><view class="topline"><text class="school-label">{{identity.school}}</text><view class="home-avatar">{{identity.name}}</view></view><view class="hero-title">{{identity.name}}，你好。</view><view class="small greeting">今天想了解什么？</view></view>
+        <view class="home-prompts"><view class="section-heading"><text class="subtitle">试着问我</text><text class="small">也可以直接输入问题</text></view><button wx:for="{{prompts}}" wx:key="*this" class="suggestion" data-question="{{item}}" bindtap="ask" disabled="{{busy}}"><text class="question-mark">✦</text><text class="suggestion-text">{{item}}</text><text class="prompt-arrow">↗</text></button><view class="small home-scope">{{identity.role === 'student' ? '只使用你本人已开放的考试与报告数据。' : '按学校为你配置的科目、类型和对象范围查询。'}}</view></view>
+      </block>
+      <block wx:else>
+        <view class="conversation-heading"><text class="ellipsis">{{sessionTitle}}</text><button class="quiet" bindtap="newChat" disabled="{{busy}}">新对话</button></view>
+        <view class="messages">
+          <view wx:for="{{messages}}" wx:key="id" wx:for-item="message" class="message {{message.role === 'user' ? 'user' : ''}}">
+            <view wx:if="message.role !== 'user'" class="assistant-label"><text class="spark">✦</text>学科助手</view>
+            <view class="bubble"><text user-select>{{message.text}}</text>
+              <view wx:if="message.table.length" class="metric-table"><view class="metric-row metric-head"><text>科目</text><text>分数 / 满分</text><text>范围</text></view><view wx:for="{{message.table}}" wx:key="subject" wx:for-item="row" class="metric-row"><text>{{row.subject}}</text><text>{{row.score}} / {{row.max}}</text><text>{{row.count > 1 ? row.count + '人平均' : '本人'}}</text></view></view>
+              <view wx:for="{{message.table}}" wx:key="subject" wx:for-item="row" class="chart"><text class="chart-subject">{{row.subject}}</text><view class="chart-track"><view class="chart-fill" style="width:{{row.percent}}%;"></view></view><text>{{row.score}}</text></view>
+              <button wx:for="{{message.sources}}" wx:key="index" wx:for-item="ref" class="source" data-ref="{{ref}}" bindtap="openSource"><view class="source-title">↗ {{ref.label}}</view><text>{{ref.examName}}{{ref.page ? ' · 第' + ref.page + '页' : ''}}</text></button>
+            </view>
+            <view wx:if="message.role !== 'user'" class="message-options"><button wx:for="{{message.choices}}" wx:key="*this" class="choice-chip" data-question="{{item}}" bindtap="ask" disabled="{{busy}}">{{item}}</button><view wx:if="!message.restricted" class="answer-feedback"><text>{{message.fallback ? '还没有解决？' : '觉得回答有误？'}}</text><button class="feedback-link" data-message="{{message.id}}" data-feedback="{{!message.fallback}}" bindtap="composeTicket" disabled="{{busy}}">{{message.fallback ? '提交人工留言' : '留言请人工核查 ↗'}}</button></view><text class="small">{{message.time}}</text></view>
+          </view>
+          <view wx:if="busy" class="thinking">✦ 正在核对资料并生成回答，请勿重复提交…</view>
+          <view id="conversation-end" class="conversation-end"></view>
+        </view>
+      </block>
+    </view>
+
+    <view wx:elif="view === 'tools'" class="content">
+      <view class="tools-intro"><text class="school-label">{{identity.school}}</text><view class="hero-title">学习工具</view><view class="small">查阅资料，继续探索。</view></view>
+      <view class="tool-grid"><button class="tool-card" data-view="reports" bindtap="go"><view class="tool-icon">▤</view><text class="tool-arrow">↗</text><view class="tool-title">报告中心</view><view class="small">查看与下载诊断、作文报告</view></button><button class="tool-card sand" data-view="history" bindtap="go"><view class="tool-icon">◷</view><text class="tool-arrow">↗</text><view class="tool-title">历史会话</view><view class="small">找回并继续之前的提问</view></button></view>
+    </view>
+
+    <view wx:elif="view === 'history'" class="content">
+      <view class="small">历史数据型答复会按你当前的权限重新核对。</view>
+      <button wx:for="{{sessions}}" wx:key="id" class="session" data-id="{{item.id}}" bindtap="openSession"><view>{{item.title}}</view><view class="small">{{item.updatedAt}} · {{item.questionCount}}次提问</view></button>
+      <view wx:if="!sessions.length" class="empty">还没有会话记录，开始你的第一个问题。</view>
+    </view>
+
+    <view wx:elif="view === 'reports'" class="content">
+      <view class="title">属于你的学情档案</view><view class="small">{{identity.role === 'student' ? '仅显示本人已开放的诊断与作文报告。' : '仅显示类型、科目和完整对象范围均已获准的报告。'}}</view>
+      <input id="reportSearch" class="search" value="{{reportFilters.query}}" bindinput="reportSearch" placeholder="搜索考试、科目、对象或报告" />
+      <view class="tabs"><button class="{{!reportFilters.category ? 'on' : ''}}" data-category="" bindtap="reportCategory">全部</button><button class="{{reportFilters.category === 'diagnostic' ? 'on' : ''}}" data-category="diagnostic" bindtap="reportCategory">诊断报告</button><button class="{{reportFilters.category === 'essay' ? 'on' : ''}}" data-category="essay" bindtap="reportCategory">作文批改</button></view>
+      <view class="filter-row"><picker mode="selector" range="{{examOptions}}" range-key="name" value="{{examIndex}}" bindchange="reportExam"><view class="picker">{{examOptions[examIndex].name}}⌄</view></picker><picker mode="selector" range="{{subjectOptions}}" range-key="name" value="{{subjectIndex}}" bindchange="reportSubject"><view class="picker">{{subjectOptions[subjectIndex].name}}⌄</view></picker></view>
+      <view wx:for="{{filteredReports}}" wx:key="id" class="card"><view class="report-head"><view class="report-icon">PDF</view><view class="report-detail"><view class="subtitle">{{item.label}}</view><view class="small">{{item.examName}}</view><view class="small">{{item.subjectLabel}} · {{item.target}}</view><view class="small">{{item.reportCode}} · v{{item.version}}</view></view></view><view class="actions"><button class="btn" data-id="{{item.id}}" bindtap="openReport">查看报告</button><button class="btn primary" data-id="{{item.id}}" bindtap="downloadReport" disabled="{{busy}}">下载 PDF</button></view></view>
+      <view wx:if="!filteredReports.length" class="empty">暂无可查看报告<view class="small">未上传或尚未授权的报告不会列出。</view></view>
+    </view>
+
+    <view wx:elif="view === 'pdf'" class="pdf-page">
+      <view class="pdf-controls"><button class="btn" data-step="-1" bindtap="pdfStep" disabled="{{pdfLoading || pdf.page <= 1}}">上一页</button><text class="small">{{pdf.page}} / {{pdf.pages}} 页</text><button class="btn" data-step="1" bindtap="pdfStep" disabled="{{pdfLoading || pdf.page >= pdf.pages}}">下一页</button></view>
+      <view class="pdf-view"><view wx:if="pdfLoading" class="empty">正在读取当前版本 PDF…</view><image wx:if="pdfImage" class="pdf-image" src="{{pdfImage}}" mode="widthFix" /><view wx:if="pdfError" class="note error">{{pdfError}}<button class="btn" bindtap="retryPdf">重试</button></view></view>
+      <view class="download-bar"><view class="small">{{pdf.label}} · v{{pdf.version}}</view><button class="btn primary block" data-id="{{pdf.id}}" bindtap="downloadReport" disabled="{{busy}}">下载当前 PDF</button></view>
+    </view>
+
+    <view wx:elif="view === 'tickets'" class="content">
+      <view class="title">未解决的问题，留在这里。</view><view class="small ticket-intro">提交后可离开，之后回来查看回复。<view>人工留言不承诺实时回复或固定时限。</view></view>
+      <button id="newTicket" class="btn primary block" bindtap="composeTicket">＋ 新建留言</button>
+      <button wx:for="{{tickets}}" wx:key="id" class="card ticket-card" data-id="{{item.id}}" bindtap="openTicket"><view class="topline"><text class="pill {{item.status === '已关闭' ? 'closed' : item.status === '已回复' ? '' : 'pending'}}">{{item.status}}</text><text wx:if="item.unread" class="unread">有新回复</text></view><view class="ticket-title">{{item.currentAllowed ? item.question : '当前数据权限已变化，仅可查看办理状态'}}</view><view class="small">{{item.updatedAt}}</view></button>
+      <view wx:if="!tickets.length" class="empty">还没有留言记录<view class="small">你的问题和回复只对本人展示。</view></view>
+    </view>
+
+    <view wx:elif="view === 'ticketCompose'" class="content">
+      <view class="title">{{activeTicket ? '补充原留言' : feedback ? '请说明回答中的问题' : '描述你还想了解的问题'}}</view>
+      <view class="small">{{feedback ? '提交时将关联下方原问题与对应回答，方便人工核查。' : '不会自动提交整段会话或PDF全文。'}}</view>
+      <view wx:if="feedback" class="feedback-target"><view class="subtitle">反馈对象 · 本次回答</view><view>原问题：{{feedback.question}}</view><view>回答摘要：{{feedback.answer}}</view></view>
+      <view class="field"><text>问题内容（必填）</text><textarea id="ticketQuestion" class="ticket-textarea" data-field="ticketQuestion" value="{{ticketQuestion}}" bindinput="input" maxlength="2000" placeholder="请说明哪一处回答有误，或补充需要核查的情况…" /><text class="small">{{ticketQuestion.length}} / 2000</text></view>
+      <block wx:if="!feedback && ticketContext.length"><view class="subtitle">选择附带上下文（可选，默认不选）</view><checkbox-group bindchange="selectContext"><label wx:for="{{ticketContext}}" wx:key="id" class="check-context"><checkbox value="{{item.id}}" color="#467456" /><text>{{item.role === 'user' ? '我的问题：' : '助手回答：'}}{{item.text}}</text></label></checkbox-group></block>
+      <view class="note">核对后点击提交。人工回复沿用你的当前查询权限，不会通过留言扩大数据范围。</view>
+      <button id="submitTicket" class="btn primary block" bindtap="submitTicket" loading="{{busy}}" disabled="{{busy}}">确认提交留言</button>
+    </view>
+
+    <view wx:elif="view === 'ticket'" class="content">
+      <block wx:if="ticket"><view class="topline"><text class="pill {{ticket.status === '已关闭' ? 'closed' : ticket.status === '已回复' ? '' : 'pending'}}">{{ticket.status}}</text><text class="small">{{ticket.updatedAt}}</text></view>
+        <view wx:if="ticket.currentAllowed && ticket.feedbackMessageId" class="feedback-target"><view class="subtitle">反馈对象 · 本次回答</view><view>原问题：{{ticket.feedbackQuestion}}</view><view>回答摘要：{{ticket.feedbackAnswer}}</view></view>
+        <view class="ticket-title">{{ticket.question}}</view><view class="small record-id">{{ticket.id}}<view>提交于 {{ticket.createdAt}}</view></view>
+        <view wx:if="ticket.currentAllowed" class="timeline"><view wx:for="{{ticket.events}}" wx:key="index" class="event"><view class="event-label">{{item.label}}</view><view class="small">{{item.at}}</view><text user-select>{{item.text}}</text><button wx:for="{{item.sources}}" wx:for-item="ref" wx:key="index" class="source" data-ref="{{ref}}" bindtap="openSource">↗ 查看回复来源</button></view></view>
+        <view wx:else class="note">关联数据授权已失效，问题上下文与数据型回复已隐藏，办理状态保留。</view>
+        <view wx:if="ticket.status === '已回复'" class="actions"><button id="appendTicket" class="btn" bindtap="appendTicket" disabled="{{busy}}">继续补充</button><button id="closeTicket" class="btn primary" bindtap="closeTicket" disabled="{{busy}}">已解决，结束办理</button></view>
+        <button wx:elif="ticket.status === '已关闭'" class="btn block" bindtap="composeTicket">新问题，另建留言</button>
+        <view wx:else class="note">{{ticket.status === '处理中' ? '运营管理员已领取，正在核对。' : '留言已保存，等待受理。'}}你可以离开此页面，稍后回来查看。</view>
+      </block><view wx:else class="empty">留言记录当前不可用，请返回列表刷新。</view>
+    </view>
+
+    <view wx:elif="view === 'me'" class="content">
+      <view class="profile"><view class="avatar">{{identity.name}}</view><view><view class="title">{{identity.name}}</view><text class="pill">{{identity.title}}</text><view class="small">{{identity.grade}} {{identity.cls}}</view></view></view>
+      <view class="card"><view class="small">学校</view><view>{{identity.school}}</view><view class="small profile-account">账号 / 稳定身份ID</view><view>{{identity.account}}</view><text class="small" user-select>{{identity.stableId}}</text></view>
+      <view class="card"><button class="menu-row" data-view="audit" bindtap="go"><text>报告查看与下载记录</text><text>›</text></button><button class="menu-row" data-view="scope" bindtap="go"><text>我可以查询哪些数据</text><text>›</text></button></view>
+      <view class="note">数据和查询权限由学校后台维护。如需更正档案、补充成绩或开通权限，请联系学校管理员。</view><button class="btn block" bindtap="logout" disabled="{{busy}}">退出登录</button>
+    </view>
+
+    <view wx:elif="view === 'scope'" class="content"><view wx:for="{{exams}}" wx:key="id" class="card"><view class="subtitle">{{item.name}}</view><view class="scope-subjects"><text wx:for="{{item.subjects}}" wx:key="k">{{item.n}} </text></view><view class="small">{{identity.role === 'student' ? '仅本人；报告按已上传文件显示。' : '类型和对象范围按本次考试针对本人的配置执行。'}}</view></view><view wx:if="!exams.length" class="empty">当前暂无已开放的数据范围。</view><view class="note">职务、任教科目和提问中的身份描述不会自动增加权限。</view></view>
+
+    <view wx:elif="view === 'audit'" class="content"><view wx:for="{{audit}}" wx:key="id" class="card"><view class="topline"><text class="subtitle">{{item.action}}</text><text class="pill">{{item.result}}</text></view><view class="small record-id">{{item.reportId}} · v{{item.version}}<view>{{item.examId}}</view><view>{{item.at}}</view></view></view><view wx:if="!audit.length" class="empty">暂无报告操作记录</view></view>
+  </scroll-view>
+
+  <view wx:if="view === 'chat' && identity" class="chat-bottom">
+    <view class="question-status" aria-live="polite"><view wx:if="questionStatus.traffic.level" class="traffic-notice {{questionStatus.traffic.level}}"><text class="traffic-dot"></text><view><text class="traffic-title">{{questionStatus.traffic.label}}</text><text class="traffic-detail">{{questionStatus.traffic.message}}</text></view></view><view wx:if="questionStatus.quota" class="quota-line {{questionStatus.quota.remaining === 0 ? 'exhausted' : questionStatus.quota.remaining <= 10 ? 'low' : ''}}"><text>今日剩余 <text class="quota-number">{{questionStatus.quota.remaining}}</text> / {{questionStatus.quota.limit}} 次</text><text>每日 00:00 重置</text></view><view wx:else class="small">正在核对今日提问次数…</view><view wx:if="questionStatus.quota.remaining === 0" class="quota-exhausted">今日次数已用完，明日再来提问。仍可查看报告或提交留言。</view></view>
+    <view class="composer"><textarea id="question" class="question-input" data-field="chatDraft" value="{{chatDraft}}" bindinput="input" maxlength="1500" auto-height adjust-position cursor-spacing="20" placeholder="{{questionStatus.quota.remaining === 0 ? '今日次数已用完，明日 00:00 恢复' : '输入问题，直接提问或继续追问…'}}" disabled="{{busy}}" /><button id="sendQuestion" class="send" bindtap="ask" disabled="{{busy || questionStatus.quota.remaining === 0 && !canRetry}}" aria-label="发送问题">{{busy ? '…' : '↑'}}</button></view>
+  </view>
+
+  <view wx:if="showTabs" class="bottom"><button wx:for="{{tabs}}" wx:key="id" class="tab-item {{view === item.id || item.id === 'tools' && (view === 'reports' || view === 'history') ? 'on' : ''}}" data-view="{{item.id}}" bindtap="go" disabled="{{busy}}"><view class="tab-icon icon-{{item.icon}}"><view></view></view><text>{{item.title}}</text><text wx:if="item.id === 'tickets' && unreadCount" class="badge">{{unreadCount}}</text></button></view>
+
+  <view wx:if="source" class="sheet-cover" bindtap="closeSource"><view class="sheet" catchtap="noop"><view class="topline"><text class="title">成绩来源</text><button class="quiet" bindtap="closeSource">×</button></view><view class="sheet-row">{{source.exam}}<view class="small">{{source.subject}} · 考务管理已导入成绩</view></view><view class="sheet-row">范围：{{source.target}}<view>获准人数：{{source.rows.length}}</view></view><view class="small">没有已导入的正式排名时不推算名次。</view><button class="btn primary block" bindtap="closeSource">已了解</button></view></view>
+</view>

@@ -64,7 +64,7 @@ export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' 
           try { payload = JSON.parse(new TextDecoder().decode(payload)) } catch { payload = undefined }
         }
         const message = payload?.error?.user_message || payload?.error?.message || payload?.detail || (error instanceof Error ? error.message : '请求失败，请重试')
-        target?.postMessage({ type: 'answer-result', id, error: { message: typeof message === 'string' ? message : '提交内容不正确，请检查后重试', status: axios.isAxiosError(error) ? error.response?.status : undefined } }, location.origin)
+        target?.postMessage({ type: 'answer-result', id, error: { message: typeof message === 'string' ? message : '提交内容不正确，请检查后重试', status: axios.isAxiosError(error) ? error.response?.status : undefined, code: payload?.error?.code, details: payload?.error?.details } }, location.origin)
       }
     }
     window.addEventListener('message', receive)

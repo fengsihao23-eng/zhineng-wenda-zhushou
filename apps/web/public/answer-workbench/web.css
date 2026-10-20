@@ -10,7 +10,7 @@ html,body{height:100%;margin:0}body{font-family:var(--font-cosmosoracle,-apple-s
 /* Desktop chat is a complete surface, including its first paint before the bridge is ready. */
 :root{--color-canvas:#f4f6fa;--color-ink:#232746;--color-surface:#fff;--color-muted:#6a6f96;--color-faint:#8388a8;--color-hairline:rgba(99,102,241,.16);--color-accent:#5f5bdb;--color-accent-soft:#e7e8fb;--radius-cards:18px;--radius-pill:9999px;--spacing-20:20px;--spacing-24:24px}
 .web-chat{display:flex;flex-direction:column;min-height:0;background:#fff}
-.web-chat>.chat-header{padding:24px 340px 22px 32px;background:#fff}
+.web-chat>.chat-header{padding:24px 340px 22px 32px;background:#fff;z-index:2}
 .web-chat .chat-header__toolbar{display:flex;align-items:center;gap:8px;margin-bottom:18px}
 .web-chat .chat-header__action,.web-chat .chat-header__sessions{min-height:36px;padding:7px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:13px}
 .web-chat .chat-header__title{font-size:26px;font-weight:600;line-height:1.4;letter-spacing:-.5px}

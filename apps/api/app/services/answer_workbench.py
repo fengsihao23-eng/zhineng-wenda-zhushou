@@ -17,6 +17,7 @@ from app.db.models.answer_workbench import AnswerScope, AnswerTrial, AnswerSessi
 from app.services.education_common import claim, digest
 from app.services.report_management import access_decision, grants as report_grants, current_file, render_pdf
 from app.ai.gateway import get_model_gateway
+from app.services import answer_capacity
 
 FIELDS = [('任课教师', '任课年级班级'), ('班主任', '班主任年级班级'), ('教研组长', '教研组长负责年级科目'),
           ('年级长', '年级长负责年级'), ('教务主任', '是否教务主任'), ('校长', '是否校长'), ('总务主任', '是否总务主任')]
@@ -814,13 +815,16 @@ async def ask(db, actor, body, request_key):
             AnswerSession.id == (body.session_id or rid)))
         if not session:
             fail('原请求尚未完成，请稍后重试。', 409)
-        return await session_view(db, actor, info, session)
+        return {**await session_view(db, actor, info, session), 'questionStatus': await answer_capacity.status(db, actor)}
     session = await session_get(db, actor, body.session_id, True) if body.session_id else None
+    charged_day = await answer_capacity.reserve(db, actor)
     b = deepcopy(session.body) if session else {'id': str(rid), 'owner': info['role']+':'+info['id'], 'title': body.question[:30],
         'createdAt': stamp(), 'messages': [], 'context': None}
     context = b.get('context') if not b.get('context') or await sources_allowed(db, actor, info, b['context'].get('sources', [])) else None
     config = await bundle(db, actor)
     answer = await evaluate(db, actor, info, body.question, config, context)
+    if answer.get('serviceFailure') or answer.get('configurationFailure'):
+        await answer_capacity.release(db, actor, charged_day)
     b['messages'].extend([{'id': str(uuid4()), 'role': 'user', 'text': body.question, 'at': stamp(), 'requestId': str(rid)}, answer])
     b['context'] = answer.get('context') or context
     b['updatedAt'] = stamp()
@@ -831,7 +835,7 @@ async def ask(db, actor, body, request_key):
         session = AnswerSession(id=rid, school_id=actor.school_id, user_id=actor.user_id, body=b)
         db.add(session)
     await db.commit()
-    return await session_view(db, actor, info, session)
+    return {**await session_view(db, actor, info, session), 'questionStatus': await answer_capacity.status(db, actor)}
 
 
 async def ticket_get(db, actor, rid, management=False, lock=False):
@@ -1067,4 +1071,5 @@ async def mini_state(db, actor):
     audits = (await db.scalars(select(AnswerOperation).where(AnswerOperation.school_id == actor.school_id,
         AnswerOperation.user_id == actor.user_id, AnswerOperation.action.in_(['查看报告', '下载报告'])).order_by(AnswerOperation.created_at.desc()).limit(100))).all()
     return {'identity': p, 'exams': await permitted_exam_metadata(db, actor, p), 'reports': await report_list(db, actor, p),
-        'sessions': [await session_view(db, actor, p, r) for r in sessions], 'tickets': await tickets_list(db, actor), 'audit': [r.body for r in audits]}
+        'sessions': [await session_view(db, actor, p, r) for r in sessions], 'tickets': await tickets_list(db, actor), 'audit': [r.body for r in audits],
+        'questionStatus': await answer_capacity.status(db, actor)}
