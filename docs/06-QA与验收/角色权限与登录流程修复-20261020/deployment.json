@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-20",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/fix-role-access-flows",
+  "app_commit": "af382dddb48b4b9fd7c7d7cadb3fbd2323368f00",
+  "previous_commit": "e5645bc20e103db4fd20c3f824d284b5398919c2",
+  "release_directory": "/srv/backups/role-access-20261020-034219Z",
+  "released_at": "2026-10-20T11:43:00+08:00",
+  "services_rebuilt": [
+    "api",
+    "web"
+  ],
+  "database_backup_catalog_verified": true,
+  "rollback_images_retained": true,
+  "environment_hash_unchanged": true,
+  "database_migrations_added": false,
+  "schema_before": "024_answer_workbench",
+  "schema_after": "024_answer_workbench",
+  "business_data_unchanged": {
+    "counts_before": {
+      "users": 596,
+      "students": 332,
+      "teacher_profiles": 259,
+      "teaching_assignments": 2660,
+      "exams": 4,
+      "exam_query_policies": 634,
+      "exam_query_grants": 9792,
+      "subject_scores": 630,
+      "question_scores": 25140,
+      "managed_reports": 25,
+      "user_roles": 668,
+      "human_handoffs": 0,
+      "handoff_messages": 0,
+      "answer_tickets": 1
+    },
+    "fingerprints_before": {
+      "user_roles": "ab495f6ba53ace9018c1439e290e87c8",
+      "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+      "policies": "e39db73d0d89c6cea92ac0f48075b92a",
+      "grants": "e4f103083cd91cb1d238dc25cff002b4",
+      "administration": "6904c4b3b4d59f6d5261bcb77eaf66db"
+    }
+  },
+  "active_api_source_verified": [
+    "api/deps.py",
+    "core/access_scope.py",
+    "api/v1/endpoints/platform.py",
+    "api/v1/endpoints/management_details.py",
+    "services/learning_workbench.py",
+    "services/answer_workbench.py"
+  ],
+  "production_health": "ok",
+  "real_model_ready": true,
+  "frontend_after": {
+    "verified_assets": [
+      "/assets/index-CM0U-YOE.js",
+      "/assets/index-oUWgXBqI.css"
+    ],
+    "verified_routes": [
+      "/admin/school?tab=teachers",
+      "/admin/school?tab=students",
+      "/admin/school?tab=exam-management",
+      "/admin/reports",
+      "/mini"
+    ],
+    "role_access_and_password_bridge_ui_verified": true
+  },
+  "live_readonly_role_check": {
+    "read_only": true,
+    "account_roles_and_password_flags_changed": false,
+    "checks": [
+      {
+        "kind": "school_reader",
+        "eligible_live_account": true,
+        "management_gets": 5,
+        "student_count": 315,
+        "read_scope": "school",
+        "readonly_controls_verified": true,
+        "answer_tickets_checked": 1,
+        "student_detail": "ok"
+      },
+      {
+        "kind": "teacher_reader",
+        "eligible_live_account": true,
+        "management_gets": 5,
+        "student_count": 315,
+        "read_scope": "school",
+        "readonly_controls_verified": true,
+        "answer_tickets_checked": 1,
+        "student_detail": "ok"
+      },
+      {
+        "kind": "school_admin",
+        "eligible_live_account": true,
+        "management_gets": 5,
+        "student_count": 315,
+        "student_detail": "ok"
+      },
+      {
+        "kind": "super_admin",
+        "eligible_live_account": false,
+        "note": "线上库当前没有 SUPER_ADMIN 账号；该路径由隔离环境的真实登录与 Chromium 用例覆盖。"
+      }
+    ]
+  },
+  "public_endpoint_checks": {
+    "health": "ok",
+    "/chat": 200,
+    "/mini-preview": 200
+  },
+  "deployment_note": "API 重启期间健康检查出现一次瞬时 502，重试后返回 ok；发布脚本按预期完成，没有触发回滚。",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "af382dddb48b4b9fd7c7d7cadb3fbd2323368f00",
+    "status": "completed",
+    "url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39364906606",
+    "frontend": "success",
+    "backend": "success"
+  },
+  "validation": {
+    "backend_sqlite_passed": 51,
+    "backend_postgresql_passed": 52,
+    "role_access_postgresql_passed": 3,
+    "frontend_unit_passed": 31,
+    "browser_role_access": 5,
+    "browser_desktop_answer": 5,
+    "browser_mini_answer": 5,
+    "browser_exam_management": 15
+  }
+}
