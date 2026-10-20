@@ -49,7 +49,7 @@ async function boot() { try {
     if (identity) syncVisibleClient();
 }
 catch (e) {
-    $('screen').innerHTML = '<div class="content"><div class="note error">' + esc(e.message) + '</div><button class="btn" onclick="logout()">返回登录</button></div>';
+    $('screen').innerHTML = '<div class="content"><div class="note error">' + esc(e.message) + '</div><button class="btn" onclick="boot()">重试</button><button class="btn" onclick="parent.location.href=\'/\'">返回工作台</button></div>';
 } }
 async function login() { if (busy)
     return; busy = true; try {

@@ -17,7 +17,7 @@ from app.db.models.student import Student
 from app.db.models.trace import AuditLog
 
 router = APIRouter(prefix="/platform/management", tags=["platform"])
-management = require_management("TEACHER", "SCHOOL_ADMIN", "QA", "CITY_OPERATOR", "SUPER_ADMIN")
+management = require_management("TEACHER", "SCHOOL_ADMIN", "QA", "CITY_OPERATOR", "SUPER_ADMIN", "SCHOOL_VIEWER")
 city = require_management("CITY_OPERATOR", "SUPER_ADMIN")
 
 

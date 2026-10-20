@@ -37,6 +37,8 @@ import {
   StudentRosterPage,
 } from './pages/ManagementPages'
 
+const SCHOOL_MANAGEMENT_ROLES = [...SCHOOL_ROLES, 'SUPER_ADMIN']
+
 function App() {
   const scope = useAuthScope()
   const HomeRedirect = () => {
@@ -54,7 +56,7 @@ function App() {
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<RoleGate><HomeRedirect /></RoleGate>} />
             <Route path="/mini" element={<Navigate to={getUserInfo()?.roles.includes('TEACHER') && !getUserInfo()?.roles.includes('STUDENT') ? '/teacher/chat' : '/chat'} replace />} />
-            <Route path="/mini-preview" element={<AnswerWorkbenchPage mode="mini" />} />
+            <Route path="/mini-preview" element={<RoleGate allowed={[...STUDENT_ROLES, ...TEACHER_ROLES]}><AnswerWorkbenchPage mode="mini" /></RoleGate>} />
             <Route path="/chat" element={<RoleGate allowed={[...STUDENT_ROLES, ...TEACHER_ROLES]}><AnswerWorkbenchPage /></RoleGate>} />
             <Route path="/teacher/chat" element={<RoleGate allowed={TEACHER_ROLES}><AnswerWorkbenchPage /></RoleGate>} />
             <Route path="/admin/prompts" element={<RoleGate allowed={['SCHOOL_ADMIN', 'SUPER_ADMIN']}><AnswerWorkbenchPage mode="admin" /></RoleGate>} />
@@ -74,7 +76,7 @@ function App() {
             <Route path="/teacher/feedback" element={<RoleGate allowed={TEACHER_ROLES}><FeedbackPage /></RoleGate>} />
             <Route path="/teacher/handoffs" element={<RoleGate allowed={TEACHER_ROLES}><HandoffPage /></RoleGate>} />
             <Route path="/teacher/risks" element={<RoleGate allowed={TEACHER_ROLES}><RiskPage /></RoleGate>} />
-            <Route path="/admin" element={<RoleGate allowed={SCHOOL_ROLES}><ManagementOverviewPage /></RoleGate>} />
+            <Route path="/admin" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><ManagementOverviewPage /></RoleGate>} />
             <Route path="/admin/school" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN', 'EXAM_ADMIN']}><SchoolWorkbenchPage /></RoleGate>} />
             {([
               { path: 'import', view: 'import' },
@@ -96,12 +98,12 @@ function App() {
             <Route path="/admin/reports" element={<RoleGate allowed={['SCHOOL_ADMIN', 'QA', 'SUPER_ADMIN']}><ReportWorkbenchPage /></RoleGate>} />
             <Route path="/admin/reports/new" element={<RoleGate allowed={['SCHOOL_ADMIN', 'QA', 'SUPER_ADMIN']}><ReportWorkbenchPage key="create" view="create" /></RoleGate>} />
             <Route path="/admin/analysis" element={<RoleGate allowed={[...SCHOOL_ROLES, 'SUPER_ADMIN']}><ClassAnalysisPage /></RoleGate>} />
-            <Route path="/admin/students" element={<RoleGate allowed={SCHOOL_ROLES}><StudentRosterPage /></RoleGate>} />
-            <Route path="/admin/students/:studentId" element={<RoleGate allowed={SCHOOL_ROLES}><StudentDetailPage /></RoleGate>} />
-            <Route path="/admin/knowledge" element={<RoleGate allowed={SCHOOL_ROLES}><KnowledgePage /></RoleGate>} />
-            <Route path="/admin/feedback" element={<RoleGate allowed={SCHOOL_ROLES}><FeedbackPage /></RoleGate>} />
-            <Route path="/admin/risks" element={<RoleGate allowed={SCHOOL_ROLES}><RiskPage /></RoleGate>} />
-            <Route path="/admin/handoffs" element={<RoleGate allowed={SCHOOL_ROLES}><HandoffPage /></RoleGate>} />
+            <Route path="/admin/students" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><StudentRosterPage /></RoleGate>} />
+            <Route path="/admin/students/:studentId" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><StudentDetailPage /></RoleGate>} />
+            <Route path="/admin/knowledge" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><KnowledgePage /></RoleGate>} />
+            <Route path="/admin/feedback" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><FeedbackPage /></RoleGate>} />
+            <Route path="/admin/risks" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><RiskPage /></RoleGate>} />
+            <Route path="/admin/handoffs" element={<RoleGate allowed={SCHOOL_MANAGEMENT_ROLES}><HandoffPage /></RoleGate>} />
             <Route path="/ops" element={<RoleGate allowed={CITY_ROLES}><ManagementOverviewPage /></RoleGate>} />
             <Route path="/ops/schools" element={<RoleGate allowed={CITY_ROLES}><SchoolPage /></RoleGate>} />
             <Route path="/ops/schools/:schoolId" element={<RoleGate allowed={CITY_ROLES}><SchoolDetailPage /></RoleGate>} />

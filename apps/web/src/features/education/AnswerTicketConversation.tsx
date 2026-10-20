@@ -4,7 +4,7 @@ import { ErrorDisplay } from '../../components/ErrorDisplay'
 import { useApiAction, useJsonQuery } from '../../hooks/useApi'
 
 type Ticket = {
-  id: string; revision: number; status: string; question: string; currentAllowed: boolean; canReply: boolean
+  id: string; revision: number; status: string; question: string; currentAllowed: boolean; canClaim: boolean; canReply: boolean
   assignee?: { id: string; name: string }; sources: Record<string, unknown>[]
   context: { id: string; role: string; text: string }[]
   events: { role: string; text: string; by?: string; at: string }[]
@@ -35,7 +35,7 @@ export function AnswerTicketConversation({ id }: { id: string }) {
         {!ticket.currentAllowed && <p role="status">来源权限已变化或当前教师无权查看，相关内容已隐藏。可回复办理指引，数据问题请由有权限的老师核查。</p>}
         {ticket.context.length > 0 && <details><summary>查看学生提交的问答上下文</summary>{ticket.context.map(message => <p key={message.id}><strong>{message.role === 'user' ? '学生' : '助手'}：</strong>{message.text}</p>)}</details>}
         <div role="log" aria-label="问答人工留言消息">{ticket.events.map((event, index) => <article className={`wb-message wb-message--${event.role === 'operator' ? 'staff' : event.role}`} key={index}><strong>{event.by || (event.role === 'user' ? '学生' : event.role === 'operator' ? '老师' : '系统')}</strong> · <time>{event.at}</time><p>{event.text}</p></article>)}</div>
-        {ticket.status === '待处理' && <button className="primary-button" disabled={action.isPending} onClick={() => run('claim')}>领取留言</button>}
+        {ticket.canClaim && <button className="primary-button" disabled={action.isPending} onClick={() => run('claim')}>领取留言</button>}
         {ticket.canReply && <form className="wb-form" onSubmit={event => { event.preventDefault(); run('reply') }}>
           <label>回复类型<select aria-label="回复类型" value={kind} onChange={event => setKind(event.target.value)}><option value="routing">办理指引</option><option value="insufficient">说明资料不足</option><option value="permission">说明权限</option>{ticket.currentAllowed && ticket.sources.length > 0 && <option value="data">引用已核对的数据来源</option>}</select></label>
           <label>回复学生<textarea aria-label="回复问答人工留言" required maxLength={4000} value={text} onChange={event => setText(event.target.value)} /></label>

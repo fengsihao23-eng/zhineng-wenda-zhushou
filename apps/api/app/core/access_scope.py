@@ -18,6 +18,24 @@ def is_teacher_only(user):
     return user.has_role("TEACHER") and not any(user.has_role(role) for role in ("SCHOOL_ADMIN", "QA", "CITY_OPERATOR", "SUPER_ADMIN", "SCHOOL_VIEWER"))
 
 
+def is_school_read_only(user):
+    return user.has_role("SCHOOL_VIEWER") and not any(user.has_role(role) for role in ("SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"))
+
+
+def is_handoff_handler(user):
+    return (not is_school_read_only(user) or user.has_role("TEACHER")) and any(
+        user.has_role(role) for role in ("TEACHER", "SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "CITY_OPERATOR"))
+
+
+def teaching_handler(user):
+    """Handle help requests under teaching duties, independently of school-wide read access."""
+    if user.has_role("TEACHER") and user.has_role("SCHOOL_VIEWER"):
+        from app.api.deps import AuthenticatedUser
+        return AuthenticatedUser(user.user_id, user.school_id, user.username,
+                                 [role for role in user.roles if role.upper() != "SCHOOL_VIEWER"])
+    return user
+
+
 def active_grants(user):
     now = datetime.now(timezone.utc)
     return (
