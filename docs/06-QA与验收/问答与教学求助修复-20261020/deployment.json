@@ -1,0 +1,200 @@
+{
+  "counts-before.json": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 25
+  },
+  "counts-after.json": {
+    "users": 596,
+    "students": 332,
+    "teacher_profiles": 259,
+    "teaching_assignments": 2660,
+    "exams": 4,
+    "exam_query_policies": 634,
+    "exam_query_grants": 9792,
+    "subject_scores": 630,
+    "question_scores": 25140,
+    "managed_reports": 25
+  },
+  "fingerprints-before.json": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "e39db73d0d89c6cea92ac0f48075b92a",
+    "grants": "e4f103083cd91cb1d238dc25cff002b4",
+    "administration": "6904c4b3b4d59f6d5261bcb77eaf66db",
+    "subject_scores": "fa992722b3cdf17336fa591994b48470",
+    "question_earned_scores": "aa8b00a59bdfa9130c9f58ad6353e0d6"
+  },
+  "fingerprints-after.json": {
+    "teacher_profiles": "2c56f051594d7f0a64f61ee531b0f13d",
+    "policies": "e39db73d0d89c6cea92ac0f48075b92a",
+    "grants": "e4f103083cd91cb1d238dc25cff002b4",
+    "administration": "6904c4b3b4d59f6d5261bcb77eaf66db",
+    "subject_scores": "fa992722b3cdf17336fa591994b48470",
+    "question_earned_scores": "aa8b00a59bdfa9130c9f58ad6353e0d6"
+  },
+  "repair-preview.json": {
+    "applied": false,
+    "schools_checked": 2,
+    "assignments_created": 0,
+    "teachers_with_pending_references": 0,
+    "question_losses_repaired": 0,
+    "question_scores_needing_maxima": 25139
+  },
+  "repair-applied.json": {
+    "applied": true,
+    "schools_checked": 2,
+    "assignments_created": 0,
+    "teachers_with_pending_references": 0,
+    "question_losses_repaired": 0,
+    "question_scores_needing_maxima": 25139
+  },
+  "repair-idempotency.json": {
+    "applied": false,
+    "schools_checked": 2,
+    "assignments_created": 0,
+    "teachers_with_pending_references": 0,
+    "question_losses_repaired": 0,
+    "question_scores_needing_maxima": 25139
+  },
+  "frontend-after.json": {
+    "verified_assets": [
+      "/assets/index-_3tyQm0I.js",
+      "/assets/index-oUWgXBqI.css"
+    ],
+    "verified_routes": [
+      "/chat",
+      "/teacher/handoffs",
+      "/mistakes",
+      "/admin/school?tab=exam-management",
+      "/admin/reports"
+    ],
+    "workflow_ui_verified": true
+  },
+  "live-readonly.json": {
+    "read_only": true,
+    "checks": [
+      {
+        "role": "SCHOOL_ADMIN",
+        "eligible_account": true,
+        "authentication": "ok",
+        "student_count": 315,
+        "queue_count": 1,
+        "answer_ticket_count": 1,
+        "open_handoffs": 1,
+        "question_maxima_endpoint": "ok",
+        "question_count": 61
+      },
+      {
+        "role": "TEACHER",
+        "eligible_account": true,
+        "authentication": "ok",
+        "student_count": 0,
+        "queue_count": 0,
+        "answer_ticket_count": 0,
+        "open_handoffs": 0,
+        "session_order": "latest_100_verified"
+      },
+      {
+        "role": "STUDENT",
+        "eligible_account": true,
+        "authentication": "ok",
+        "session_order": "latest_100_verified",
+        "mistake_records": 80,
+        "pending_maxima_records": 80,
+        "pending_score_detail": "ok"
+      }
+    ]
+  },
+  "teacher-scope-audit.json": {
+    "read_only": true,
+    "teacher_scopes_checked": 77,
+    "teacher_scopes_with_students": 25,
+    "largest_authorized_roster": 315,
+    "class_scope_independently_verified": true
+  },
+  "date": "2026-10-20",
+  "server": "43.161.195.51",
+  "login_user": "ubuntu",
+  "privilege_command": "sudo -n",
+  "branch": "codex/fix-student-workflow-gaps",
+  "release_directory": "/srv/backups/workflow-gaps-20261020-020245Z",
+  "app_commit": "68f65363c009fcd9c4c888948592af56ed371046",
+  "previous_commit": "eecdf54c2c53bbb2e03fd93d9d6dd0a70743c901",
+  "schema_before": "024_answer_workbench",
+  "schema_after": "024_answer_workbench",
+  "services_rebuilt": [
+    "api",
+    "web"
+  ],
+  "database_backup_catalog_verified": true,
+  "rollback_images_retained": true,
+  "environment_hash_unchanged": true,
+  "database_migrations_added": false,
+  "production_health": "ok",
+  "real_model_ready": true,
+  "active_api_source_sha256": [
+    "d7fb42bc9c460182f4ef13c7e11f7279de54a10a9bc615d08168076421ffb968  apps/api/app/api/v1/endpoints/exam_management.py",
+    "165869b8af715ff30ab24aa3d700ecd353e0b94c2a1f89b18a0beb607feceb18  apps/api/app/api/v1/endpoints/platform.py",
+    "32d110951066aa0e967eb661202e497f94a4a9bfb2ccca8160c4867d4851abc3  apps/api/app/core/access_scope.py",
+    "42402badc3f1e8eac188927c90c9b3cf5c98473dd88839e3bf7eb225c62c6839  apps/api/app/data/import_service.py",
+    "e42216bf6e464b8843465549137686ebbc11d22e99f0aafcf1afca6412f0e820  apps/api/app/schemas/exam_management.py",
+    "d53629030295b1eb74efdf6cad7bb808d73cefac2ce2b5cf23ec55e3b1bc5fd6  apps/api/app/services/answer_workbench.py",
+    "390e6123a301151f4b5d893b7babe76f37c1618e0f252df642cab7b78928a6fa  apps/api/app/services/exam_management.py",
+    "46a3e497ff9489224c41760b664c9cfe759d042ef35667c5de258469de9a735f  apps/api/app/services/exam_permission_defaults.py",
+    "36067dcef0b2c9b96e7ffe30469267e0b788aa016ce6df41eab77dfb51f101b9  apps/api/app/services/learning_workbench.py",
+    "46c3849959f2af5b894ba6755f397c1709ab563b347578ffdac62ded42e64b3a  apps/api/app/services/roster_excel.py",
+    "81de663c53b97ffdb297301d02177fa3d876d27a68eaa6bd858d2f136227026f  apps/api/app/services/roster_workbench.py",
+    "cbb5895b1391e025e77f059a95f8b840fe5c51d42b6e6e5cb9182a7a2a1a0ad7  apps/api/app/services/school_workbench.py",
+    "a439f4cc15ff62ab4ed88ee3d6f1881d108800143d2242893c6728b7e05d730a  apps/api/app/services/student_tasks.py",
+    "79d856ac37f7917f77080ebf1ed634534086f84a50260bab2cd0e9bfca7cda00  apps/api/app/services/teaching_assignments.py",
+    "600c9f90a3ac9b4db1a77cb1489980881626aff4ba2f377bd86b9618ffdd716e  apps/api/scripts/repair_workflow_gaps.py"
+  ],
+  "original_maxima_check": {
+    "read_only": true,
+    "imported_original_files_checked": 2,
+    "labelled_maximum_rows": 0,
+    "numeric_question_metadata_rows_before_header": 0,
+    "unreadable_original_files": 0
+  },
+  "browser_checks": {
+    "local_production": {
+      "passed": 5
+    },
+    "deployed_frontend_with_synthetic_api": {
+      "passed": 5
+    },
+    "development": {
+      "passed": 5
+    }
+  },
+  "local_backend": {
+    "passed": 334,
+    "skipped_postgresql_only": 8
+  },
+  "frontend_unit_tests": {
+    "passed": 31
+  },
+  "ci": {
+    "conclusion": "success",
+    "headSha": "68f65363c009fcd9c4c888948592af56ed371046",
+    "status": "completed",
+    "url": "https://github.com/fengsihao23-eng/zhineng-wenda-zhushou/actions/runs/39356606601",
+    "sqlite": {
+      "passed": 334,
+      "skipped": 8
+    },
+    "postgresql": {
+      "passed": 342
+    },
+    "frontend_unit": {
+      "passed": 31
+    }
+  }
+}
