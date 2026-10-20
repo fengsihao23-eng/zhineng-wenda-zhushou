@@ -77,6 +77,14 @@ npm run test:mini:devtools
 
 在隔离自动化测试前，应明确将 API 切回 `http://127.0.0.1:8048/api/v1`，并启动专用测试服务。正式数据补验脚本 `tests/miniprogram/live-backend.mjs` 要求显式提供所有者授权的短期验收会话文件，不在 CI 中自动对正式环境提问。
 
+正式账号界面补验：先连接正式后台，由账号持有人在开发者工具中正常登录已有学生账号，再执行：
+
+```bash
+QA_WECHAT_LIVE_UI=1 npm run test:mini:live-ui
+```
+
+此命令实际输入并发送一条带“界面联调核验”标记的问题，保留正式会话并消耗 1 次当天额度。它核对模型回答、已授权成绩来源、同一网页 API 的保存结果、历史重开及额度；不读取或导出登录凭据，不退出持有人的登录。含业务数据的截图和证据仅写入被 Git 忽略的 `.local/wechat-live/` 私有目录。
+
 测试环境、测试范围及当前未完成的人工环节见 [验收与上线说明](../../docs/06-QA与验收/微信小程序-20261020/验收与上线说明.md)。自动化 SDK 仅是根目录开发依赖，小程序运行包没有第三方 npm 依赖。
 
 报告下载调用 `wx.downloadFile` 后使用 `wx.openDocument({showMenu:true})`，便于用户通过微信原生菜单保存。见 [微信文件 API 文档](https://developers.weixin.qq.com/miniprogram/dev/api/file/wx.openDocument.html)。
