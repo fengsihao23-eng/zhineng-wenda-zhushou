@@ -13,7 +13,7 @@ from app.db.models import School, Student, StudentSubjectScore, StudentExamScore
 from app.db.models.education import ReportAttachment, PrivateAsset
 from app.db.models.exam_management import ExamQueryPolicy, ExamQueryGrant
 from app.api.v1.endpoints.education import exam_read_role as base_exam_reader, exam_write_role, write
-from app.schemas.exam_management import (ExamDraft, ScoreUpload, Revision, TeacherPermissions, StudentPermissions, Upload)
+from app.schemas.exam_management import (ExamDraft, ScoreUpload, Revision, QuestionMaxima, TeacherPermissions, StudentPermissions, Upload)
 from app.services import exam_management as service
 from app.services import report_management as report_service
 from app.services.education_common import data, audit
@@ -245,6 +245,16 @@ async def score_template(identifier: UUID, subject_id: UUID, actor=Depends(exam_
 @router.post("/{identifier}/score-files")
 async def score_preflight(identifier: UUID, body: ScoreUpload, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
     return await write(db, service.score_preflight(db, actor, identifier, body))
+
+
+@router.get("/{identifier}/question-maxima/{subject_id}")
+async def question_score_options(identifier: UUID, subject_id: UUID, actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):
+    return await service.question_score_options(db, actor, identifier, subject_id)
+
+
+@router.post("/{identifier}/question-maxima/{subject_id}")
+async def save_question_maxima(identifier: UUID, subject_id: UUID, body: QuestionMaxima, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, service.save_question_maxima(db, actor, identifier, subject_id, body))
 
 
 @router.post("/{identifier}/score-files/{file_id}/confirm")

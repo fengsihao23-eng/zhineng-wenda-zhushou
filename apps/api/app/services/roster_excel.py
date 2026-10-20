@@ -2,6 +2,7 @@
 import base64
 import io
 import re
+import unicodedata
 import zipfile
 from itertools import zip_longest
 import xlrd
@@ -175,21 +176,22 @@ def text(value):
 def teaching_pairs(value):
     """Return subject, numeric grade, class. Unresolved references never reject teachers."""
     pairs = []
-    for group in value.split(";"):
-        if ":" not in group:
-            continue
-        subject, classes = group.split(":", 1)
-        for code in classes.split(","):
-            match = re.fullmatch(r"\s*(\d+)\.(\d+)\s*", code)
-            if subject.strip() and match:
-                pairs.append((subject.strip(), int(match[1]), int(match[2])))
+    subject = ""
+    for group in re.split(r"[;\n\r]+", normalized(value)):
+        if ":" in group:
+            subject, classes = group.split(":", 1)
+        else:
+            classes = group
+        for grade, number in class_references(classes):
+            if subject.strip():
+                pairs.append((subject.strip(), grade, number))
     return pairs
 
 
 def subject_leadership(value):
     """The real workbook can contain 10.语文,10.英语 in one leadership cell."""
     result = set()
-    for item in re.split(r"[,，;；\n]", value):
+    for item in re.split(r"[,;\n\r、]", normalized(value)):
         match = re.fullmatch(r"\s*(\d+)\.([^.,，;；\n]+?)\s*", item)
         if match:
             result.add((int(match[1]), match[2].strip()))
@@ -197,7 +199,35 @@ def subject_leadership(value):
 
 
 def class_matches(classroom, grade, number):
-    return classroom.external_class_id == f"{grade}.{number}" or classroom.name.replace(" ", "") == f"{GRADE_NAMES.get(grade, grade)}{number}班"
+    expected = parse_class_reference(f"{grade}.{number}") or parse_class_reference(f"{grade}{number}班")
+    return bool(expected and expected in (parse_class_reference(classroom.external_class_id), parse_class_reference(classroom.name)))
+
+
+def normalized(value):
+    return unicodedata.normalize("NFKC", str(value or "")).strip()
+
+
+def parse_class_reference(value):
+    value = re.sub(r"\s+", "", normalized(value))
+    match = re.fullmatch(r"(\d+)\.(\d+)", value)
+    if match:
+        return int(match[1]), int(match[2])
+    for grade, label in GRADE_NAMES.items():
+        match = re.fullmatch(re.escape(label) + r"(\d+)班", value)
+        if match:
+            return grade, int(match[1])
+    return None
+
+
+def class_references(value):
+    return [reference for part in re.split(r"[,;、\n\r]+", normalized(value))
+            if (reference := parse_class_reference(part))]
+
+
+def grade_codes(value):
+    labels = {label: grade for grade, label in GRADE_NAMES.items()}
+    return {int(part) if part.isdigit() else labels[part]
+            for part in re.split(r"[,;、\s]+", normalized(value)) if part.isdigit() or part in labels}
 
 
 def duty_codes(values):

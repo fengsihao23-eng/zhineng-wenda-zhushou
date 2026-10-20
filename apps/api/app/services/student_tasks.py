@@ -492,6 +492,8 @@ async def apply_placements(db, task, school, people):
             user.password_version += 1
     if task.kind == "promotion" and payload["mode"] == "next":
         school.current_academic_year = payload["target_year"]
+    from app.services.teaching_assignments import reconcile_school
+    await reconcile_school(db, school.id)
 
 
 def errors_excel(task):

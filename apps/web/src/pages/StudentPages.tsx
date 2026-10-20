@@ -21,7 +21,7 @@ type Dashboard = {
 type Authorization = { id: string; parent_name: string; parent_phone: string; share_code: string; scopes: string[]; status: string; expires_at: string | null; granted_at: string | null }
 type TrendData = { exams: Array<{ id: string; name: string; date: string | null; score: number; full_score: number | null; class_rank: number | null; grade_rank: number | null }>; subjects: Array<{ subject: string; exam: string; date: string | null; score: number; full_score: number | null }>; subject_names: string[] }
 type Diagnosis = { has_source: boolean; id: string; type: string; status: string; version: string | null; generated_at: string | null; exam_name: string | null; content: Record<string, unknown>; source: string }
-type Mistake = { id: string; exam: string; subject: string; question_no: string; score: number; full_score: number | null; lost_score: number; answer_status: string | null; date: string | null }
+type Mistake = { id: string; exam: string; subject: string; question_no: string; score: number; full_score: number | null; lost_score: number | null; answer_status: string | null; date: string | null }
 
 function useJson<T>(path: string) {
   // 统一走 TanStack Query（带身份隔离的查询键），不再各自维护请求状态。
@@ -95,8 +95,20 @@ export function StudentMistakesPage() {
   const subjects = useMemo(() => ['全部科目', ...Array.from(new Set((data || []).map(item => item.subject)))], [data])
   const rows = (data || []).filter(item => subject === '全部科目' || item.subject === subject)
   const pagination = useClientPagination(rows, subject)
-  const loss = rows.reduce((sum, item) => sum + item.lost_score, 0)
-  return <AppShell title="错题分析" eyebrow="学生空间 / 错题分析"><div className="page-toolbar"><Link className="secondary-button" to="/mistakes/reviews">我的订正与复习</Link></div><ContentState loading={loading} error={error} onRetry={reload} empty={!data?.length}><div className="stats-grid stats-grid--three"><StatCard label="累计丢分" value={`${loss.toFixed(1)} 分`} hint="来自已同步的小题记录" tone="orange" /><StatCard label="错题数量" value={rows.length} hint="按筛选条件统计" tone="purple" /><StatCard label="最高单题丢分" value={`${Math.max(...rows.map(item => item.lost_score), 0)} 分`} hint="建议优先复盘" tone="blue" /></div><div className="filter-row"><select className="filter-select" value={subject} onChange={event => setSubject(event.target.value)}>{subjects.map(item => <option key={item}>{item}</option>)}</select></div><Pagination {...pagination} /><div className="data-table-wrap"><table className="data-table"><thead><tr><th>考试</th><th>科目 / 题号</th><th>得分</th><th>丢分</th><th>答题状态</th><th>建议动作</th></tr></thead><tbody>{pagination.items.map(item => <tr key={item.id}><td><strong>{item.exam}</strong><div className="subtle">{item.date || '—'}</div></td><td>{item.subject} · 第 {item.question_no} 题</td><td>{item.score} / {item.full_score}</td><td><span className="loss-number">-{item.lost_score}</span></td><td><span className="status-pill status-pill--amber">{item.answer_status === 'partial' ? '部分得分' : item.answer_status || '待复盘'}</span></td><td><button className="action-link" onClick={() => setActiveMistake(item.id)}>查看原题 / 加入复盘</button></td></tr>)}</tbody></table></div></ContentState>{activeMistake && <DetailDialog title="原题与复盘" onClose={() => setActiveMistake('')}><MistakeStudy key={activeMistake} id={activeMistake} /></DetailDialog>}</AppShell>
+  const loss = rows.reduce((sum, item) => sum + (item.lost_score ?? 0), 0)
+  const pending = rows.filter(item => item.lost_score == null).length
+  return <AppShell title="错题分析" eyebrow="学生空间 / 错题分析">
+    <div className="page-toolbar"><Link className="secondary-button" to="/mistakes/reviews">我的订正与复习</Link></div>
+    <ContentState loading={loading} error={error} onRetry={reload}>
+      {pending > 0 && <p className="inline-empty" role="status">有 {pending} 条小题记录已导入得分，但尚未提供满分，暂不能判断是否为错题或计算失分。请联系学校在考务管理补充小题满分。</p>}
+      <div className="stats-grid stats-grid--three"><StatCard label="累计丢分" value={`${loss.toFixed(1)} 分`} hint="仅统计已知满分的小题" tone="orange" /><StatCard label="已确认错题" value={rows.length - pending} hint={`另有 ${pending} 条待补满分`} tone="purple" /><StatCard label="最高单题丢分" value={`${Math.max(...rows.map(item => item.lost_score ?? 0), 0)} 分`} hint="建议优先复盘" tone="blue" /></div>
+      <div className="filter-row"><select className="filter-select" value={subject} onChange={event => setSubject(event.target.value)}>{subjects.map(item => <option key={item}>{item}</option>)}</select></div>
+      {!rows.length ? <p className="inline-empty">当前没有可展示的错题或待补满分记录；仅展示已授权且已同步的小题。</p> : <><Pagination {...pagination} /><div className="data-table-wrap"><table className="data-table"><thead><tr><th>考试</th><th>科目 / 题号</th><th>得分</th><th>丢分</th><th>答题状态</th><th>建议动作</th></tr></thead><tbody>{pagination.items.map(item => <tr key={item.id}>
+        <td><strong>{item.exam}</strong><div className="subtle">{item.date || '—'}</div></td><td>{item.subject} · 第 {item.question_no} 题</td><td>{item.score} / {item.full_score ?? '待补满分'}</td><td><span className="loss-number">{item.lost_score == null ? '待计算' : `-${item.lost_score}`}</span></td><td><span className="status-pill status-pill--amber">{item.lost_score == null ? '待补满分' : item.answer_status === 'partial' ? '部分得分' : item.answer_status === 'wrong' ? '未得分' : item.answer_status || '待复盘'}</span></td><td><button className="action-link" onClick={() => setActiveMistake(item.id)}>查看原题 / 加入复盘</button></td>
+      </tr>)}</tbody></table></div></>}
+    </ContentState>
+    {activeMistake && <DetailDialog title="原题与复盘" onClose={() => setActiveMistake('')}><MistakeStudy key={activeMistake} id={activeMistake} /></DetailDialog>}
+  </AppShell>
 }
 
 export function StudentReviewsPage() {

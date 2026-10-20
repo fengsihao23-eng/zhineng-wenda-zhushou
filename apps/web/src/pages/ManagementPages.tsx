@@ -5,6 +5,7 @@ import { WorkflowControls, type WorkflowRecord } from '../components/WorkflowCon
 import { AppShell, useCurrentRole } from '../layouts/AppShell'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import { HumanConversation } from '../features/education/LearningPanels'
+import { AnswerTicketConversation } from '../features/education/AnswerTicketConversation'
 import { useJsonQuery } from '../hooks/useApi'
 import { HelpTip } from '../components/HelpTip'
 import { DetailDialog } from '../components/DetailDialog'
@@ -17,7 +18,7 @@ type StudentRow = { score_scope?: string; subject_scores?: Array<{ subject: stri
 type SchoolRow = { id: string; name: string; code: string; status: string; students: number; open_risks: number }
 type Feedback = WorkflowRecord & { id: string; rating: string; category: string; note: string | null; status: string; school_id: string; student_id: string | null; created_at: string | null; resolution: string | null }
 type Risk = WorkflowRecord & { id: string; student_id: string | null; event_type: string; severity: string; title: string; detail: string; source: string; status: string; created_at: string | null; resolved_at: string | null }
-type Handoff = WorkflowRecord & { id: string; student_id: string; reason: string; priority: string; summary: string; status: string; assigned_to: string | null; created_at: string | null; accepted_at: string | null; resolved_at: string | null }
+type Handoff = WorkflowRecord & { id: string; source?: 'support' | 'answer'; student_id: string; reason: string; priority: string; summary: string; status: string; assigned_to: string | null; created_at: string | null; accepted_at: string | null; resolved_at: string | null }
 
 function useData<T>(path: string, enabled = true) {
   // 统一走 TanStack Query（带身份隔离的查询键）。
@@ -134,7 +135,7 @@ export function HandoffPage() {
     <HelpTip label="转接说明">接单后可回复学生；双方可刷新查看消息与处理记录。关闭或重新打开时须填写原因。</HelpTip>
     <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的工单。</div>}
-    <div className="handoff-list">{pagination.items.map(item => <article className="handoff-card" key={item.id}><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></article>)}</div>
+    <div className="handoff-list">{pagination.items.map(item => <article className="handoff-card" key={item.id}><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p>{item.source === 'answer' ? <AnswerTicketConversation id={item.id} /> : <><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></>}</article>)}</div>
   </ManagementState></AppShell>
 }
 

@@ -345,8 +345,9 @@ async def student_mistakes(
         select(QuestionScore, Exam, Subject)
         .join(Exam, Exam.id == QuestionScore.exam_id)
         .join(Subject, Subject.id == QuestionScore.subject_id)
-        .where(QuestionScore.school_id == current.school_id, QuestionScore.student_id == current.student_id, QuestionScore.lost_score > 0)
-        .order_by(QuestionScore.lost_score.desc(), Exam.start_date.desc())
+        .where(QuestionScore.school_id == current.school_id, QuestionScore.student_id == current.student_id,
+               (QuestionScore.lost_score > 0) | QuestionScore.lost_score.is_(None))
+        .order_by(QuestionScore.lost_score.desc().nulls_last(), Exam.start_date.desc(), QuestionScore.id)
         .limit(100)
     )
     if subject:
@@ -359,8 +360,9 @@ async def student_mistakes(
             "subject": subject.name,
             "question_no": item.question_no,
             "score": float(item.score),
-            "full_score": float(item.full_score),
-            "lost_score": float(item.lost_score),
+            "full_score": float(item.full_score) if item.full_score is not None else None,
+            "lost_score": float(item.lost_score) if item.lost_score is not None else None,
+            "classification_pending": item.lost_score is None,
             "answer_status": item.answer_status,
             "knowledge_point_id": str(item.knowledge_point_id) if item.knowledge_point_id else None,
             "date": _iso(exam.start_date),
@@ -503,11 +505,15 @@ async def management_overview(
     risk_count = await db.scalar(risk_query)
     feedback_count = await db.scalar(feedback_query)
     handoff_count = await db.scalar(handoff_query)
+    from app.services.answer_workbench import ticket_scope
+    from app.db.models.answer_workbench import AnswerTicket
+    answer_count = await db.scalar(select(func.count()).select_from(ticket_scope(current).where(
+        AnswerTicket.body['status'].as_string().in_(['待处理', '处理中'])).subquery()))
     return {
         "scope": "city" if current.has_role("CITY_OPERATOR") or current.has_role("SUPER_ADMIN") else "teaching" if is_teacher_only(current) else "school",
         "schools": int(school_count or 0), "students": int(student_count or 0),
         "open_risks": int(risk_count or 0), "open_feedback": int(feedback_count or 0),
-        "open_handoffs": int(handoff_count or 0),
+        "open_handoffs": int(handoff_count or 0) + int(answer_count or 0),
     }
 
 
@@ -770,7 +776,19 @@ async def management_handoffs(
     query = _scoped(select(HumanHandoff), current, HumanHandoff.school_id).order_by(HumanHandoff.created_at.desc()).limit(200)
     if state:
         query = query.where(HumanHandoff.status == state)
-    return [_handoff_out(item) for item in (await db.execute(query)).scalars().all()]
+    result = [{**_handoff_out(item), "source": "support"} for item in (await db.execute(query)).scalars().all()]
+    from app.services.answer_workbench import ticket_scope, ticket_view
+    from app.db.models.answer_workbench import AnswerTicket
+    states = {'待处理': 'open', '处理中': 'accepted', '已回复': 'resolved', '已关闭': 'closed'}
+    tickets = ticket_scope(current).order_by(AnswerTicket.created_at.desc(), AnswerTicket.id.desc()).limit(200)
+    if state:
+        tickets = tickets.where(AnswerTicket.body['status'].as_string().in_([k for k, v in states.items() if v == state]))
+    for ticket in (await db.scalars(tickets)).all():
+        body = await ticket_view(db, current, ticket, True)
+        result.append({"id": str(ticket.id), "source": "answer", "reason": "问答人工留言 · " + body.get('actorName', ''),
+            "summary": body['question'], "status": states.get(body['status'], 'open'),
+            "created_at": _iso(ticket.created_at), "assigned_to": (body.get('assignee') or {}).get('id')})
+    return sorted(result, key=lambda item: (item['created_at'] or '', item['id']), reverse=True)
 
 
 @router.patch("/management/handoffs/{handoff_id}")

@@ -328,6 +328,8 @@ async def save(db, actor, body, key=None, identifier=None):
     await operation(db, actor, identifier, "adjust" if previous else "create", {"before": before, "after": config,
         "changes": checked["changes"], "linked_data": checked["linked_data"], "permissions_expanded": False})
     audit(db, actor, "exam.adjust" if previous else "exam.create", exam)
+    from app.services.teaching_assignments import reconcile_school
+    await reconcile_school(db, actor.school_id)
     await db.commit()
     return await detail(db, actor, identifier)
 
@@ -395,6 +397,23 @@ def subject_config(config, subject_id):
     return result
 
 
+def question_maxima(rows, questions, subject):
+    """Only an explicitly labelled row supplies maxima; observed student scores never do."""
+    candidates = [(line, row) for line, row in rows if row and row[0] in {"满分", "小题满分"}]
+    if len(candidates) > 1:
+        raise ValueError("小题满分行只能有一行")
+    if not candidates:
+        return {}
+    line, raw = candidates[0]
+    row = raw + [""] * max(0, 9 + len(questions) - len(raw))
+    if any(row[1:6]) or any(row[9+len(questions):]):
+        raise ValueError(f"第 {line} 行满分行格式错误：首列填「满分」，小题列填写满分")
+    maxima = {q: number(row[9+i], f"小题「{q}」满分") for i, q in enumerate(questions) if row[9+i] != ""}
+    if any(v <= 0 for v in maxima.values()) or sum(maxima.values()) > Decimal(str(subject["full_score"])):
+        raise ValueError("小题满分须大于0，合计不得超过科目满分")
+    return {q: float(value) for q, value in maxima.items()}
+
+
 def score_validation(exam, config, subject, rows):
     errors, parsed, seen = [], [], set()
     lookup = {str(s["platform_id"]): sid for sid, s in config["snapshots"].items()}
@@ -409,7 +428,13 @@ def score_validation(exam, config, subject, rows):
     questions = [] if legacy else header[9:]
     if any(not q or len(q) > 20 for q in questions) or len(set(questions)) != len(questions):
         return [], ["小题题号不得为空、重复或超过20个字符。"]
+    try:
+        maxima = question_maxima(rows, questions, subject) if not legacy else {}
+    except ValueError as exc:
+        return [], [str(exc)]
     for line, raw in rows[header_index+1:]:
+        if raw[0] in {"满分", "小题满分"}:
+            continue
         row = raw + [""] * max(0, len(header)-len(raw))
         try:
             if len(row) > len(header) and any(row[len(header):]):
@@ -445,11 +470,14 @@ def score_validation(exam, config, subject, rows):
                 raise ValueError("分数超过科目满分")
             if any(Decimal(str(v)) > Decimal(str(subject["full_score"])) for v in qvalues.values()):
                 raise ValueError("小题得分超过科目满分")
+            if any(value > maxima[q] for q, value in qvalues.items() if q in maxima):
+                raise ValueError("小题得分超过该题满分")
             if sid in seen:
                 raise ValueError("学生重复（学生ID重复）")
             seen.add(sid)
             parsed.append({"student_id": sid, "score": float(value), "objective": float(objective) if objective is not None else None,
-                           "subjective": float(subjective) if subjective is not None else None, "questions": qvalues})
+                           "subjective": float(subjective) if subjective is not None else None, "questions": qvalues,
+                           "question_full_scores": maxima})
         except ValueError as exc:
             errors.append(f"第 {line} 行：{exc}")
     missing = expected - seen
@@ -482,7 +510,9 @@ async def score_preflight(db, actor, identifier, body):
         status="invalid" if errors else "validated")
     db.add(batch)
     await db.commit()
-    return {**data(batch, "id", "status", "filename", "revision", "errors"), "row_count": len(batch.rows)}
+    pending = sum(1 for row in parsed for question in row["questions"] if question not in row.get("question_full_scores", {}))
+    return {**data(batch, "id", "status", "filename", "revision", "errors"), "row_count": len(batch.rows),
+            "warnings": [f"{pending} 条小题记录缺少满分，将展示得分并标记待补满分；补齐后自动计算失分。"] if pending and not errors else []}
 
 
 async def recalculate_totals(db, actor, identifier, config):
@@ -540,9 +570,13 @@ async def score_confirm(db, actor, identifier, file_id):
         db.add(StudentSubjectScore(school_id=actor.school_id, exam_id=identifier, student_id=UUID(row["student_id"]),
             subject_id=batch.subject_id, score=Decimal(str(row["score"])), full_score=Decimal(str(sub["full_score"]))))
         for question, value in row["questions"].items():
-            # Imported files provide earned scores only, never invent question maxima or losses.
+            full = row.get("question_full_scores", {}).get(question)
+            full = Decimal(str(full)) if full is not None else None
+            score = Decimal(str(value))
             db.add(QuestionScore(school_id=actor.school_id, exam_id=identifier, student_id=UUID(row["student_id"]),
-                subject_id=batch.subject_id, question_no=question, score=Decimal(str(value)), full_score=None, lost_score=None))
+                subject_id=batch.subject_id, question_no=question, score=score, full_score=full,
+                lost_score=full-score if full is not None else None,
+                answer_status=("correct" if score == full else "wrong" if score == 0 else "partial") if full is not None else None))
     batch.status = "imported"
     item.revision += 1
     await db.flush()
@@ -551,6 +585,46 @@ async def score_confirm(db, actor, identifier, file_id):
         "subject_id": str(batch.subject_id), "subject_name": sub["name"], "students": batch.rows, "permissions_opened": False})
     await db.commit()
     return await detail(db, actor, identifier)
+
+
+async def question_score_options(db, actor, identifier, subject_id):
+    item = await administration(db, actor, identifier)
+    subject_config(item.configuration, subject_id)
+    rows = (await db.execute(select(QuestionScore.question_no, func.max(QuestionScore.full_score),
+        func.max(QuestionScore.score), func.count(QuestionScore.id), func.count(QuestionScore.lost_score)).where(
+        QuestionScore.school_id == actor.school_id, QuestionScore.exam_id == identifier,
+        QuestionScore.subject_id == subject_id).group_by(QuestionScore.question_no).order_by(QuestionScore.question_no))).all()
+    return {"revision": item.revision, "questions": [{"number": q, "full_score": float(full) if full is not None else None,
+        "max_score": float(score), "pending_count": count-known} for q, full, score, count, known in rows]}
+
+
+async def save_question_maxima(db, actor, identifier, subject_id, body):
+    item = await administration(db, actor, identifier, lock=True, revision=body.expected_revision)
+    subject = subject_config(item.configuration, subject_id)
+    rows = (await db.scalars(select(QuestionScore).where(QuestionScore.school_id == actor.school_id,
+        QuestionScore.exam_id == identifier, QuestionScore.subject_id == subject_id).with_for_update())).all()
+    questions = {r.question_no for r in rows}
+    if not set(body.full_scores) <= questions:
+        fail("仅可为本次已导入的小题补充满分。")
+    try:
+        maxima = {q: number(v, f"小题「{q}」满分") for q, v in body.full_scores.items()}
+    except ValueError as exc:
+        fail(str(exc))
+    existing = {r.question_no: r.full_score for r in rows if r.full_score is not None}
+    if any(v <= 0 for v in maxima.values()) or sum({**existing, **maxima}.values()) > Decimal(str(subject["full_score"])):
+        fail("小题满分须大于0，合计不得超过科目满分。")
+    if any(r.score > maxima[r.question_no] for r in rows if r.question_no in maxima):
+        fail("小题满分不能小于已导入的该题得分。")
+    for row in rows:
+        if row.question_no in maxima:
+            row.full_score = maxima[row.question_no]
+            row.lost_score = row.full_score - row.score
+            row.answer_status = "correct" if row.lost_score == 0 else "wrong" if row.score == 0 else "partial"
+    item.revision += 1
+    await operation(db, actor, identifier, "question_maxima", {"subject_id": str(subject_id),
+        "full_scores": {q: float(v) for q, v in maxima.items()}})
+    await db.commit()
+    return await question_score_options(db, actor, identifier, subject_id)
 
 
 async def score_delete(db, actor, identifier, subject_id, body):

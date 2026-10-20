@@ -88,8 +88,8 @@ async def question_facts(db, actor, score_id):
         "score": {
             **data(score, "id", "question_no", "question_version_id"),
             "score": float(score.score),
-            "full_score": float(score.full_score),
-            "lost_score": float(score.lost_score),
+            "full_score": float(score.full_score) if score.full_score is not None else None,
+            "lost_score": float(score.lost_score) if score.lost_score is not None else None,
             "exam": exam.name,
             "subject": subject.name,
         },

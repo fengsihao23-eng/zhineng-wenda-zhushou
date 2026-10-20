@@ -26,7 +26,7 @@ export function MistakeStudy({ id }: { id: string }) {
         <p>
           {query.data?.score.exam} · {query.data?.score.subject} · 第{" "}
           {query.data?.score.question_no} 题 · {query.data?.score.score} /{" "}
-          {query.data?.score.full_score}
+          {query.data?.score.full_score ?? "待补满分"}
         </p>
         {query.data?.question ? (
           <>

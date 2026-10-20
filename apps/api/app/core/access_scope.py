@@ -65,7 +65,7 @@ def assigned_class(exam_id=None):
             ImportedClass.id == TeachingAssignment.class_id,
             ImportedClass.school_id == Student.school_id,
             ImportedClass.external_class_id == external,
-        )),
+        ).correlate(Student, TeachingAssignment)),
     ))
 
 

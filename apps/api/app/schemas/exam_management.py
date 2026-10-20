@@ -55,6 +55,10 @@ class Revision(Payload):
     expected_revision: int = Field(ge=1)
 
 
+class QuestionMaxima(Revision):
+    full_scores: dict[str, Decimal] = Field(min_length=1, max_length=500)
+
+
 class TeacherPermission(Payload):
     teacher_id: UUID
     score_types: list[Literal["student", "classSubject", "gradeSubject", "classAll", "gradeAll", "school"]] = Field(default_factory=list)

@@ -44,6 +44,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
     { path: '/teacher/analysis', label: '班级学科分析', icon: 'chart', group: '教学分析' },
     { path: '/teacher/students', label: '学生学情', icon: 'users' },
     { path: '/teacher/chat', label: '智能问答与留言', icon: '✦' },
+    { path: '/teacher/handoffs', label: '学生人工求助', icon: '↗' },
     { path: '/teacher/risks', label: '风险事件', icon: '△' },
     { path: '/teacher/feedback', label: '反馈运营', icon: '♡' },
   ],

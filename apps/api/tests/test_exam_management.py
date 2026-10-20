@@ -158,6 +158,57 @@ async def test_score_full_roster_template_validation_original_and_questions(clie
 
 
 @pytest.mark.asyncio
+async def test_question_scores_without_maxima_visible_and_can_be_completed_without_reimport(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people, subjects=1)
+    exam, _, _ = await import_score(client, exam, questions=True)
+    subject = exam['subjects'][0]['subject_id']
+    exam = await permission(client, exam, 'student', {'student_ids': [str(actors['student'].id)], 'subject_ids': [subject], 'mode': 'open'})
+    switch(actors, test_db, 'student')
+    pending = (await client.get('/api/v1/platform/student/mistakes')).json()
+    assert len(pending) == 2 and all(row['lost_score'] is None and row['classification_pending'] for row in pending)
+    detail = await client.get('/api/v1/platform/education/student/mistakes/'+pending[0]['id'])
+    assert detail.status_code == 200 and detail.json()['score']['full_score'] is None
+    switch(actors, test_db, 'admin')
+    path = f"/{exam['id']}/question-maxima/{subject}"
+    options = (await client.get(ROOT+path)).json()
+    assert all(row['pending_count'] == 2 for row in options['questions'])
+    for invalid in [{'1': 39}, {'1': 0}, {'1': -1}, {'不存在': 50}, {'1': 100, '作文': 60}, {'1': 'NaN'}, {'1': '40.123'}]:
+        await post(client, path, {'expected_revision': options['revision'], 'full_scores': invalid}, 422)
+    saved = await post(client, path, {'expected_revision': options['revision'], 'full_scores': {'1': 40, '作文': 60}})
+    assert all(row['pending_count'] == 0 for row in saved['questions'])
+    await post(client, path, {'expected_revision': options['revision'], 'full_scores': {'1': 40}}, 409)
+    switch(actors, test_db, 'student')
+    mistakes = (await client.get('/api/v1/platform/student/mistakes')).json()
+    assert len(mistakes) == 1 and mistakes[0]['question_no'] == '作文' and mistakes[0]['lost_score'] == 10
+    assert not mistakes[0]['classification_pending']
+    switch(actors, test_db, 'foreign')
+    assert (await client.get(ROOT+path)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_explicit_question_maximum_row_imports_losses_and_rejects_impossible_scores(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people, subjects=1)
+    body, original = await score_file(client, exam, questions=True)
+    # Old score-only files are accepted with a clear preflight warning.
+    old = await post(client, f"/{exam['id']}/score-files", body)
+    assert old['warnings'] and old['status'] == 'validated'
+    for maximum, valid in [(39, False), (0, False), (40, True)]:
+        book = load_workbook(io.BytesIO(original)); sheet = book.active
+        sheet.insert_rows(2)
+        sheet.cell(2, 1, '满分'); sheet.cell(2, 10, maximum); sheet.cell(2, 11, 60)
+        output = io.BytesIO(); book.save(output); book.close()
+        checked = await post(client, f"/{exam['id']}/score-files", {**body, 'content_base64': base64.b64encode(output.getvalue()).decode()})
+        assert checked['status'] == ('validated' if valid else 'invalid')
+        if valid:
+            assert not checked['warnings']
+            await post(client, f"/{exam['id']}/score-files/{checked['id']}/confirm")
+    rows = (await test_db.scalars(select(QuestionScore))).all()
+    assert len(rows) == 4
+    assert all(row.lost_score == (0 if row.question_no == '1' else 10) for row in rows)
+    assert all(row.full_score == (40 if row.question_no == '1' else 60) for row in rows)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("bad", ["formula", "negative", "overflow", "duplicate", "name", "columns", "questions"])
 async def test_bad_score_files_do_not_write_scores(client, test_db, actors, exam_people, bad):
     exam = await create(client, exam_people, subjects=1)

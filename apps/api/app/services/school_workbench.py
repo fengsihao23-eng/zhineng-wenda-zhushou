@@ -189,6 +189,9 @@ async def create(db, actor, kind, body, key):
         item = model(id=identifier, school_id=actor.school_id, **values)
         db.add(item)
         audit(db, actor, f"{kind}.create", item)
+        if kind in {"classes", "subjects"}:
+            from app.services.teaching_assignments import reconcile_school
+            await reconcile_school(db, actor.school_id)
         await db.commit()
     return data(await owned(db, model, identifier, actor), *FIELDS[kind])
 
@@ -241,6 +244,9 @@ async def update_record(db, actor, kind, identifier, body):
         for field, value in body.model_dump().items():
             setattr(item, field, value)
         audit(db, actor, f"{kind}.update", item)
+        if kind in {"classes", "subjects"}:
+            from app.services.teaching_assignments import reconcile_school
+            await reconcile_school(db, actor.school_id)
         await db.commit()
     return data(item, *FIELDS[kind])
 

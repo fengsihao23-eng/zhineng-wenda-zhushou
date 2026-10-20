@@ -1,5 +1,6 @@
 """r92 acceptance: actual grants, joint drafts, revoked history, teacher/student ticket ownership."""
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4, UUID
 import pytest
@@ -133,7 +134,8 @@ async def test_ticket_entire_state_machine_and_owner_isolation(client, test_db, 
     assert len(selected['context']) == 2 and selected['sources']
     switch(actors, test_db, 'teacher')
     assert (await client.get(ROOT+'/tickets/'+ticket['id'])).status_code == 404
-    assert (await client.get(ROOT+'/tickets?management=true')).status_code == 403
+    queue = await client.get(ROOT+'/tickets?management=true')
+    assert queue.status_code == 200 and {t['id'] for t in queue.json()} == {ticket['id'], selected['id']}
     own_teacher = await post(client, '/tickets', {'question': '核对教师授权'})
     assert own_teacher['role'] == 'teacher'
     switch(actors, test_db, 'admin')
@@ -161,6 +163,75 @@ async def test_ticket_entire_state_machine_and_owner_isolation(client, test_db, 
     hidden = (await client.get(ROOT+'/tickets/'+selected['id'])).json()
     assert hidden['status'] == '已关闭' and not hidden['currentAllowed'] and not hidden['context']
     assert all(e['role'] == 'system' or e['text'] == '数据内容已隐藏' for e in hidden['events'])
+
+
+@pytest.mark.asyncio
+async def test_question_101_survives_state_refresh_and_idempotent_retry(client, test_db, actors, setup):
+    switch(actors, test_db, 'student')
+    for index in range(100):
+        rid = uuid4()
+        test_db.add(AnswerSession(id=rid, school_id=actors['school'].id, user_id=actors['student'].user_id,
+            created_at=datetime.now(timezone.utc)-timedelta(days=1, minutes=index),
+            body={'id': str(rid), 'title': f'历史{index}', 'messages': [], 'context': None}))
+    await test_db.commit()
+    key = uuid4()
+    body = {'question': '我的数学成绩'}
+    session = await post(client, '/mini/ask', body, key=key)
+    for _ in range(2):
+        state = (await client.get(ROOT+'/mini/state')).json()
+        assert len(state['sessions']) == 100
+        assert state['sessions'][0]['id'] == session['id']
+        assert state['sessions'][0]['messages'][0]['text'] == body['question']
+    assert (await post(client, '/mini/ask', body, key=key))['id'] == session['id']
+    assert await test_db.scalar(select(func.count()).select_from(AnswerSession)) == 101
+
+
+@pytest.mark.asyncio
+async def test_teacher_answer_queue_scope_counts_sources_reply_and_revocation(client, test_db, actors, setup):
+    from app.db.models import Student
+    switch(actors, test_db, 'student')
+    session = await post(client, '/mini/ask', {'question': '我的数学成绩'})
+    ticket = await post(client, '/tickets', {'question': '请老师核查', 'session_id': session['id'],
+        'feedback_message_id': session['messages'][-1]['id']})
+    support = await client.post('/api/v1/platform/student/handoffs', json={'reason': '学习支持', 'summary': '需要老师帮助'},
+        headers={'Idempotency-Key': str(uuid4())})
+    assert support.status_code == 201, support.text
+    other = await test_db.get(Student, setup['people'][2].id)
+    unrelated = deepcopy(ticket)
+    unrelated['id'], unrelated['actorId'], unrelated['actorName'] = str(uuid4()), str(other.id), '其他班学生'
+    test_db.add(AnswerTicket(id=UUID(unrelated['id']), school_id=actors['school'].id, user_id=other.user_id, body=unrelated))
+    await test_db.commit()
+    switch(actors, test_db, 'teacher')
+    queue = (await client.get('/api/v1/platform/management/handoffs')).json()
+    assert {item['id'] for item in queue} == {ticket['id'], support.json()['id']}
+    assert (await client.get('/api/v1/platform/management/overview')).json()['open_handoffs'] == 2
+    restricted = (await client.get(ROOT+f"/tickets/{ticket['id']}?management=true")).json()
+    assert not restricted['currentAllowed'] and not restricted['sources'] and not restricted['context']
+    assert (await client.get(ROOT+f"/tickets/{unrelated['id']}?management=true")).status_code == 404
+    # Class aggregates do not grant access to an individual student's score sources.
+    test_db.add(ExamQueryGrant(school_id=actors['school'].id, exam_id=UUID(setup['exam']['id']),
+        recipient_kind='teacher', recipient_id=actors['teacher'].id, student_id=actors['student'].id,
+        subject_id=UUID(setup['exam']['subjects'][0]['subject_id']), content_type='score:student'))
+    await test_db.commit()
+    allowed = (await client.get(ROOT+f"/tickets/{ticket['id']}?management=true")).json()
+    assert allowed['currentAllowed'] and allowed['sources'] and len(allowed['context']) == 2
+    claimed = await post(client, '/tickets/'+ticket['id']+'/claim', {'expected': ticket['revision']})
+    assert claimed['canReply']
+    await post(client, '/tickets/'+ticket['id']+'/query', {'expected': claimed['revision'], 'question': '其他科目成绩'}, 403)
+    replied = await post(client, '/tickets/'+ticket['id']+'/reply', {'expected': claimed['revision'],
+        'text': '已核对本次数学成绩来源。', 'reply_kind': 'data', 'sources': allowed['sources'], 'reviewed': True})
+    assert (await client.get('/api/v1/platform/management/overview')).json()['open_handoffs'] == 1
+    switch(actors, test_db, 'student')
+    received = (await client.get(ROOT+'/tickets/'+ticket['id'])).json()
+    assert received['unread'] and received['events'][-1]['text'] == '已核对本次数学成绩来源。'
+    appended = await post(client, '/tickets/'+ticket['id']+'/append', {'expected': replied['revision'], 'question': '继续核查'})
+    await test_db.execute(delete(ExamQueryGrant).where(ExamQueryGrant.recipient_kind == 'teacher'))
+    await test_db.commit()
+    switch(actors, test_db, 'teacher')
+    assert (await client.get('/api/v1/platform/management/overview')).json()['open_handoffs'] == 0
+    await post(client, '/tickets/'+ticket['id']+'/claim', {'expected': appended['revision']}, 404)
+    switch(actors, test_db, 'foreign')
+    assert (await client.get(ROOT+'/tickets?management=true')).json() == []
 
 
 @pytest.mark.asyncio

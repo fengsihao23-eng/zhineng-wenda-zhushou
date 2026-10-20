@@ -54,6 +54,41 @@ def require_manager(actor):
         fail('仅本校运营管理员可维护提示词或处理留言。', 403)
 
 
+def ticket_scope(actor):
+    """Management queues share the existing student roster scope."""
+    from app.core.access_scope import is_teacher_only, student_ids
+    if not any(actor.has_role(role) for role in ('TEACHER', 'SCHOOL_ADMIN', 'SUPER_ADMIN', 'CITY_OPERATOR', 'QA')):
+        fail('当前账号无权处理人工留言。', 403)
+    query = select(AnswerTicket).where(AnswerTicket.school_id == actor.school_id)
+    if is_teacher_only(actor):
+        query = query.where(AnswerTicket.user_id.in_(select(Student.user_id).where(
+            Student.school_id == actor.school_id, Student.id.in_(student_ids(actor)))))
+    return query
+
+
+async def handler_sources_allowed(db, actor, refs):
+    from app.core.access_scope import is_teacher_only
+    if not is_teacher_only(actor):
+        return True
+    for ref in refs:
+        try:
+            approved = await report_grants(db, actor, identifier(ref['examId']), 'teacher', actor.user_id)
+            if ref.get('kind') == 'score':
+                required = {(sid, ref['subject'], 'score:student') for sid in ref.get('studentIds', [])}
+                if not required or not required <= approved:
+                    return False
+            elif ref.get('kind') == 'report':
+                row = await db.scalar(select(ManagedReport).where(ManagedReport.school_id == actor.school_id,
+                    ManagedReport.id == identifier(ref['reportId'])))
+                if not row or not access_decision(row, 'teacher', actor.user_id, approved)[0]:
+                    return False
+            else:
+                return False
+        except (KeyError, TypeError, ValueError, ApiError):
+            return False
+    return True
+
+
 def stage_for(grade):
     if re.search(r'小学|^[1-6](?:年|\.)', grade or ''):
         return '小学'
@@ -764,9 +799,8 @@ async def ask(db, actor, body, request_key):
 
 
 async def ticket_get(db, actor, rid, management=False, lock=False):
-    if management:
-        require_manager(actor)
-    query = select(AnswerTicket).where(AnswerTicket.id == rid, AnswerTicket.school_id == actor.school_id)
+    query = ticket_scope(actor) if management else select(AnswerTicket).where(AnswerTicket.school_id == actor.school_id)
+    query = query.where(AnswerTicket.id == rid)
     if not management:
         query = query.where(AnswerTicket.user_id == actor.user_id)
     row = await db.scalar((query.with_for_update() if lock else query).execution_options(populate_existing=True))
@@ -777,9 +811,12 @@ async def ticket_get(db, actor, rid, management=False, lock=False):
 
 async def ticket_view(db, actor, row, management=False):
     b = deepcopy(row.body)
+    b['canReply'] = management and b['status'] == '处理中' and (b.get('assignee') or {}).get('id') == str(actor.user_id)
     try:
         info = await person(db, actor, row.user_id, True)
         allowed = await sources_allowed(db, actor, info, b.get('sources', []))
+        if management:
+            allowed = allowed and await handler_sources_allowed(db, actor, b.get('sources', []))
     except ApiError:
         allowed = False
     b['currentAllowed'] = allowed
@@ -794,6 +831,8 @@ async def ticket_view(db, actor, row, management=False):
                 event['text'] = '数据内容已隐藏'
                 event['sources'] = []
     if not management:
+        b.pop('replyDraft', None)
+    elif (b.get('assignee') or {}).get('id') != str(actor.user_id):
         b.pop('replyDraft', None)
     return b
 
@@ -839,6 +878,7 @@ async def ticket_action(db, actor, rid, action, body, request_key):
     row = await ticket_get(db, actor, rid, management, True)
     from app.services.education_common import cas
     if action == 'query':
+        require_manager(actor)
         if row.body['status'] != '处理中' or (row.body.get('assignee') or {}).get('id') != str(actor.user_id):
             fail('请先领取留言。', 409)
         p = await person(db, actor, row.user_id)
@@ -870,6 +910,8 @@ async def ticket_action(db, actor, rid, action, body, request_key):
                 fail('数据型结论需关联提交人当前可访问的有效来源。', 403)
             if body.sources and not await sources_allowed(db, actor, p, body.sources):
                 fail('引用来源已失效，请重新核对。', 403)
+            if has_data and not await handler_sources_allowed(db, actor, body.sources+b.get('sources', [])):
+                fail('当前教师没有所引用数据的查看权限，请核对考试授权。', 403)
             b.update(status='已回复', replyDraft=None, unread=True)
             b['sources'] = list({digest(r): r for r in b.get('sources', [])+body.sources}.values())
             event = {'role': 'operator', 'by': user.display_name or user.username, 'operatorId': str(actor.user_id),
@@ -918,11 +960,10 @@ async def ticket_action(db, actor, rid, action, body, request_key):
 
 
 async def tickets_list(db, actor, management=False):
-    if management:
-        require_manager(actor)
-    else:
+    if not management:
         await person(db, actor)
-    q = select(AnswerTicket).where(AnswerTicket.school_id == actor.school_id).order_by(AnswerTicket.created_at.desc()).limit(1000)
+    q = ticket_scope(actor) if management else select(AnswerTicket).where(AnswerTicket.school_id == actor.school_id)
+    q = q.order_by(AnswerTicket.created_at.desc(), AnswerTicket.id.desc()).limit(1000)
     if not management:
         q = q.where(AnswerTicket.user_id == actor.user_id)
     return [await ticket_view(db, actor, r, management) for r in (await db.scalars(q)).all()]
@@ -986,7 +1027,7 @@ async def inspect_sources(db, actor, body):
 async def mini_state(db, actor):
     p = await person(db, actor)
     sessions = (await db.scalars(select(AnswerSession).where(AnswerSession.school_id == actor.school_id,
-        AnswerSession.user_id == actor.user_id).order_by(AnswerSession.created_at).limit(100))).all()
+        AnswerSession.user_id == actor.user_id).order_by(AnswerSession.created_at.desc(), AnswerSession.id.desc()).limit(100))).all()
     audits = (await db.scalars(select(AnswerOperation).where(AnswerOperation.school_id == actor.school_id,
         AnswerOperation.user_id == actor.user_id, AnswerOperation.action.in_(['查看报告', '下载报告'])).order_by(AnswerOperation.created_at.desc()).limit(100))).all()
     return {'identity': p, 'exams': await permitted_exam_metadata(db, actor, p), 'reports': await report_list(db, actor, p),

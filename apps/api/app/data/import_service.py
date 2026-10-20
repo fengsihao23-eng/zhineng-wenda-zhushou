@@ -650,4 +650,7 @@ class CsvImportService:
             user = await self.db.get(User, student.user_id) if student.user_id else None
             fields = student_roster.fields31(student, user, school, classes_by_school[school.id])
             await student_roster.freeze_history(self.db, student, fields, student_roster.current_year(school))
+        from app.services.teaching_assignments import reconcile_school
+        for school in sorted(school_by_code.values(), key=lambda school: str(school.id)):
+            await reconcile_school(self.db, school.id)
         return len(plan.rows)

@@ -17,7 +17,7 @@ from app.db.models.exam import Subject
 from app.services.education_common import audit, owned, claim, data, digest, now
 from app.services.roster_excel import (
     COLUMNS, TEACHER_COLUMNS, TEACHER_CHANGE_COLUMNS, ERROR_COLUMNS, GRADE_NAMES, parse_excel, error_row,
-    workbook_bytes, teaching_pairs, class_matches, duty_codes, subject_leadership,
+    workbook_bytes, class_matches, duty_codes,
 )
 
 ROLE_NAMES = {"TEACHER": "任课教师", "STUDENT": "学生", "HOMEROOM_TEACHER": "班主任", "SUBJECT_LEADER": "备课 / 教研组长", "GRADE_LEADER": "年级长", "ACADEMIC_DIRECTOR": "教务主任", "PRINCIPAL": "校长", "GENERAL_DIRECTOR": "总务主任", "SCHOOL_VIEWER": "全校基础数据查看", "SCHOOL_ADMIN": "学校管理员", "EXAM_ADMIN": "考试管理员"}
@@ -217,28 +217,9 @@ async def grant_roles(db, user, codes):
 
 
 async def teacher_grants(db, user, values, duties):
-    classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == user.school_id, ImportedClass.status == "active"))).all()
-    subjects = (await db.scalars(select(Subject).where(Subject.school_id == user.school_id))).all()
-    pairs = teaching_pairs(values["任课年级班级"])
-    homeroom = values["班主任年级班级"].strip()
-    leaders = subject_leadership(values["教研组长负责年级科目"])
-    grade_leader = values["年级长负责年级"].strip()
-    grants, unresolved = set(), []
-    for subject, grade, number in pairs:
-        matches = [(c, s) for c in classes for s in subjects if class_matches(c, grade, number) and s.name == subject]
-        if not matches:
-            unresolved.append(f"{subject}:{grade}.{number}")
-        grants.update((c.id, s.id) for c, s in matches)
-    for classroom in classes:
-        for subject in subjects:
-            match = re.fullmatch(r"(\d+)\.(\d+)", homeroom)
-            is_home = "HOMEROOM_TEACHER" in duties and match and class_matches(classroom, int(match[1]), int(match[2]))
-            is_subject = "SUBJECT_LEADER" in duties and any(subject.name == name and (classroom.external_class_id.startswith(f"{grade}.") or classroom.name.startswith(GRADE_NAMES.get(grade, "!"))) for grade, name in leaders)
-            is_grade = "GRADE_LEADER" in duties and grade_leader.isdigit() and (classroom.external_class_id.startswith(grade_leader + ".") or classroom.name.startswith(GRADE_NAMES.get(int(grade_leader), "!")))
-            if is_home or is_subject or is_grade:
-                grants.add((classroom.id, subject.id))
-    for class_id, subject_id in grants:
-        db.add(TeachingAssignment(school_id=user.school_id, teacher_user_id=user.id, class_id=class_id, subject_id=subject_id, starts_at=now(), status="active"))
+    from app.services.teaching_assignments import dictionaries, add_missing
+    classes, subjects = await dictionaries(db, user.school_id)
+    _, unresolved = await add_missing(db, user, values, duties, classes, subjects)
     return unresolved
 
 

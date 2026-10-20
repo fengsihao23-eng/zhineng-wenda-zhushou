@@ -1,7 +1,5 @@
-import re
-import unicodedata
-
-from app.services.roster_excel import GRADE_NAMES, duty_codes, subject_leadership, teaching_pairs
+from app.services.roster_excel import (GRADE_NAMES, duty_codes, subject_leadership, teaching_pairs,
+                                      normalized, parse_class_reference, class_references, grade_codes)
 
 
 DEFAULT_RULES = [
@@ -24,10 +22,6 @@ DEFAULT_RULES = [
 ]
 
 
-def normalized(value):
-    return unicodedata.normalize("NFKC", str(value or "")).strip()
-
-
 def grade_name(value):
     value = normalized(value)
     return GRADE_NAMES.get(int(value), value) if value.isdigit() else value
@@ -40,15 +34,8 @@ def class_number(value):
 
 def class_reference(value):
     """Read the same numeric or displayed class references used by roster imports."""
-    value = normalized(value)
-    match = re.fullmatch(r"(\d+)\.(\d+)", value)
-    if match:
-        return grade_name(match[1]), class_number(match[2])
-    for grade in GRADE_NAMES.values():
-        match = re.fullmatch(re.escape(grade) + r"\s*(\d+)\s*班", value)
-        if match:
-            return grade, class_number(match[1])
-    return "", ""
+    reference = parse_class_reference(value)
+    return (grade_name(reference[0]), str(reference[1])) if reference else ("", "")
 
 
 def class_matches(person, grade, number):
@@ -65,11 +52,9 @@ def teacher_defaults(teacher, config, ready):
     subjects, classes, types = set(), set(), set()
     has_grade_scope, has_school_scope = False, False
     teaching = teaching_pairs(fields.get("任课年级班级", "").replace("\n", ";"))
-    homerooms = [tuple(match) for match in re.findall(r"(?<!\d)(\d+)\.(\d+)(?!\d)", fields.get("班主任年级班级", ""))]
-    for label in GRADE_NAMES.values():
-        homerooms.extend((label, number) for number in re.findall(re.escape(label) + r"\s*(\d+)\s*班", fields.get("班主任年级班级", "")))
+    homerooms = class_references(fields.get("班主任年级班级", ""))
     leaders = subject_leadership(fields.get("教研组长负责年级科目", ""))
-    grade_values = {grade_name(value) for value in re.split(r"[,;、\s]+", fields.get("年级长负责年级", "")) if value}
+    grade_values = {grade_name(value) for value in grade_codes(fields.get("年级长负责年级", ""))}
     filter_scopes = []
 
     def add_filter_scope(role, grade, number="", subject=""):
