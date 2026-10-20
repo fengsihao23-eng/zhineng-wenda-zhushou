@@ -57,7 +57,7 @@ def require_manager(actor):
 def ticket_scope(actor):
     """Management queues share the existing student roster scope."""
     from app.core.access_scope import is_teacher_only, student_ids
-    if not any(actor.has_role(role) for role in ('TEACHER', 'SCHOOL_ADMIN', 'SUPER_ADMIN', 'CITY_OPERATOR', 'QA')):
+    if not any(actor.has_role(role) for role in ('TEACHER', 'SCHOOL_ADMIN', 'SUPER_ADMIN', 'CITY_OPERATOR', 'QA', 'SCHOOL_VIEWER')):
         fail('当前账号无权处理人工留言。', 403)
     query = select(AnswerTicket).where(AnswerTicket.school_id == actor.school_id)
     if is_teacher_only(actor):
@@ -847,7 +847,12 @@ async def ticket_get(db, actor, rid, management=False, lock=False):
 
 async def ticket_view(db, actor, row, management=False):
     b = deepcopy(row.body)
-    b['canReply'] = management and b['status'] == '处理中' and (b.get('assignee') or {}).get('id') == str(actor.user_id)
+    from app.core.access_scope import is_handoff_handler, teaching_handler
+    can_handle = management and is_handoff_handler(actor)
+    if can_handle and actor.has_role('TEACHER') and actor.has_role('SCHOOL_VIEWER'):
+        can_handle = bool(await db.scalar(ticket_scope(teaching_handler(actor)).where(AnswerTicket.id == row.id)))
+    b['canClaim'] = can_handle and b['status'] == '待处理'
+    b['canReply'] = can_handle and b['status'] == '处理中' and (b.get('assignee') or {}).get('id') == str(actor.user_id)
     try:
         info = await person(db, actor, row.user_id, True)
         allowed = await sources_allowed(db, actor, info, b.get('sources', []))
@@ -911,6 +916,11 @@ async def ticket_create(db, actor, body, request_key):
 
 async def ticket_action(db, actor, rid, action, body, request_key):
     management = action in {'claim', 'draft', 'reply', 'query'}
+    if management:
+        from app.core.access_scope import is_handoff_handler, teaching_handler
+        if not is_handoff_handler(actor):
+            fail('当前账号仅可查看人工留言。', 403)
+        actor = teaching_handler(actor)
     row = await ticket_get(db, actor, rid, management, True)
     from app.services.education_common import cas
     if action == 'query':

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import api from '../../services/axios'
 import { getAuthSignal, getAuthScope, getRefreshToken, getToken, getUserInfo, setAuthSession, clearAuth } from '../../utils/auth'
@@ -17,6 +18,7 @@ const desktopTheme = [appTheme, chatTheme, listTheme, bubbleTheme, inputTheme, m
 
 /** Isolate the supplied prototype's styles while retaining the application's auth lifecycle. */
 export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' | 'web' }) {
+  const navigate = useNavigate()
   const frame = useRef<HTMLIFrameElement>(null)
   const [answers, setAnswers] = useState<Array<{ node: HTMLElement; text: string; id: string }>>([])
   useEffect(() => {
@@ -63,13 +65,19 @@ export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' 
         if (payload instanceof ArrayBuffer) {
           try { payload = JSON.parse(new TextDecoder().decode(payload)) } catch { payload = undefined }
         }
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined
+        const code = payload?.error?.code || payload?.code || (axios.isAxiosError(error) ? error.response?.headers['x-error-code'] : undefined)
+        if (status === 403 && code === 'PASSWORD_CHANGE_REQUIRED') {
+          navigate('/change-password', { replace: true })
+          return
+        }
         const message = payload?.error?.user_message || payload?.error?.message || payload?.detail || (error instanceof Error ? error.message : '请求失败，请重试')
-        target?.postMessage({ type: 'answer-result', id, error: { message: typeof message === 'string' ? message : '提交内容不正确，请检查后重试', status: axios.isAxiosError(error) ? error.response?.status : undefined } }, location.origin)
+        target?.postMessage({ type: 'answer-result', id, error: { message: typeof message === 'string' ? message : '提交内容不正确，请检查后重试', status, code } }, location.origin)
       }
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
-  }, [mode])
+  }, [mode, navigate])
   const onLoad = () => {
     if (mode !== 'web') return
     const document = frame.current?.contentDocument
@@ -82,7 +90,7 @@ export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' 
     document.getElementById(theme.id)?.remove()
     document.head.insertBefore(theme, document.head.firstChild)
   }
-  const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=web-20261019`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
+  const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=role-access-20261020`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
   if (mode === 'admin') return <AppShell>{content}</AppShell>
   if (mode === 'web') return <AppShell bleed title="智能问答" eyebrow={`${getUserInfo()?.roles.includes('STUDENT') ? '学生空间' : '教师工作台'} / 智能问答`}><div className="chat-page-frame">{content}</div></AppShell>
   return content

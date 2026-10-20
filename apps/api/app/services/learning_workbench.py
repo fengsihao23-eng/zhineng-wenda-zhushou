@@ -2,7 +2,7 @@
 from uuid import UUID
 from sqlalchemy import select, and_, func, update
 from app.core.errors import ApiError
-from app.core.access_scope import scoped, is_teacher_only
+from app.core.access_scope import scoped, is_teacher_only, is_handoff_handler, teaching_handler
 from app.core.diagnosis_access import require_report, audit_report_access
 from app.db.models.education import (
     Question,
@@ -285,7 +285,7 @@ async def handoff_access(db, actor, identifier, lock=False):
     )
     manager = any(
         actor.has_role(r)
-        for r in ("TEACHER", "SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "CITY_OPERATOR")
+        for r in ("TEACHER", "SCHOOL_ADMIN", "QA", "SUPER_ADMIN", "CITY_OPERATOR", "SCHOOL_VIEWER")
     )
     if manager:
         query = scoped(query, actor, HumanHandoff.school_id)
@@ -341,6 +341,10 @@ async def handoff_detail(db, actor, identifier):
         if item.assigned_to
         else None
     )
+    handler_allowed = is_handoff_handler(actor)
+    if handler_allowed and actor.has_role("TEACHER") and actor.has_role("SCHOOL_VIEWER"):
+        handler_allowed = bool(await db.scalar(scoped(select(HumanHandoff.id).where(
+            HumanHandoff.id == identifier), teaching_handler(actor), HumanHandoff.school_id)))
     return {
         **data(
             item,
@@ -359,7 +363,7 @@ async def handoff_detail(db, actor, identifier):
         and (
             not manager
             or (
-                not actor.has_role("QA")
+                handler_allowed and not actor.has_role("QA")
                 and (
                     item.assigned_to == actor.user_id
                     or actor.has_role("SCHOOL_ADMIN")
@@ -382,7 +386,10 @@ async def handoff_detail(db, actor, identifier):
 
 
 async def handoff_reply(db, actor, identifier, body, key):
+    actor = teaching_handler(actor)
     item, manager = await handoff_access(db, actor, identifier, lock=True)
+    if manager and not is_handoff_handler(actor):
+        raise ApiError(403, "HANDOFF_PERMISSION_REQUIRED", "当前账号仅可查看人工服务记录。")
     # A replay remains readable after closing; new messages require an open case.
     message_id, fresh = await claim(
         db, actor, f"handoff.reply.{identifier}", key, body.model_dump()

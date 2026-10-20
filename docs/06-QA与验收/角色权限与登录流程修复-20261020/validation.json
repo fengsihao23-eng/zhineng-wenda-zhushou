@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-20",
+  "baseline": "e5645bc20e103db4fd20c3f824d284b5398919c2",
+  "backend_targeted": {
+    "sqlite": {
+      "passed": 51,
+      "postgresql_only_skipped": 1
+    },
+    "postgresql": {
+      "passed": 52
+    },
+    "final_role_access_postgresql": {
+      "passed": 3
+    }
+  },
+  "frontend_unit": {
+    "passed": 31
+  },
+  "frontend_lint": "passed",
+  "typescript_and_production_build": "passed",
+  "browser_real_login_and_real_api": {
+    "role_access": 5,
+    "desktop_answer_workflows": 5,
+    "mini_answer_workflows": 5,
+    "exam_management": 15
+  },
+  "test_environment": "isolated PostgreSQL, synthetic accounts, fake model provider, actual production frontend build",
+  "exam_duty_teaching_scope": "identical for compared student roster, student detail subject scores, outside student denial, class-analysis sample",
+  "fixture_note": "Run role-access.spec.ts with QA_ROLE_ACCESS=1 separately from exam-v17.spec.ts, whose fixed-count fixtures require the standard seed.",
+  "production_roles_passwords_or_grants_changed": false
+}

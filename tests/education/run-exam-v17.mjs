@@ -27,6 +27,7 @@ await run(python, ['-m', 'alembic', 'upgrade', 'head'], { cwd: path.join(root, '
 const fixture = await run(python, [path.join(root, 'tests/education/seed-exam.py')], { input: credential })
 const fixturePath = path.join(scratch, 'fixtures.json')
 await writeFile(fixturePath, fixture, { mode: 0o600 })
+if (process.env.QA_ROLE_ACCESS === '1') await run(python, [path.join(root, 'tests/education/seed-role-access.py'), fixturePath], { input: credential })
 const dist = path.join(scratch, 'web'), config = path.join(scratch, 'vite.config.mjs')
 await writeFile(config, `import react from ${JSON.stringify(path.join(root, 'apps/web/node_modules/@vitejs/plugin-react/dist/index.js'))}; export default {root:${JSON.stringify(path.join(root, 'apps/web'))},envDir:${JSON.stringify(scratch)},plugins:[react()],define:{'import.meta.env.VITE_API_URL':JSON.stringify('/api/v1')},build:{outDir:${JSON.stringify(dist)},emptyOutDir:true}}`)
 await run(process.execPath, [path.join(root, 'apps/web/node_modules/vite/bin/vite.js'), 'build', '--config', config])

@@ -19,7 +19,7 @@ from app.api.deps import (
 )
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.access_scope import scoped as scope_query, scoped_scores, is_teacher_only
+from app.core.access_scope import scoped as scope_query, scoped_scores, is_teacher_only, is_school_read_only, is_handoff_handler, teaching_handler, student_ids as teaching_students
 from app.core.diagnosis_access import authorized_reports, require_diagnosis, require_report, audit_report_access
 from app.core.errors import ApiError
 from app.core.idempotency import create_once
@@ -43,7 +43,7 @@ from app.db.models.student import Student
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/platform", tags=["platform"])
-management_roles = require_management("TEACHER", "SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA")
+management_roles = require_management("TEACHER", "SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA", "SCHOOL_VIEWER")
 school_admin_roles = require_management("SCHOOL_ADMIN", "CITY_OPERATOR", "SUPER_ADMIN", "QA", "SCHOOL_VIEWER")
 city_roles = require_management("CITY_OPERATOR", "SUPER_ADMIN")
 
@@ -696,7 +696,8 @@ async def management_feedback(
     query = _scoped(select(PlatformFeedback), current, PlatformFeedback.school_id).order_by(PlatformFeedback.created_at.desc()).limit(200)
     if state:
         query = query.where(PlatformFeedback.status == state)
-    return [_feedback_out(item) for item in (await db.execute(query)).scalars().all()]
+    return [{**_feedback_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
+            for item in (await db.execute(query)).scalars().all()]
 
 
 @router.patch("/management/feedback/{feedback_id}")
@@ -726,7 +727,8 @@ async def management_risks(
     query = _scoped(select(RiskEvent), current, RiskEvent.school_id).order_by(RiskEvent.created_at.desc()).limit(300)
     if state:
         query = query.where(RiskEvent.status == state)
-    return [_risk_out(item) for item in (await db.execute(query)).scalars().all()]
+    return [{**_risk_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
+            for item in (await db.execute(query)).scalars().all()]
 
 
 @router.post("/management/risks", status_code=status.HTTP_201_CREATED)
@@ -776,7 +778,12 @@ async def management_handoffs(
     query = _scoped(select(HumanHandoff), current, HumanHandoff.school_id).order_by(HumanHandoff.created_at.desc()).limit(200)
     if state:
         query = query.where(HumanHandoff.status == state)
-    result = [{**_handoff_out(item), "source": "support"} for item in (await db.execute(query)).scalars().all()]
+    handler = teaching_handler(current)
+    permitted_students = set(await db.scalars(teaching_students(handler))) if is_teacher_only(handler) else None
+    result = [{**_handoff_out(item), "source": "support",
+               **({"allowed_transitions": []} if not is_handoff_handler(current)
+                  or permitted_students is not None and item.student_id not in permitted_students else {})}
+              for item in (await db.execute(query)).scalars().all()]
     from app.services.answer_workbench import ticket_scope, ticket_view
     from app.db.models.answer_workbench import AnswerTicket
     states = {'待处理': 'open', '处理中': 'accepted', '已回复': 'resolved', '已关闭': 'closed'}
@@ -798,6 +805,7 @@ async def update_management_handoff(
     current: AuthenticatedUser = Depends(management_roles),
     db: AsyncSession = Depends(get_db),
 ):
+    current = teaching_handler(current)
     item = await db.scalar(_scoped(select(HumanHandoff).where(HumanHandoff.id == handoff_id), current, HumanHandoff.school_id))
     if not item:
         raise HTTPException(status_code=404, detail="转接工单不存在")

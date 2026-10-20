@@ -33,7 +33,8 @@ async function miniLogin(page: Page, kind = 'student') {
     await expect(f.locator('.phone')).toHaveCount(0); await expect(page.locator('.app-sidebar')).toHaveCount(1);
     return f;
   }
-  await page.goto('/mini-preview'); const f = page.frameLocator('iframe[title="学科智能问答小程序"]'); await f.getByLabel('登录账号').fill(fixture.users[kind]); await f.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!); await f.getByRole('button', { name: '登录', exact: true }).click(); await expect(f.getByLabel('输入问题')).toBeVisible(); return f
+  await page.goto('/login'); await page.getByLabel('用户名').fill(fixture.users[kind]); await page.getByLabel('密码', { exact: true }).fill(process.env.QA_PASSWORD!); await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page).not.toHaveURL(/\/login$/)
+  await page.goto('/mini-preview'); const f = page.frameLocator('iframe[title="学科智能问答小程序"]'); await expect(f.getByLabel('输入问题')).toBeVisible(); return f
 }
 
 test('原型布局、草稿、四类联合试问、预览发布和恢复历史', async ({ page, request }) => {
