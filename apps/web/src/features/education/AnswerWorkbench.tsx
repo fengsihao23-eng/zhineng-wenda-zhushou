@@ -6,10 +6,14 @@ import { getAuthSignal, getAuthScope, getRefreshToken, getToken, getUserInfo, se
 import { getCurrentUserApi, loginApi, logoutApi } from '../../services/auth'
 import { AppShell } from '../../layouts/AppShell'
 import AnswerText from '../../components/AnswerText'
-import '../../components/ChatContainer.css'
-import '../../components/MessageList.css'
-import '../../components/MessageBubble.css'
-import '../../components/InputBox.css'
+import appTheme from '../../index.css?inline'
+import chatTheme from '../../components/ChatContainer.css?inline'
+import listTheme from '../../components/MessageList.css?inline'
+import bubbleTheme from '../../components/MessageBubble.css?inline'
+import inputTheme from '../../components/InputBox.css?inline'
+import mathTheme from 'katex/dist/katex.min.css?inline'
+
+const desktopTheme = [appTheme, chatTheme, listTheme, bubbleTheme, inputTheme, mathTheme].join('\n')
 
 /** Isolate the supplied prototype's styles while retaining the application's auth lifecycle. */
 export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' | 'web' }) {
@@ -70,13 +74,13 @@ export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' 
     if (mode !== 'web') return
     const document = frame.current?.contentDocument
     if (!document) return
-    // Use the original desktop chat's compiled theme, typography and composer styles.
-    const before = document.head.firstChild
-    window.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(link => {
-      const copy = document.createElement('link')
-      copy.rel = 'stylesheet'; copy.href = link.href
-      document.head.insertBefore(copy, before)
-    })
+    // The iframe owns its complete theme in both development and production.
+    // It must not depend on which style/link tags happen to exist in the host.
+    const theme = document.createElement('style')
+    theme.id = 'answer-desktop-theme'
+    theme.textContent = desktopTheme
+    document.getElementById(theme.id)?.remove()
+    document.head.insertBefore(theme, document.head.firstChild)
   }
   const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=web-20261019`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
   if (mode === 'admin') return <AppShell>{content}</AppShell>
