@@ -101,7 +101,7 @@ Page({
         updatedAt:t.updatedAt,currentAllowed:t.currentAllowed,unread:t.unread}));
       this.setData({identity:state.identity,exams:state.exams,reports,sessions,tickets,
         audit:state.audit,questionStatus:state.questionStatus,notice:'',offline:false,
-        messages:present.messages(session ? session.messages:[],state.exams,reports),sessionTitle:session ? session.title:'',
+        messages:this.presentMessages(session ? session.messages:[],state.exams,reports),sessionTitle:session ? session.title:'',
         ticket:this.data.view==='ticketCompose' ? this.data.ticket : ticket ? this.ticketView(ticket):null, examOptions:exams, subjectOptions,
         unreadCount:state.tickets.filter(t=>t.unread).length,
         prompts:state.identity.role==='student'?['我这次考试各科成绩怎么样？','帮我对比期中和月考成绩']:['我可以查询哪些考试数据？','查看已授权的学情诊断报告']});
@@ -122,6 +122,16 @@ Page({
       feedbackAnswer:((pair.find(m=>m.role==='assistant')||{}).text || '').slice(0,140),
       events:ticket.events.map(e=>Object.assign({},e,{label:e.role==='operator'?'运营管理员':e.role==='system'?'办理状态':'我'}))
     });
+  },
+  presentMessages(rows, exams, reports) {
+    const expanded = new Set(this.data.messages.filter(row=>row.sourcesExpanded).map(row=>row.id));
+    return present.messages(rows,exams,reports).map(row=>Object.assign({},row,{sourcesExpanded:expanded.has(row.id)}));
+  },
+  toggleSources(event) {
+    const id=event.currentTarget.dataset.message;
+    const index=this.data.messages.findIndex(row=>row.id===id);
+    if(index<0 || !this.data.messages[index].sources.length)return;
+    this.setData({['messages['+index+'].sourcesExpanded']:!this.data.messages[index].sourcesExpanded});
   },
   setView(view) {
     if (!TITLES[view]) return;
@@ -207,7 +217,7 @@ Page({
     if (this.data.busy) return;
     const id=event.currentTarget.dataset.id;
     try {
-      this.setData({activeSession:id});await this.syncState();this.setView('chat');this.scrollBottom();
+      this.setData({activeSession:id,messages:[]});await this.syncState();this.setView('chat');this.scrollBottom();
     } catch (error) {this.handleError(error);}
   },
   scrollBottom() {this.setData({scrollTo:''});this.setData({scrollTo:'conversation-end'});},
@@ -229,7 +239,7 @@ Page({
       const response=await this.rpc('/mini/ask',{question:draft.question,session_id:draft.session_id},{key:draft.key});
       this._askDraft=null;completed=true;
       this.setData({activeSession:response.id,chatDraft:'',canRetry:false,questionStatus:response.questionStatus,
-        messages:present.messages(response.messages,this.data.exams,this.data.reports),sessionTitle:response.title});
+        messages:this.presentMessages(response.messages,this.data.exams,this.data.reports),sessionTitle:response.title});
       this.setView('chat');this.scrollBottom();
       try {await this.syncState();} catch (error) {this.setData({notice:'回答已保存，其他数据暂未刷新。可下拉重试。'});}
     } catch (error) {

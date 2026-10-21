@@ -482,3 +482,81 @@ async def test_concurrent_student_confirmation_commits_one_batch_once(client, te
     assert (await test_db.get(Student, sid)).profile_fields["床号"] == "88"
     assert await test_db.scalar(select(func.count()).select_from(AuditLog).where(
         AuditLog.action == "education.student.archive.confirm", AuditLog.resource_id == UUID(task["id"]))) == 1
+
+
+@pytest.mark.asyncio
+async def test_erroneous_deletion_includes_shared_web_mini_account_data_and_recovers_old_blocked_task(client, test_db, actors):
+    from app.db.models.answer_workbench import (AnswerSession, AnswerTicket, AnswerOperation,
+                                               AnswerTrial, AnswerDailyUsage, AnswerPresence)
+    from app.services.answer_capacity import day_at
+    models = (AnswerSession, AnswerTicket, AnswerOperation, AnswerTrial, AnswerDailyUsage, AnswerPresence)
+    selected = [await seed_student(client, "delete-mini-one", "误导入甲"),
+                await seed_student(client, "delete-mini-two", "误导入乙")]
+    survivor = await seed_student(client, "keep-mini-account", "保留问答学生")
+    people = [await test_db.get(Student, sid) for sid in [*selected, survivor]]
+    foreign = User(id=uuid4(), school_id=actors["other_school"].id, username="foreign-mini-user", password_hash="unused")
+    test_db.add(foreign)
+    await test_db.flush()
+    owners = [(person.school_id, person.user_id) for person in people] + [(foreign.school_id, foreign.id)]
+    for school_id, user_id in owners:
+        common = {"school_id": school_id, "user_id": user_id}
+        test_db.add_all([
+            AnswerSession(**common, body={"messages": []}),
+            AnswerTicket(**common, body={"question": "合成留言", "events": []}),
+            AnswerOperation(**common, action="合成个人操作", body={}),
+            AnswerTrial(**common, scope="prompt:高中", body={}),
+            AnswerDailyUsage(**common, day=day_at(), used=1),
+            AnswerPresence(**common, client_id=uuid4(), expires_at=datetime.now(timezone.utc)),
+        ])
+    await test_db.commit()
+    task = await task_create(client, "deletion", selected, reason="核对原导入文件，确认两条均为误导入")
+    assert not task["report"]["issues"] and not task["report"]["deletion_barriers"]
+    assert not task["report"]["ready_to_confirm"]
+    assert {model.__tablename__ for model in models} <= {row["type"] for row in task["report"]["affected"]}
+    # A previously saved failure must refresh to the current rules without
+    # silently substituting the user's required identity/record confirmations.
+    saved = await test_db.get(StudentWorkflowTask, UUID(task["id"]))
+    saved.status = "invalid"
+    saved.report = {**saved.report, "issues": [{"message": "旧版误判：问答记录属于共享业务"}],
+                    "deletion_barriers": ["answer_sessions", "answer_daily_usage", "answer_presence"]}
+    await test_db.commit()
+    response = await client.get(P + f"/roster/students/tasks/{task['id']}")
+    assert response.status_code == 200
+    task = response.json()
+    assert task["status"] == "ready" and not task["report"]["issues"]
+    assert not task["report"]["ready_to_confirm"]
+    task = await task_prepare(client, task, records_verified_ids=[str(sid) for sid in selected])
+    assert task["report"]["ready_to_confirm"]
+    done = await task_confirm(client, task)
+    assert done["report"]["disposition"]["deleted_students"] == 2
+    replay = await task_confirm(client, task)
+    assert replay["id"] == done["id"] and replay["status"] == "succeeded"
+    assert replay["revision"] == done["revision"] and replay["report"] == done["report"]
+    for model in models:
+        assert done["report"]["disposition"]["personal_data_counts"][model.__tablename__] == 2
+        for school_id, user_id in owners[:2]:
+            assert await test_db.scalar(select(func.count()).select_from(model).where(
+                model.school_id == school_id, model.user_id == user_id)) == 0
+        for school_id, user_id in owners[2:]:
+            assert await test_db.scalar(select(func.count()).select_from(model).where(
+                model.school_id == school_id, model.user_id == user_id)) == 1
+    assert await test_db.get(Student, survivor) is not None
+    assert len(done["snapshots"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_erroneous_deletion_still_blocks_account_ownership_of_unrelated_shared_files(client, test_db, actors):
+    sid = await seed_student(client, "shared-file-owner", "共享文件归属学生")
+    person = await test_db.get(Student, sid)
+    asset = PrivateAsset(school_id=person.school_id, filename="共享资料.pdf", media_type="application/pdf",
+                         byte_size=4, content_hash="shared", storage_key="shared-owner-test", content=b"test",
+                         created_by=person.user_id)
+    test_db.add(asset)
+    await test_db.commit()
+    task = await task_create(client, "deletion", [sid], reason="合成误导入核验")
+    assert "education_assets" in task["report"]["deletion_barriers"]
+    task = await task_prepare(client, task, records_verified_ids=[str(sid)])
+    assert not task["report"]["ready_to_confirm"]
+    await task_confirm(client, task, status=409)
+    assert await test_db.get(Student, sid) is not None
+    assert await test_db.get(PrivateAsset, asset.id) is not None

@@ -95,6 +95,9 @@ try {
   await capture('real-user-ui-answer.png')
 
   console.log('LIVE_UI_PHASE=actual_score_source')
+  assert.equal(answer.sourcesExpanded, false)
+  assert.equal(await page.$('.source'), null, 'Sources must remain hidden until the user expands them')
+  await tapRendered('.source-toggle[data-message="' + answer.id + '"]')
   await tapRendered('.source')
   await waitFor(async () => !!await page.data('source'), 'source sheet')
   const source = await page.data('source')

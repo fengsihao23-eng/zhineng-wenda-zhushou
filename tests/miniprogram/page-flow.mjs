@@ -72,10 +72,20 @@ try{
     page.setData({chatDraft:'我在'+exam.name+'的数学成绩怎么样？'});await page.ask()
     assert.equal(page.data.messages.at(-1).table[0].score,91)
     assert.ok(page.data.messages.at(-1).sources.some(s=>s.kind==='report'))
+    assert.equal(page.data.messages.at(-1).sourcesExpanded,false)
     chat=page.data.activeSession
     const web=(await request(A+'/mini/state',undefined,student)).value
     assert.equal(web.sessions.find(s=>s.id===chat).messages[0].text,'我在'+exam.name+'的数学成绩怎么样？')
     assert.equal(page.data.questionStatus.quota.remaining,web.questionStatus.quota.remaining)
+  })
+  await record('数据来源默认收起、点击展开及收起，刷新保留选择，重开会话恢复收起',async()=>{
+    const answer=page.data.messages.at(-1)
+    page.toggleSources(event({message:answer.id}));assert.equal(page.data.messages.at(-1).sourcesExpanded,true)
+    await page.syncState();assert.equal(page.data.messages.at(-1).sourcesExpanded,true)
+    page.toggleSources(event({message:answer.id}));assert.equal(page.data.messages.at(-1).sourcesExpanded,false)
+    page.toggleSources(event({message:answer.id}))
+    await page.openSession(event({id:chat}));assert.equal(page.data.messages.at(-1).sourcesExpanded,false)
+    assert.ok(page.data.messages.at(-1).sources.length>1)
   })
   await record('网页提问后小程序刷新可继续同一会话',async()=>{
     await request(A+'/mini/ask',{question:'我可以查询哪些考试数据？',session_id:chat},student)

@@ -1,6 +1,7 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 
 const fixture = JSON.parse(readFileSync(process.env.QA_FIXTURE_PATH!, 'utf8'))
@@ -144,6 +145,17 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   const restored = (await records(request, headers, 'r79-student-new')).items[0]
   expect(restored.id).toBe(id); expect(restored.status).toBe('active'); expect(restored.class_number).toBe('3班')
 
+  const nativeLogin = await request.post('/api/v1/auth/login', { data: { username: 'r79-student-new', password: 'r79-student-old' } })
+  expect(nativeLogin.ok()).toBeTruthy()
+  const activated = await request.post('/api/v1/auth/change-password', { headers: { Authorization: `Bearer ${(await nativeLogin.json()).access_token}` }, data: { current_password: 'r79-student-old', new_password: 'QA-r79-native-20261021' } })
+  expect(activated.ok()).toBeTruthy()
+  const miniHeaders = { Authorization: `Bearer ${(await activated.json()).access_token}`, 'Idempotency-Key': randomUUID() }
+  const ask = await request.post('/api/v1/answer-workbench/mini/ask', { headers: miniHeaders, data: { question: '你好' } })
+  expect(ask.ok()).toBeTruthy()
+  expect((await ask.json()).questionStatus.quota.used).toBe(1)
+  expect((await request.post('/api/v1/answer-workbench/mini/presence', { headers: miniHeaders, data: { client_id: randomUUID() } })).ok()).toBeTruthy()
+  expect((await request.post('/api/v1/answer-workbench/tickets', { headers: { ...miniHeaders, 'Idempotency-Key': randomUUID() }, data: { question: '合成误导入删除联动验收留言' } })).ok()).toBeTruthy()
+
   await page.getByRole('button', { name: '误导入删除', exact: true }).click()
   dialog = page.getByRole('dialog')
   await dialog.getByLabel('误导入核实依据').fill('合成验收记录，已调取原导入文件核实为误导入')
@@ -151,10 +163,14 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   await dialog.getByRole('checkbox', { name: '我已逐人核对名单、学生ID、姓名和账号，身份确认无误。' }).check()
   await dialog.getByRole('button', { name: '开始校验与预览' }).click()
   await expect(dialog.getByText('无受影响考试，不重算无关统计。')).toBeVisible()
+  await expect(dialog.getByRole('cell', { name: '智能问答会话', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('cell', { name: '每日提问额度记录', exact: true })).toBeVisible()
   await page.screenshot({ path: test.info().outputPath('student-r79-deletion-preview.png'), fullPage: true })
   await confirmCurrent(page, '确认删除')
   await close(page)
   expect((await records(request, headers, 'r79-student-new')).total).toBe(0)
+  expect((await request.get('/api/v1/answer-workbench/mini/state', { headers: miniHeaders })).status()).toBe(401)
+  expect((await request.post('/api/v1/auth/login', { data: { username: 'r79-student-new', password: 'QA-r79-native-20261021' } })).status()).toBe(401)
   const history = await (await request.get(base + '/students/tasks?search=r79-student-old', { headers })).json()
   expect(history.total).toBeGreaterThan(0)
   await page.getByRole('button', { name: '操作记录', exact: true }).click()

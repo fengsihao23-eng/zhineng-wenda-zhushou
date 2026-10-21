@@ -43,6 +43,8 @@ export async function nativeRuntime(output){
   const sandbox=vm.createContext({wx,console,Promise,ArrayBuffer,Uint8Array,setInterval,clearInterval,setTimeout,clearTimeout,Page:value=>{definition=value}})
   function load(filename){
     let absolute=path.resolve(filename);if(!absolute.endsWith('.js'))absolute+='.js'
+    // Test configuration must never send synthetic logins to the deployed API.
+    if(absolute===path.join(root,'config.js'))return {apiBaseUrl:'http://127.0.0.1:8048/api/v1'}
     if(modules.has(absolute))return modules.get(absolute).exports
     const module={exports:{}};modules.set(absolute,module)
     const code=readFileSync(absolute,'utf8')
@@ -53,7 +55,7 @@ export async function nativeRuntime(output){
   load(path.join(root,'pages/workbench/index.js'))
   const page={...definition,data:structuredClone(definition.data),setData(patch){
     for(const [key,value]of Object.entries(patch)){
-      const pieces=key.split('.');let node=this.data
+      const pieces=key.replace(/\[(\d+)\]/g,'.$1').split('.');let node=this.data
       for(const piece of pieces.slice(0,-1)){if(!node[piece])node[piece]={};node=node[piece]}
       node[pieces.at(-1)]=value
     }

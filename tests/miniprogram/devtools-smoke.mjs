@@ -30,7 +30,7 @@ async function permission(mode){
 }
 await permission('open')
 const mini=process.env.QA_WECHAT_WS ? await automator.connect({wsEndpoint:process.env.QA_WECHAT_WS}) : await automator.launch({
-  projectPath:path.join(root,'apps/miniprogram'),cliPath:process.env.WECHAT_CLI || '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',trustProject:true,timeout:30000
+  projectPath:process.env.QA_WECHAT_PROJECT || path.join(root,'apps/miniprogram'),cliPath:process.env.WECHAT_CLI || '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',trustProject:true,timeout:30000
 })
 const errors=[];mini.on('exception',error=>errors.push(error))
 async function capture(name){
@@ -107,6 +107,31 @@ try{
   await ready(page,async()=>await page.data('view')==='chat' && !await page.data('busy'))
   assert.equal(await page.data('identity.role'),'student')
   assert.ok(!(await page.data('tickets')).some(t=>t.id===ticketId),'Teacher tickets must not appear under the student identity')
+  // The prior quota gate deliberately leaves this student's daily limit full.
+  // Reopen a real saved answer instead of bypassing that business rule.
+  const savedState=await page.callMethod('rpc','/mini/state')
+  const sourcedSession=savedState.sessions.find(row=>row.messages.some(message=>message.sources?.some(ref=>ref.kind==='score')))
+  assert.ok(sourcedSession,'Prepare a real score answer in the isolated Page/API gate')
+  await page.callMethod('openSession',{currentTarget:{dataset:{id:sourcedSession.id}}})
+  await ready(page,'.source-toggle')
+  const sourcedAnswer=(await page.data('messages')).find(row=>row.sources.length)
+  const expanded=async()=>(await page.data('messages')).find(row=>row.id===sourcedAnswer.id).sourcesExpanded
+  assert.equal(await expanded(),false)
+  assert.equal((await page.$$('.source')).length,0,'Source cards must not occupy space before expansion')
+  await capture('11-sources-collapsed.png')
+  await (await page.$('.source-toggle')).tap()
+  await ready(page,'.source')
+  assert.equal(await expanded(),true)
+  await page.callMethod('syncState')
+  assert.equal(await expanded(),true,'Background synchronization must preserve expansion')
+  await capture('12-sources-expanded.png')
+  await (await page.$('.source')).tap()
+  await ready(page,async()=>!!await page.data('source'))
+  assert.equal(await page.data('source.allowed'),true)
+  await page.callMethod('closeSource')
+  await ready(page,async()=>!await page.data('source'))
+  await (await page.$('.source-toggle')).tap()
+  await ready(page,async()=>(await page.$$('.source')).length===0)
   await (await page.$('.tab-item[data-view="tools"]')).tap();await ready(page,async()=>await page.data('view')==='tools')
   await (await page.$('.tool-card[data-view="reports"]')).tap();await ready(page,async()=>await page.data('view')==='reports')
   await (await page.$('#reportSearch')).input(report.report_code)
@@ -114,6 +139,7 @@ try{
   await (await page.$('.actions button')).tap()
   await ready(page,async()=>!!await page.data('pdfImage') && !await page.data('pdfLoading'))
   await ready(page,'.pdf-image');assert.equal(await page.data('pdf.pages'),2)
+  assert.equal(await (await page.$('.download-bar .small')).text(),await page.data('pdf.label'),'The report footer must omit internal version numbers')
   await capture('07-report-page1.png')
   await (await page.$('.pdf-controls button[data-step="1"]')).tap()
   await ready(page,async()=>await page.data('pdf.page')===2 && !!await page.data('pdfImage') && !await page.data('pdfLoading'))
@@ -133,6 +159,6 @@ try{
   await page.callMethod('back');await ready(page,'.tab-item[data-view="me"]');await (await page.$('.tab-item[data-view="me"]')).tap();await ready(page,async()=>await page.data('view')==='me')
   await capture('10-profile.png')
   assert.equal(errors.length,0)
-  await writeFile(path.join(output,'result.json'),JSON.stringify({kind:'real-wechat-devtools',cases:['login','ask','quota','tools','history','ticket','admin-reply','append','close','account-isolation','report-filter','pdf-pages','pdf-download','revocation','profile'],errors},null,2))
+  await writeFile(path.join(output,'result.json'),JSON.stringify({kind:'real-wechat-devtools',cases:['login','ask','quota','tools','history','ticket','admin-reply','append','close','account-isolation','sources-collapsed-toggle','source-inspect','report-filter','pdf-pages','report-version-hidden','pdf-download','revocation','profile'],errors},null,2))
   console.log('微信开发者工具原生渲染与交互验收通过。截图：'+output)
 }finally{await mini.disconnect()}

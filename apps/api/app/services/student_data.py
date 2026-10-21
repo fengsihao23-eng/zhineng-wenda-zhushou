@@ -17,7 +17,10 @@ LABELS = {"student_exam_scores": "考试总分", "student_subject_scores": "科�
           "parent_authorizations": "家长授权", "student_year_classes": "学年班级记录",
           "student_exam_placements": "历史考试班级归属", "education_report_attachments": "报告附件",
           "education_assets": "个人报告文件", "platform_feedback": "个人反馈", "risk_events": "个人风险记录",
-          "human_handoffs": "人工接管", "education_handoff_messages": "接管消息", "user_roles": "账号权限"}
+          "human_handoffs": "人工接管", "education_handoff_messages": "接管消息", "user_roles": "账号权限",
+          "answer_sessions": "智能问答会话", "answer_tickets": "智能问答留言",
+          "answer_operations": "智能问答操作记录", "answer_trials": "该账号的问答试问记录",
+          "answer_daily_usage": "每日提问额度记录", "answer_presence": "问答在线状态"}
 
 
 async def deletion_plan(db, actor, students):
@@ -30,6 +33,13 @@ async def deletion_plan(db, actor, students):
             predicate = table.c.student_id.in_(ids)
             targets[table.name] = predicate & (table.c.school_id == actor.school_id) if "school_id" in table.c else predicate
     targets["user_roles"] = UserRole.user_id.in_(users) & (UserRole.school_id == actor.school_id)
+    # Web and WeChat share these account-owned records. Their composite user
+    # foreign keys are not student_id links, but they are still personal data.
+    # Keep this allowlist explicit: other user references may own shared work.
+    for name in ("answer_sessions", "answer_tickets", "answer_operations", "answer_trials",
+                 "answer_daily_usage", "answer_presence"):
+        table = Base.metadata.tables[name]
+        targets[name] = table.c.user_id.in_(users) & (table.c.school_id == actor.school_id)
     if "platform_feedback" in Base.metadata.tables:
         table = Base.metadata.tables["platform_feedback"]
         targets[table.name] = or_(targets.get(table.name, False), (table.c.user_id.in_(users) & (table.c.school_id == actor.school_id)))

@@ -4,3 +4,4 @@ page{height:100%;background:#f5f7f4;color:#314b3a;font-family:-apple-system,Blin
 .app button{width:auto;margin:0}.app .block,.app .suggestion,.app .ticket-card,.app .session,.app .menu-row,.app .source{width:100%}.app .send{width:84rpx;min-width:84rpx;max-width:84rpx}.app .tab-item,.app .tool-card{width:0;flex:1 1 0}.app .quiet,.app .feedback-link{width:auto}
 
 .app .suggestion{margin:16rpx 0}.app .ticket-card{margin:24rpx 0}.app .source{margin:18rpx 0 0}.app .choice-chip{margin:12rpx 10rpx 0 0}
+.answer-sources{margin-top:22rpx;border-top:2rpx solid #e7ede7;padding-top:12rpx}.app .source-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10rpx 0;background:none;color:#6d8976;font-size:23rpx;line-height:1.8;text-align:left}.source-list{padding-bottom:4rpx}
