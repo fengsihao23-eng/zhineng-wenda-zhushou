@@ -1,7 +1,7 @@
 {
   "description": "学科智能问答微信小程序，与网页共用学校账号和业务接口",
   "projectname": "学科智能问答",
-  "appid": "touristappid",
+  "appid": "wx04d59f99c0121046",
   "compileType": "miniprogram",
   "miniprogramRoot": "./",
   "libVersion": "3.7.12",
@@ -14,5 +14,12 @@
     "coverView": true,
     "compileHotReLoad": true
   },
-  "packOptions": {"ignore": [{"type":"file", "value":"README.md"}]}
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "file",
+        "value": "README.md"
+      }
+    ]
+  }
 }
