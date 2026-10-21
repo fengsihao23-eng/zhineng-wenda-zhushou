@@ -62,6 +62,29 @@ function validateBase() {
     throw new Error('小程序尚未配置正式 HTTPS 服务地址，请联系管理员。');
   }
 }
+function networkError(cause, fallback) {
+  const rawReason = typeof cause === 'string' ? cause : cause && (cause.errMsg || cause.message) || '';
+  // Keep device diagnostics without exposing request URLs, headers or login inputs.
+  const reason = String(rawReason).replace(/https?:\/\/[^\s"'<>]+/gi, '服务地址').slice(0, 180);
+  const error = new Error(fallback);
+  error.code = 'NETWORK_ERROR';
+  error.details = {networkReason:reason};
+  if (/domain\s*list|legal\s*domain|合法域名|域名.*(?:校验|未配置|不允许)|https.*required|only.*https|http.*not\s*(?:allowed|supported)/i.test(reason)) {
+    error.code = 'NETWORK_DOMAIN_BLOCKED';
+    error.message = /^http:\/\//.test(BASE)
+      ? '微信尚未允许连接当前内测服务。请在右上角“…”打开开发调试，重新进入小程序后再试。'
+      : '微信尚未允许连接服务域名，请联系管理员核对小程序网络配置。';
+  } else if (/timeout|timed\s*out|超时/i.test(reason)) {
+    error.code = 'NETWORK_TIMEOUT';
+    error.message = '连接服务超时，请检查网络后重试；输入内容已保留。';
+  } else if (/\bssl\b|\btls\b|certificate|handshake|证书/i.test(reason)) {
+    error.code = 'NETWORK_TLS_ERROR';
+    error.message = '服务安全连接失败，请联系管理员检查 HTTPS 证书及网络配置。';
+  } else if (reason) {
+    error.message += '\n连接详情：' + reason;
+  }
+  return error;
+}
 function raw(path, body, method, token, key) {
   validateBase();
   return new Promise((resolve, reject) => wx.request({
@@ -69,7 +92,7 @@ function raw(path, body, method, token, key) {
     timeout: 55000,
     header: Object.assign({'Content-Type': 'application/json'}, token ? {Authorization:'Bearer '+token} : {}, key ? {'Idempotency-Key':key} : {}),
     success: response => response.statusCode >= 200 && response.statusCode < 300 ? resolve(response.data) : reject(errorFrom(response)),
-    fail: () => reject(new Error('暂时无法连接服务，请检查网络后重试；输入内容已保留。'))
+    fail: cause => reject(networkError(cause, '暂时无法连接服务，请检查网络后重试；输入内容已保留。'))
   }));
 }
 async function refresh() {
@@ -127,7 +150,7 @@ async function file(path, retry) {
   if (!current) throw new Error('请先登录');
   const response = await new Promise((resolve, reject) => wx.downloadFile({url:BASE+path,
     header:{Authorization:'Bearer '+current.access_token}, timeout:55000,
-    success:resolve, fail:()=>reject(new Error('报告未下载成功，请检查网络后重试'))}));
+    success:resolve, fail:cause=>reject(networkError(cause, '报告未下载成功，请检查网络后重试'))}));
   try { assertOwner(owner); } catch (error) {
     try { wx.getFileSystemManager().unlinkSync(response.tempFilePath); } catch (_) { /* Best effort. */ }
     throw error;

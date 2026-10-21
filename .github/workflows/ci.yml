@@ -13,6 +13,7 @@ jobs:
         with:
           node-version: 20
       - run: node scripts/check-wechat.mjs
+      - run: node --test tests/miniprogram/network-errors.test.mjs
   backend:
     runs-on: ubuntu-latest
     env:

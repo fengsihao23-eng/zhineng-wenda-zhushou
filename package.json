@@ -7,6 +7,7 @@
     "mini:check": "node scripts/check-wechat.mjs",
     "mini:configure": "node scripts/configure-wechat.mjs",
     "test:mini:flows": "node tests/miniprogram/page-flow.mjs",
+    "test:mini:network": "node --test tests/miniprogram/network-errors.test.mjs",
     "test:mini:devtools": "node tests/miniprogram/devtools-smoke.mjs",
     "test:e2e": "playwright test --config=playwright.config.ts",
     "test:ui": "playwright test --config=tests/ui/playwright.config.ts",
