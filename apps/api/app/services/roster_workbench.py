@@ -2,7 +2,10 @@
 from uuid import UUID, uuid4
 import asyncio
 import base64
+import logging
 import re
+from datetime import datetime, timedelta
+from types import SimpleNamespace
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select, delete, or_, func
 from app.core.errors import ApiError
@@ -21,6 +24,11 @@ from app.services.roster_excel import (
 )
 
 ROLE_NAMES = {"TEACHER": "任课教师", "STUDENT": "学生", "HOMEROOM_TEACHER": "班主任", "SUBJECT_LEADER": "备课 / 教研组长", "GRADE_LEADER": "年级长", "ACADEMIC_DIRECTOR": "教务主任", "PRINCIPAL": "校长", "GENERAL_DIRECTOR": "总务主任", "SCHOOL_VIEWER": "全校基础数据查看", "SCHOOL_ADMIN": "学校管理员", "EXAM_ADMIN": "考试管理员"}
+
+logger = logging.getLogger(__name__)
+# A worker owns the batch row while inserting. If the process is restarted, the
+# row would stay "running" forever; only then may a retry take it over again.
+STALE_IMPORT_AFTER = timedelta(minutes=30)
 
 
 def role_users(school_id, role):
@@ -193,6 +201,26 @@ def view(item):
     return {**data(item, "id", "kind", "filename", "content_hash", "status", "revision", "report", "operator_name", "created_at", "confirmed_at", "change_task_id", "confirmation"), "has_original": item.original_content is not None, "columns": TEACHER_CHANGE_COLUMNS if item.change_task_id else COLUMNS[item.kind], "rows": item.rows}
 
 
+def progress_view(item):
+    """Polling payload: never ship thousands of staged rows every 1.5 seconds."""
+    report = item.report or {}
+    return {
+        **data(item, "id", "kind", "filename", "status", "revision", "created_at", "confirmed_at"),
+        "report": {
+            key: report.get(key)
+            for key in (
+                "total_rows",
+                "success_count",
+                "skipped_count",
+                "failed_reason",
+                "failed_at",
+                "progress",
+                "started_at",
+            )
+        },
+    }
+
+
 async def upload(db, actor, kind, body, key):
     rows, issues = parse_excel(kind, body.filename, body.content_base64)
     identifier, fresh = await claim(db, actor, f"roster.upload.{kind}", key, body.model_dump())
@@ -223,19 +251,39 @@ async def teacher_grants(db, user, values, duties):
     return unresolved
 
 
-async def student_password_hashes(rows):
-    # A full grade can contain thousands of students; keep bcrypt's cost while
-    # bounding CPU work instead of hashing each account serially on import.
-    slots = asyncio.Semaphore(8)
+async def password_hashes(rows, field):
+    """Hash initial passwords with bounded parallelism; bcrypt is CPU-bound."""
+    slots = asyncio.Semaphore(4)
 
     async def hash_row(row):
         async with slots:
-            return row["row_number"], await run_in_threadpool(get_password_hash, row["values"]["账号"].strip())
+            return row["row_number"], await run_in_threadpool(
+                get_password_hash, row["values"][field].strip()
+            )
 
     return dict(await asyncio.gather(*(hash_row(row) for row in rows)))
 
 
+async def student_password_hashes(rows):
+    return await password_hashes(rows, "账号")
+
+
+async def teacher_password_hashes(rows):
+    return await password_hashes(rows, "教师账号")
+
+
+def _started_at(item):
+    value = (item.report or {}).get("started_at")
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 async def confirm(db, actor, identifier, body):
+    """Validate the batch and hand the CPU-heavy insert to a background worker."""
     item = await owned(db, RosterImport, identifier, actor, lock=True)
     if item.change_task_id:
         from app.services.teacher_changes import confirm_task_batch
@@ -248,7 +296,20 @@ async def confirm(db, actor, identifier, body):
         if previous != payload:
             raise ApiError(409, "ROSTER_ALREADY_CONFIRMED", "该批次已完成，不能更改保留 / 放弃选择。")
         return view(item)
-    if item.status != "ready" or item.revision != body.expected_revision:
+    if item.status == "running":
+        started = _started_at(item)
+        if started is not None and now() - started > STALE_IMPORT_AFTER:
+            # The worker died with the process. No rows were committed, so the
+            # same revision can be submitted again.
+            item.status = "failed"
+            item.report = {
+                **(item.report or {}),
+                "failed_reason": "后台入库任务超过 30 分钟未完成，本批次未写入档案，可重新提交。",
+                "failed_at": now().isoformat(),
+            }
+        else:
+            return view(item)
+    if item.status not in {"ready", "failed"} or item.revision != body.expected_revision:
         raise ApiError(409, "ROSTER_NOT_READY", "请修正全部错误后重新上传并预校验。")
     checked = await preflight(db, actor.school_id, item.kind, item.rows)
     if not checked["ok"]:
@@ -263,22 +324,36 @@ async def confirm(db, actor, identifier, body):
     if set(body.duplicate_decisions) != suspects:
         noun = "教师" if item.kind == "teachers" else "学生"
         raise ApiError(422, "DUPLICATE_CONFIRMATION_REQUIRED", f"请逐条确认全部疑似重复{noun}保留或放弃。")
+    item.status = "running"
+    item.confirmation = payload
+    item.report = {
+        **checked,
+        "progress": {"total": len(item.rows), "processed": 0},
+        "started_at": now().isoformat(),
+    }
+    audit(db, actor, "roster.import.start", item, {"kind": item.kind, "rows": len(item.rows)})
+    await db.commit()
+    queued = view(item)
+    queued["_queued"] = True
+    return queued
+
+
+async def _insert_rows(db, actor, item, decisions, password_hashes):
+    """Insert every row inside the caller's transaction; never commit here."""
     classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == actor.school_id, ImportedClass.status == "active"))).all() if item.kind == "students" else []
-    student_passwords = await student_password_hashes(item.rows) if item.kind == "students" else {}
-    imported, skipped, unresolved, changed = [], [], [], 0
+    imported, skipped, unresolved = [], [], []
     for row in item.rows:
         number, values = row["row_number"], row["values"]
-        if body.duplicate_decisions.get(number) is False:
+        if decisions.get(number) is False:
             skipped.append(number)
             continue
         teacher = item.kind == "teachers"
         username = values["教师账号" if teacher else "账号"].strip()
-        must_change_password = True
-        password_hash = student_passwords.get(number)
+        password_hash = password_hashes.get(number)
         if password_hash is None:
             password_hash = await run_in_threadpool(get_password_hash, username)
         contact = values["手机号码" if teacher else "手机号"]
-        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=must_change_password, phone=(contact or None) if teacher or len(contact) <= 100 else None)
+        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=True, phone=(contact or None) if teacher or len(contact) <= 100 else None)
         db.add(user)
         await db.flush()
         if teacher:
@@ -314,12 +389,78 @@ async def confirm(db, actor, identifier, body):
             await student_roster.year_record(db, student, student_roster.current_year(school), values)
             record_id = student.id
         imported.append({"row_number": number, "id": str(record_id), "platform_id": str(user.platform_id if teacher else student.platform_id), "account": username})
-    item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload
-    operator = await db.get(User, actor.user_id)
-    item.report = {**checked, "success_count": len(imported), "skipped_count": len(skipped), "skipped_rows": skipped, "imported": imported, "changed_count": changed, "unresolved_teaching": unresolved, "confirmed_by": str(actor.user_id), "confirmed_by_name": operator.display_name or operator.username, "confirmed_at": item.confirmed_at.isoformat()}
-    audit(db, actor, "roster.import", item, {"kind": item.kind, "success_count": len(imported), "skipped_rows": skipped, "changed_count": changed})
-    await db.commit()
-    return view(item)
+    return imported, skipped, unresolved
+
+
+async def execute_import(factory, identifier):
+    """Background worker: one transaction, no partial writes, retry on failure."""
+    async with factory() as db:
+        item = await db.get(RosterImport, identifier)
+        if item is None or item.status != "running":
+            return
+        kind, rows, school_id, created_by = item.kind, item.rows, item.school_id, item.created_by
+        decisions = (item.confirmation or {}).get("duplicate_decisions") or {}
+        # model_dump(mode="json") stringifies integer dict keys; restore row numbers.
+        decisions = {int(key): value for key, value in decisions.items()}
+    actor = SimpleNamespace(school_id=school_id, user_id=created_by)
+    try:
+        hashes = await (teacher_password_hashes(rows) if kind == "teachers" else student_password_hashes(rows))
+        async with factory() as db:
+            async with db.begin():
+                item = await db.scalar(
+                    select(RosterImport)
+                    .where(RosterImport.id == identifier)
+                    .with_for_update(skip_locked=True)
+                )
+                if item is None or item.status != "running":
+                    return
+                checked = await preflight(db, school_id, kind, item.rows)
+                if not checked["ok"]:
+                    item.status = "invalid"
+                    item.revision += 1
+                    item.report = {
+                        **checked,
+                        "failed_reason": "确认后复校验未通过，本批次未写入任何档案。",
+                        "failed_at": now().isoformat(),
+                    }
+                    audit(db, actor, "roster.preflight", item, {"kind": kind, "error_rows": len(checked["issues"])})
+                    return
+                imported, skipped, unresolved = await _insert_rows(
+                    db, actor, item, decisions, hashes
+                )
+                operator = await db.get(User, created_by)
+                item.status, item.confirmed_at = "succeeded", now()
+                item.report = {
+                    **checked,
+                    "success_count": len(imported),
+                    "skipped_count": len(skipped),
+                    "skipped_rows": skipped,
+                    "imported": imported,
+                    "changed_count": 0,
+                    "unresolved_teaching": unresolved,
+                    "confirmed_by": str(created_by),
+                    "confirmed_by_name": (operator.display_name or operator.username) if operator else "",
+                    "confirmed_at": item.confirmed_at.isoformat(),
+                    "started_at": (item.report or {}).get("started_at"),
+                    "progress": {"total": len(item.rows), "processed": len(imported) + len(skipped)},
+                }
+                audit(db, actor, "roster.import", item, {"kind": kind, "success_count": len(imported), "skipped_rows": skipped, "changed_count": 0})
+    except Exception:
+        logger.exception("roster import failed: %s", identifier)
+        async with factory() as db:
+            async with db.begin():
+                item = await db.scalar(
+                    select(RosterImport)
+                    .where(RosterImport.id == identifier)
+                    .with_for_update(skip_locked=True)
+                )
+                if item is not None and item.status == "running":
+                    item.status = "failed"
+                    item.report = {
+                        **(item.report or {}),
+                        "failed_reason": "入库过程中发生错误，本批次未写入任何档案，可重新提交。",
+                        "failed_at": now().isoformat(),
+                    }
 
 
 def comparable_suspects(value):

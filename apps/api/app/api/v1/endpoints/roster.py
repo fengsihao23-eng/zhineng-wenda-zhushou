@@ -2,11 +2,11 @@
 from uuid import UUID
 from pathlib import Path
 from urllib.parse import quote
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import defer
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.api.deps import require_management
 from app.api.v1.endpoints.education import writer, write
 from app.core.database import get_db
@@ -111,8 +111,9 @@ async def upload(kind: RosterKind, body: RosterUpload, compact: bool = False, ke
 
 
 @router.get("/imports/{identifier}")
-async def detail(identifier: UUID, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    return roster.view(await owned(db, RosterImport, identifier, actor))
+async def detail(identifier: UUID, progress: bool = False, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    item = await owned(db, RosterImport, identifier, actor)
+    return roster.progress_view(item) if progress else roster.view(item)
 
 
 @router.get("/imports/{identifier}/errors")
@@ -132,8 +133,15 @@ async def original(identifier: UUID, actor=Depends(reader), db: AsyncSession = D
 
 
 @router.post("/imports/{identifier}/confirm")
-async def confirm(identifier: UUID, body: RosterConfirm, compact: bool = False, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+async def confirm(identifier: UUID, body: RosterConfirm, background: BackgroundTasks, compact: bool = False, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
     result = await write(db, roster.confirm(db, actor, identifier, body))
+    queued = result.pop("_queued", False)
+    if queued:
+        background.add_task(
+            roster.execute_import,
+            async_sessionmaker(db.bind, expire_on_commit=False),
+            identifier,
+        )
     return {field: result[field] for field in ("id", "kind", "status", "revision")} if compact else result
 
 

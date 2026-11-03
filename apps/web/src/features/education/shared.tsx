@@ -1,4 +1,4 @@
-import { Children, useEffect, useId, useState, type ReactNode, type FormEvent } from "react";
+import { Children, useEffect, useId, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { HelpTip } from "../../components/HelpTip";
 import { ListView } from "../../components/ListControls";
 export { Pagination as Pager, usePagination, useClientPagination } from "../../components/ListControls";
@@ -115,6 +115,86 @@ export function ActionError({
       variant="banner"
     />
   );
+}
+
+/** Import confirm is asynchronous: poll the batch instead of holding a slow HTTP request. */
+const IMPORT_TERMINAL = ["succeeded", "failed", "invalid"];
+
+export async function pollRosterImport(
+  id: string,
+  onUpdate: (batch: Row) => void,
+  stopped: () => boolean,
+): Promise<Row> {
+  const started = Date.now();
+  while (Date.now() - started < 20 * 60 * 1000) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (stopped()) throw new DOMException("请求已取消", "AbortError");
+    // Status-only polling keeps a 1,448-row batch from being downloaded every tick.
+    const response = await apiFetch(`${BASE}/roster/imports/${id}?progress=true`);
+    if (!response.ok) throw await apiError(response, "读取入库进度失败");
+    const next = (await response.json()) as Row;
+    onUpdate(next);
+    if (IMPORT_TERMINAL.includes(next.status)) {
+      const detail = await apiFetch(`${BASE}/roster/imports/${id}`);
+      if (!detail.ok) throw await apiError(detail, "读取入库结果失败");
+      const final = (await detail.json()) as Row;
+      onUpdate(final);
+      return final;
+    }
+  }
+  throw new Error("入库仍在后台执行，请稍后到操作记录查看结果。");
+}
+
+export function useImportPolling(
+  batch: Row | null,
+  onBatch: (batch: Row) => void,
+  onDone?: (batch: Row) => void,
+) {
+  const [error, setError] = useState<Error | null>(null);
+  const update = useRef(onBatch);
+  const done = useRef(onDone);
+  update.current = onBatch;
+  done.current = onDone;
+  useEffect(() => {
+    if (!batch || batch.status !== "running") return;
+    let stopped = false;
+    setError(null);
+    void pollRosterImport(batch.id, (next) => update.current(next), () => stopped)
+      .then((final) => {
+        if (!stopped) done.current?.(final);
+      })
+      .catch((reason) => {
+        if (!stopped && (reason as Error)?.name !== "AbortError") setError(reason as Error);
+      });
+    return () => {
+      stopped = true;
+    };
+    // The batch id/status are the only transitions that start or stop polling.
+  }, [batch?.id, batch?.status]);
+  return error;
+}
+
+export function ImportRunning({ batch, error }: { batch: Row; error?: Error | null }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const total = batch.report?.progress?.total ?? batch.report?.total_rows ?? 0;
+  return (
+    <div role="status" className="teacher-alert teacher-alert--warn">
+      <strong>正在整批入库，请稍候</strong>
+      <p>
+        共 {total} 行，已等待 {elapsed} 秒。数据在服务器后台写入，可以暂时切到其他页面，但请勿重复点击或重复上传。
+      </p>
+      {error && <p>{error.message}</p>}
+    </div>
+  );
+}
+
+export function ImportFailure({ batch }: { batch: Row }) {
+  const message = batch.report?.failed_reason || "入库未完成，未写入任何档案，可重新提交。";
+  return <ErrorDisplay error={new Error(message)} title="入库未完成" variant="banner" />;
 }
 export function Table({
   headers,

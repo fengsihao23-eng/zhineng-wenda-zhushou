@@ -1,4 +1,5 @@
 """Executable acceptance for all four flows in the supplied 0922 HTML."""
+import asyncio
 import base64
 import io
 from uuid import UUID, uuid4
@@ -27,8 +28,20 @@ async def upload(client, rows, kind="teachers", columns=None):
     return await post(client, f"/roster/{kind}/imports", {"filename": "合成资料.xlsx", "content_base64": base64.b64encode(content).decode()})
 
 
+async def wait_import(client, identifier, timeout=20):
+    """Import confirm is asynchronous; wait for the worker to reach a terminal state."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        detail = (await client.get(P + f"/roster/imports/{identifier}")).json()
+        if detail["status"] != "running":
+            return detail
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"import {identifier} did not finish")
+
+
 async def confirm(client, batch, status=200, **values):
-    return await post(client, f"/roster/imports/{batch['id']}/confirm", {"expected_revision": batch["revision"], **values}, status=status)
+    response = await post(client, f"/roster/imports/{batch['id']}/confirm", {"expected_revision": batch["revision"], **values}, status=status)
+    return await wait_import(client, response["id"]) if status == 200 and response["status"] == "running" else response
 
 
 async def lifecycle(client, kind, identifier, action="delete", status=200):
@@ -276,10 +289,12 @@ async def test_mid_batch_failure_rolls_back_accounts_profiles_and_grants(client,
         return await original(db, user, codes)
 
     monkeypatch.setattr(roster_workbench, "grant_roles", fail_second)
-    await confirm(client, batch, status=422)
+    failed = await confirm(client, batch)
+    assert failed["status"] == "failed"
+    assert "未写入任何档案" in failed["report"]["failed_reason"]
     assert await test_db.scalar(select(func.count()).select_from(User).where(User.username.in_(["13800000001", "13800000002"]))) == 0
     assert await test_db.scalar(select(func.count()).select_from(TeacherProfile)) == 0
-    assert (await client.get(P + f"/roster/imports/{batch['id']}")).json()["status"] == "ready"
+    assert (await client.get(P + f"/roster/imports/{batch['id']}")).json()["status"] == "failed"
 
 
 @pytest.mark.asyncio
@@ -300,6 +315,7 @@ async def test_concurrent_confirmation_creates_one_batch(client, test_db, actors
         pytest.skip("Concurrent school locks require PostgreSQL")
     import asyncio
     from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services import roster_workbench
     from app.api.deps import AuthenticatedUser
     from app.db.models import School
     from app.schemas.roster import RosterConfirm
@@ -315,8 +331,14 @@ async def test_concurrent_confirmation_creates_one_batch(client, test_db, actors
             return await confirm_service(db, actor, UUID(batch["id"]), RosterConfirm(expected_revision=batch["revision"]))
 
     first, second = await asyncio.gather(execute(), execute())
-    assert first["report"] == second["report"]
+    # Only the call that moves the batch to running may enqueue the worker;
+    # the concurrent duplicate must return the same in-flight batch.
+    assert first["status"] == second["status"] == "running"
+    assert sum(bool(item.get("_queued")) for item in (first, second)) == 1
+    await roster_workbench.execute_import(factory, UUID(batch["id"]))
     assert await test_db.scalar(select(func.count()).select_from(User).where(User.username == "13800000008")) == 1
+    detail = (await client.get(P + f"/roster/imports/{batch['id']}")).json()
+    assert detail["status"] == "succeeded" and detail["report"]["success_count"] == 1
 
 
 @pytest.mark.asyncio

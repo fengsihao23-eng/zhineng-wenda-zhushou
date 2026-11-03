@@ -1,10 +1,10 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, useEffect, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
 import { getUserInfo } from "../../utils/auth";
 import { apiFetch, apiError } from "../../services/api";
-import { BASE, type Row, type PageData, Table, Pager, Badge, QueryState, canWrite, useAction, ActionError, fileBase64, HelpTip, usePagination, useClientPagination } from "./shared";
+import { BASE, type Row, type PageData, Table, Pager, Badge, QueryState, canWrite, useAction, ActionError, fileBase64, HelpTip, usePagination, useClientPagination, useImportPolling, ImportRunning, ImportFailure } from "./shared";
 import "./teacher-workbench.css";
 
 const columns = ["学校编号", "学校名称", "部门名称", "教师姓名", "性别", "教师账号", "学工号", "mac地址", "SN码", "状态", "说明", "身份证", "手机号码", "短号", "座机号", "电子邮箱", "备注", "任课年级班级", "班主任年级班级", "教研组长负责年级科目", "年级长负责年级", "是否教务主任", "是否校长", "是否总务主任"];
@@ -186,6 +186,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
   const [decisions, setDecisions] = useState<Record<number, boolean>>({});
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
   const action = useAction();
+  const pollError = useImportPolling(batch, setBatch, (final) => { if (final.status === "succeeded") onComplete(); else if (final.status === "invalid") setStep(2); });
   const refresh = async () => {
     if (!batch) return;
     const response = await apiFetch(`${BASE}/roster/imports/${batch.id}`);
@@ -196,7 +197,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
     <Steps labels={["上传文件", "预校验与错误清单", "疑似重复确认与回执"]} step={step} />
     {step === 1 && <FileUpload onUploaded={row => { setBatch(row); setStep(2); }} />}
     {step === 2 && batch && <>{batch.report.ok ? <><div className="teacher-alert teacher-alert--ok">预校验通过，共 {batch.report.total_rows} 行。尚未写入任何档案。</div><div className="teacher-alert teacher-alert--warn">离职 / 停用请在列表「删除」办理。资料变更请选择「变更前删除」，使用专属任务。</div><div className="teacher-nav"><button onClick={reset}>重新上传</button><button className="teacher-primary" onClick={() => setStep(3)}>下一步：疑似重复确认</button></div></> : <><Issues batch={batch} /><div className="teacher-nav"><button onClick={reset}>重新上传</button></div></>}</>}
-    {step === 3 && batch && (batch.status === "succeeded" ? <Receipt batch={batch} /> : <><Duplicates batch={batch} reviewed={reviewed} onReview={setReviewed} decisions={decisions} onDecision={setDecisions} /><details className="teacher-preview"><summary>查看原始资料（24 列）</summary><RowsPreview batch={batch} /></details><p className="teacher-muted">新教师将生成独立教师ID。初始密码＝教师账号，首次登录强制修改；角色按结构化任课与职务字段生成。</p><ActionError action={action} /><div className="teacher-nav"><button disabled={action.isPending} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={!canWrite() || action.isPending || (batch.report.suspicious || []).some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: row => { setBatch(row); onComplete(); }, onError: () => { void refresh(); } })}>{action.isPending ? "正在整批入库…" : "确认入库"}</button></div></>)}
+    {step === 3 && batch && (batch.status === "running" ? <ImportRunning batch={batch} error={pollError} /> : batch.status === "failed" ? <><ImportFailure batch={batch} /><div className="teacher-nav"><button onClick={reset}>重新上传</button><button className="teacher-primary" onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: row => { setBatch(row); if (row.status === "succeeded") onComplete(); } })}>重试入库</button></div></> : batch.status === "succeeded" ? <Receipt batch={batch} /> : <><Duplicates batch={batch} reviewed={reviewed} onReview={setReviewed} decisions={decisions} onDecision={setDecisions} /><details className="teacher-preview"><summary>查看原始资料（24 列）</summary><RowsPreview batch={batch} /></details><p className="teacher-muted">新教师将生成独立教师ID。初始密码＝教师账号，首次登录强制修改；角色按结构化任课与职务字段生成。</p><ActionError action={action} /><div className="teacher-nav"><button disabled={action.isPending} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={!canWrite() || action.isPending || (batch.report.suspicious || []).some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: row => { setBatch(row); if (row.status === "succeeded") onComplete(); }, onError: () => { void refresh(); } })}>{action.isPending ? "正在整批入库…" : "确认入库"}</button></div></>)}
   </TeacherDialog>;
 }
 
@@ -240,9 +241,14 @@ function ExistingImport({ batch, onRefresh }: { batch: Row; onRefresh: () => voi
   const action = useAction();
   const [decisions, setDecisions] = useState<Record<number, boolean>>({});
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
-  if (batch.status === "succeeded") return <Receipt batch={batch} />;
-  if (!batch.report.ok || batch.status !== "ready") return <Issues batch={batch} />;
-  return <><p>{batch.filename} · 共 {batch.report.total_rows} 行，尚未写入档案。</p><Duplicates batch={batch} reviewed={reviewed} onReview={setReviewed} decisions={decisions} onDecision={setDecisions} /><RowsPreview batch={batch} /><ActionError action={action} /><div className="teacher-nav"><button className="teacher-primary" disabled={!canWrite() || action.isPending || (batch.report.suspicious || []).some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: onRefresh, onError: onRefresh })}>{action.isPending ? "正在整批入库…" : "确认入库"}</button></div></>;
+  const [current, setCurrent] = useState(batch);
+  useEffect(() => { setCurrent(batch); }, [batch]);
+  const pollError = useImportPolling(current, setCurrent, () => onRefresh());
+  if (current.status === "succeeded") return <Receipt batch={current} />;
+  if (current.status === "running") return <ImportRunning batch={current} error={pollError} />;
+  if (current.status === "failed") return <><ImportFailure batch={current} /><div className="teacher-nav"><button className="teacher-primary" disabled={action.isPending} onClick={() => action.mutate({ path: `/roster/imports/${current.id}/confirm`, body: { expected_revision: current.revision, duplicate_decisions: Object.fromEntries((current.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: row => setCurrent(row), onError: onRefresh })}>{action.isPending ? "正在提交…" : "重试入库"}</button></div></>;
+  if (!current.report.ok || current.status !== "ready") return <Issues batch={current} />;
+  return <><p>{current.filename} · 共 {current.report.total_rows} 行，尚未写入档案。</p><Duplicates batch={current} reviewed={reviewed} onReview={setReviewed} decisions={decisions} onDecision={setDecisions} /><RowsPreview batch={current} /><ActionError action={action} /><div className="teacher-nav"><button className="teacher-primary" disabled={!canWrite() || action.isPending || (current.report.suspicious || []).some((row: Row) => !reviewed[row.row_number])} onClick={() => action.mutate({ path: `/roster/imports/${current.id}/confirm`, body: { expected_revision: current.revision, duplicate_decisions: Object.fromEntries((current.report.suspicious || []).map((row: Row) => [row.row_number, decisions[row.row_number] ?? true])) } }, { onSuccess: row => setCurrent(row), onError: onRefresh })}>{action.isPending ? "正在整批入库…" : "确认入库"}</button></div></>;
 }
 
 function ChangeTask({ id, onClose }: { id: string; onClose: () => void }) {

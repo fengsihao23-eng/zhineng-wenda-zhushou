@@ -15,7 +15,7 @@ from app.db.models.roster import RosterImport
 from app.main import app
 from app.services.roster_excel import STUDENT_COLUMNS, STUDENT_ERROR_COLUMNS
 from test_education_workbench import actors, add_scores, post, setup_exam, P  # noqa: F401
-from test_roster_workflows import confirm, lifecycle, student, teacher, upload, workbook_bytes
+from test_roster_workflows import confirm, lifecycle, student, teacher, upload, wait_import, workbook_bytes
 
 
 @pytest.mark.asyncio
@@ -58,10 +58,15 @@ async def test_compact_student_confirmation_keeps_full_detail_readback(client, a
     )
     assert confirmed.status_code == 200, confirmed.text
     assert set(confirmed.json()) == {"id", "kind", "status", "revision"}
-    assert confirmed.json()["status"] == "succeeded"
-    detail = (await client.get(P + f"/roster/imports/{batch['id']}")).json()
+    assert confirmed.json()["status"] == "running"
+    detail = await wait_import(client, batch["id"])
+    assert detail["status"] == "succeeded"
     assert detail["report"]["success_count"] == 1
     assert len(detail["rows"]) == 1
+    progress = (await client.get(P + f"/roster/imports/{batch['id']}?progress=true")).json()
+    assert progress["status"] == "succeeded"
+    assert "rows" not in progress and "columns" not in progress
+    assert progress["report"]["success_count"] == 1
 
 
 
