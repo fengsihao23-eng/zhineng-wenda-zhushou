@@ -222,6 +222,7 @@ async def test_repeated_teacher_change_preserves_unchanged_teaching_history(clie
         batch = await upload_task(client, deletion["task_id"], rows)
         assert batch["status"] == "ready" and batch["report"]["issues"] == []
         done = await confirm_task(client, batch)
+        test_db.expire_all()
         assert done["report"]["imported"][0]["id"] == identifier
         grants = (await test_db.scalars(select(TeachingAssignment).where(TeachingAssignment.teacher_user_id == UUID(identifier)))).all()
         assert len(grants) == version + 1
@@ -325,13 +326,16 @@ async def test_task_write_failure_rolls_back_entire_batch_and_retry_succeeds(cli
         if calls == 2: raise ApiError(422, "TEST_WRITE_FAILURE", "合成第二行写入失败")
         await grants(db, user, roles)
     monkeypatch.setattr(roster_workbench, "grant_roles", fail_second)
-    await confirm_task(client, batch, status=422, teacher_replacements=mapping)
+    failed = await confirm_task(client, batch, teacher_replacements=mapping)
+    assert failed["status"] == "failed"
+    assert "未改动任何教师档案" in failed["report"]["failed_reason"]
+    test_db.expire_all()
     task = await test_db.get(TeacherChangeTask, UUID(deletion["task_id"]))
     assert task.status == "pending"
     for identifier in identifiers:
         assert (await test_db.get(User, UUID(identifier))).status == "deleted"
         assert "已更新" not in (await test_db.get(TeacherProfile, UUID(identifier))).fields["教师姓名"]
-    assert (await test_db.get(RosterImport, UUID(batch["id"]))).status == "ready"
+    assert (await test_db.get(RosterImport, UUID(batch["id"]))).status == "failed"
     monkeypatch.setattr(roster_workbench, "grant_roles", grants)
     retry = await confirm_task(client, batch, teacher_replacements=mapping)
     assert retry["report"]["success_count"] == 2

@@ -7,9 +7,12 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from starlette.exceptions import HTTPException as StarletteHTTPException
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import settings
 from app.core.logging import bind_context, clear_context, get_logger, setup_logging
@@ -38,6 +41,24 @@ async def lifespan(app: FastAPI):
         init_tools(db, registry)
         prompt_count = await ensure_default_prompts(db)
         logger.info("tools_initialized", default_prompts_created=prompt_count, tool_count=len(registry.list_all_tools()))
+        # A deploy or crash can leave a batch running after its in-process
+        # worker died. No rows are committed before the final transaction, so
+        # it is safe to resume; the worker's row lock keeps duplicates apart.
+        from app.db.models.roster import RosterImport
+        from app.services import roster_workbench, teacher_changes
+        pending = (await db.execute(
+            select(RosterImport.id, RosterImport.change_task_id).where(RosterImport.status == "running")
+        )).all()
+        factory = async_sessionmaker(db.bind, expire_on_commit=False)
+        workers = set()
+        for batch_id, change_task_id in pending:
+            worker = teacher_changes.execute_task_import if change_task_id else roster_workbench.execute_import
+            task = asyncio.create_task(worker(factory, batch_id), name=f"resume-roster-{batch_id}")
+            workers.add(task)
+            task.add_done_callback(workers.discard)
+        app.state.roster_workers = workers
+        if pending:
+            logger.info("roster_imports_resumed", count=len(pending))
         break
 
     yield

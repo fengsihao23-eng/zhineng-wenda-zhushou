@@ -265,6 +265,21 @@ function ChangeTaskWizard({ task, onClose, onRefresh }: { task: Row; onClose: ()
   const [reviewed, setReviewed] = useState<Record<number, boolean>>({});
   const [localError, setLocalError] = useState<Error | null>(null);
   const action = useAction();
+  const pollError = useImportPolling(batch, setBatch, (final) => { if (final.status === "succeeded") onRefresh(); else if (final.status === "invalid") setStep(2); });
+  const submit = () => {
+    if (!batch) return;
+    action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, teacher_replacements: mapping, identity_confirmed: true, changes_confirmed: true, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, true])) } }, {
+      onSuccess: (row) => { setBatch(row); if (row.status === "succeeded") onRefresh(); },
+      onError: async () => {
+        onRefresh();
+        try {
+          const response = await apiFetch(`${BASE}/roster/imports/${batch.id}`);
+          if (response.ok) setBatch(await response.json());
+        } catch { /* Keep the submission error visible if the refresh also fails. */ }
+        setStep(2);
+      },
+    });
+  };
   const snapshots: Row[] = task.snapshots;
   const completed = batch?.status === "succeeded" ? batch : task.status === "succeeded" ? task.batches.find((row: Row) => row.status === "succeeded") : null;
   const reset = () => { setStep(1); setBatch(null); setIdentity(false); setConfirmed(false); setMapping({}); setReviewed({}); setLocalError(null); action.reset(); };
@@ -297,14 +312,7 @@ function ChangeTaskWizard({ task, onClose, onRefresh }: { task: Row; onClose: ()
       {step === 1 && <FileUpload taskId={task.id} onUploaded={row => { setBatch(row); setStep(2); if (snapshots.length === 1 && row.rows.length === 1) setMapping({ [row.rows[0].row_number]: snapshots[0].platform_id }); }} onUpload={<div className="teacher-snapshot"><div className="teacher-record__head"><strong>任务内原教师 {snapshots.length} 名</strong><Download key={task.id} path={`/roster/teachers/change-tasks/${task.id}/template`} taskId={task.id} filename={`教师变更原档案_任务${task.id}.xlsx`}>下载原档案（25 列）</Download></div>{snapshots.map(row => <p key={row.id}>{row.teacher_name} / {row.account}<small className="teacher-muted"> · 教师ID：{row.platform_id}</small></p>)}<p className="teacher-muted">请先下载任务原档案，在原文件上修改后上传；教师ID不可修改。更新行数须恰好等于 {snapshots.length} 行。</p><p className="teacher-muted">下载文件名包含本任务编号，请核对教师姓名、人数和教师ID后编辑。</p>{(task.batches || []).find((row: Row) => row.status === "ready") && <button onClick={() => { const ready = task.batches.find((row: Row) => row.status === "ready"); setBatch(ready); setStep(2); if (snapshots.length === 1) setMapping({ [ready.rows[0].row_number]: snapshots[0].platform_id }); }}>继续上次预校验批次</button>}</div>} />}
       {step === 2 && batch && <>{!batch.report.ok ? <Issues batch={batch} /> : <><div className="teacher-alert teacher-alert--ok">预校验通过，共 {batch.report.total_rows} 行；尚未写入资料。</div><Duplicates task batch={batch} reviewed={reviewed} onReview={setReviewed} decisions={{}} onDecision={() => undefined} /></>}<div className="teacher-nav"><button onClick={reset}>重新上传</button>{batch.report.ok && <button className="teacher-primary" disabled={!allReviewed || !canWrite()} onClick={() => setStep(3)}>下一步：指定对应关系</button>}</div></>}
       {step === 3 && batch && <><p className="teacher-muted">{snapshots.length === 1 ? "单人单行任务已自动关联原教师。请核实新旧身份。" : "请逐行指定原教师，每名原教师只能关联一次，指定关系须与锁定教师ID一致。"}</p><Table paginate headers={["Excel 行号", "新姓名 / 账号 / 手机号码", "原姓名 / 账号 / 手机号码"]}>{batch.rows.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values["教师姓名"]}<small>{row.values["教师账号"]}</small><small>{row.values["手机号码"] || "—"}</small></td><td><select aria-label={`第${row.row_number}行原教师`} disabled={snapshots.length === 1 || !canWrite()} value={mapping[row.row_number] || ""} onChange={e => { setMapping({ ...mapping, [row.row_number]: e.target.value }); setIdentity(false); }}><option value="">请选择原教师</option>{snapshots.map(snapshot => <option key={snapshot.id} value={snapshot.platform_id}>{snapshot.teacher_name} / {snapshot.account} / 教师ID：{snapshot.platform_id}</option>)}</select></td></tr>)}</Table><label className="teacher-confirm"><input type="checkbox" checked={identity} onChange={e => setIdentity(e.target.checked)} />我已逐行核实对应关系身份真实、准确。</label><ErrorDisplay error={localError} /><div className="teacher-nav"><button onClick={() => setStep(2)}>上一步</button><button className="teacher-primary" onClick={verifyMapping}>下一步：预览变更</button></div></>}
-      {step === 4 && batch && <><h3>预览对应关系与字段变更</h3><p className="teacher-muted">沿用原教师ID；账号按新值建立，密码重置为新账号，首次登录强制修改。</p><VersionChanges versions={versions} /><label className="teacher-confirm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我已核对对应关系及全部变更内容，确认整批提交。</label><div className="teacher-nav"><button disabled={action.isPending} onClick={() => { setStep(3); setConfirmed(false); }}>上一步</button><button className="teacher-primary" disabled={!confirmed || action.isPending || !canWrite()} onClick={() => action.mutate({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, teacher_replacements: mapping, identity_confirmed: true, changes_confirmed: true, duplicate_decisions: Object.fromEntries((batch.report.suspicious || []).map((row: Row) => [row.row_number, true])) } }, { onSuccess: row => { setBatch(row); onRefresh(); }, onError: async () => {
-      onRefresh();
-      try {
-        const response = await apiFetch(`${BASE}/roster/imports/${batch.id}`);
-        if (response.ok) setBatch(await response.json());
-      } catch { /* Keep the submission error visible if the refresh also fails. */ }
-      setStep(2);
-    } })}>{action.isPending ? "正在整批提交…" : "确认整批提交"}</button></div></>}
+      {step === 4 && batch && (batch.status === "running" ? <ImportRunning batch={batch} error={pollError} /> : batch.status === "failed" ? <><ImportFailure batch={batch} /><div className="teacher-nav"><button disabled={action.isPending} onClick={() => setStep(3)}>上一步：核对对应关系</button><button className="teacher-primary" disabled={action.isPending || !canWrite()} onClick={submit}>{action.isPending ? "正在重新提交…" : "重试提交"}</button></div></> : <><h3>预览对应关系与字段变更</h3><p className="teacher-muted">沿用原教师ID；账号按新值建立，密码重置为新账号，首次登录强制修改。</p><VersionChanges versions={versions} /><label className="teacher-confirm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我已核对对应关系及全部变更内容，确认整批提交。</label><div className="teacher-nav"><button disabled={action.isPending} onClick={() => { setStep(3); setConfirmed(false); }}>上一步</button><button className="teacher-primary" disabled={!confirmed || action.isPending || !canWrite()} onClick={submit}>{action.isPending ? "正在整批提交…" : "确认整批提交"}</button></div></>)}
     </>}
   </TeacherDialog>;
 }

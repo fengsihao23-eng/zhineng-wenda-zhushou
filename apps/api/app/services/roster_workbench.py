@@ -334,7 +334,7 @@ async def confirm(db, actor, identifier, body):
     audit(db, actor, "roster.import.start", item, {"kind": item.kind, "rows": len(item.rows)})
     await db.commit()
     queued = view(item)
-    queued["_queued"] = True
+    queued["_queued"] = "import"
     return queued
 
 

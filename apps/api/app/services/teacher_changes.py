@@ -1,5 +1,7 @@
 """Teacher deletion and task-bound, atomic reconstruction with stable identities."""
 import base64
+import logging
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 from sqlalchemy import select, delete
 from starlette.concurrency import run_in_threadpool
@@ -13,6 +15,8 @@ from app.services.roster_excel import (
     TEACHER_COLUMNS, TEACHER_CHANGE_COLUMNS, parse_excel, workbook_bytes, file_issue, error_row, duty_codes,
 )
 from app.services import roster_workbench as roster
+
+logger = logging.getLogger(__name__)
 
 
 async def task_snapshots(db, actor, task_id, lock=False):
@@ -158,6 +162,7 @@ async def upload_task(db, actor, identifier, body, key):
 
 
 async def confirm_task_batch(db, actor, item, body):
+    """Validate the task batch, then hand the bcrypt-heavy rewrite to a worker."""
     from app.services.person_ids import normalize_body
     body = await normalize_body(db, actor.school_id, "teacher", body)
     task = await owned(db, TeacherChangeTask, item.change_task_id, actor, lock=True)
@@ -166,7 +171,19 @@ async def confirm_task_batch(db, actor, item, body):
         if item.confirmation != payload:
             raise ApiError(409, "ROSTER_ALREADY_CONFIRMED", "该任务批次已完成，不能修改对应关系。")
         return roster.view(item)
-    if task.status != "pending" or item.status != "ready" or item.revision != body.expected_revision:
+    if item.status == "running":
+        started = roster._started_at(item)
+        if started is not None and now() - started > roster.STALE_IMPORT_AFTER:
+            item.status = "failed"
+            task.status = "pending"
+            item.report = {
+                **(item.report or {}),
+                "failed_reason": "后台变更任务超过 30 分钟未完成，本次未写入资料，可重新提交。",
+                "failed_at": now().isoformat(),
+            }
+        else:
+            return roster.view(item)
+    if task.status != "pending" or item.status not in {"ready", "failed"} or item.revision != body.expected_revision:
         raise ApiError(409, "TEACHER_TASK_NOT_READY", "任务已完成或批次不可提交，请重新核对任务。")
     checked = await task_preflight(db, actor, task, item.rows)
     if not checked["ok"]:
@@ -181,7 +198,7 @@ async def confirm_task_batch(db, actor, item, body):
         raise ApiError(422, "TASK_DUPLICATE_REVIEW_REQUIRED", "请核对全部疑似重复提醒；变更任务不允许单行放弃。")
     if not body.identity_confirmed or not body.changes_confirmed:
         raise ApiError(422, "TASK_CONFIRMATION_REQUIRED", "须核实新旧教师身份、对应关系和全部字段变更后整批确认。")
-    snapshots = await task_snapshots(db, actor, task.id, lock=True)
+    snapshots = await task_snapshots(db, actor, task.id)
     by_id = {row.user_id: row for row in snapshots}
     numbers = {row["row_number"] for row in item.rows}
     mapping = body.teacher_replacements
@@ -194,12 +211,22 @@ async def confirm_task_batch(db, actor, item, body):
     for row in item.rows:
         if mapping[row["row_number"]] != resolved.get(row["values"]["教师ID"]):
             raise ApiError(422, "TASK_MAPPING_ID_MISMATCH", f"第 {row['row_number']} 行对应教师与锁定教师ID不一致，请重新核实对应关系。")
-    originals = {}
-    for identifier in sorted(by_id, key=str):
-        user = await owned(db, User, identifier, actor, lock=True)
-        if user.status != "deleted" or by_id[identifier].reimported_at is not None:
-            raise ApiError(409, "TEACHER_ALREADY_REIMPORTED", "任务内原教师已发生变更，请刷新核对。")
-        originals[identifier] = user
+    item.status = "running"
+    item.confirmation = payload
+    task.status, task.completed_at = "running", None
+    item.report = {
+        **checked,
+        "progress": {"total": len(item.rows), "processed": 0},
+        "started_at": now().isoformat(),
+    }
+    audit(db, actor, "roster.teacher.task.start", task, {"batch_id": str(item.id), "rows": len(item.rows)})
+    await db.commit()
+    queued = roster.view(item)
+    queued["_queued"] = "task"
+    return queued
+
+
+async def _apply_task_rows(db, actor, item, task, mapping, by_id, originals, hashes):
     imported, unresolved, versions = [], [], []
     for row in item.rows:
         number = row["row_number"]
@@ -209,7 +236,7 @@ async def confirm_task_batch(db, actor, item, body):
         username = values["教师账号"].strip()
         user.username, user.display_name, user.phone, user.status = username, values["教师姓名"].strip(), values["手机号码"] or None, "active"
         user.account_type = "teacher"
-        user.password_hash = await run_in_threadpool(get_password_hash, username)
+        user.password_hash = hashes.get(number) or await run_in_threadpool(get_password_hash, username)
         user.must_change_password = True
         user.password_version += 1
         # Retain historical grants with their original identity; rebuild current scope.
@@ -237,17 +264,94 @@ async def confirm_task_batch(db, actor, item, body):
         versions.append({"teacher_id": str(identifier), "platform_id": str(user.platform_id), "row_number": number, "snapshot_id": str(snapshot.id), "changes": changes})
         imported.append({"row_number": number, "id": str(identifier), "platform_id": str(user.platform_id), "account": username})
         audit(db, actor, "roster.teacher.change", user, {"task_id": str(task.id), "snapshot_id": str(snapshot.id), "changes": changes})
-    operator = await db.get(User, actor.user_id)
-    item.status, item.confirmed_at, item.confirmation = "succeeded", now(), payload
-    item.report = {**checked, "success_count": len(imported), "skipped_count": 0, "skipped_rows": [],
-                   "imported": imported, "changed_count": len(imported), "unresolved_teaching": unresolved,
-                   "versions": versions, "confirmed_by": str(actor.user_id),
-                   "confirmed_by_name": operator.display_name or operator.username, "confirmed_at": item.confirmed_at.isoformat()}
-    task.status, task.completed_at = "succeeded", item.confirmed_at
-    task.confirmation = {"batch_id": str(item.id), "filename": item.filename,
-                         "mapping": {str(n): str(i) for n, i in mapping.items()},
-                         "confirmed_by": str(actor.user_id), "confirmed_by_name": operator.display_name or operator.username,
-                         "versions": versions}
-    audit(db, actor, "roster.teacher.task.complete", task, {"batch_id": str(item.id), "success_count": len(imported)})
-    await db.commit()
-    return roster.view(item)
+    return imported, unresolved, versions
+
+
+async def execute_task_import(factory, identifier):
+    """Background worker for a task-bound teacher rewrite; one transaction, retryable."""
+    async with factory() as db:
+        item = await db.get(RosterImport, identifier)
+        if item is None or item.status != "running":
+            return
+        rows, payload = item.rows, item.confirmation or {}
+        school_id, created_by, task_id = item.school_id, item.created_by, item.change_task_id
+    mapping = {int(key): UUID(value) for key, value in (payload.get("teacher_replacements") or {}).items()}
+    actor = SimpleNamespace(school_id=school_id, user_id=created_by)
+    try:
+        hashes = await roster.password_hashes(rows, "教师账号")
+        async with factory() as db:
+            async with db.begin():
+                item = await db.scalar(
+                    select(RosterImport)
+                    .where(RosterImport.id == identifier)
+                    .with_for_update(skip_locked=True)
+                )
+                task = await db.scalar(
+                    select(TeacherChangeTask)
+                    .where(TeacherChangeTask.id == task_id)
+                    .with_for_update(skip_locked=True)
+                )
+                if item is None or task is None or item.status != "running" or task.status != "running":
+                    return
+                snapshots = await task_snapshots(db, actor, task.id, lock=True)
+                by_id = {row.user_id: row for row in snapshots}
+                numbers = {row["row_number"] for row in item.rows}
+                if not mapping and len(snapshots) == 1 and len(item.rows) == 1:
+                    mapping = {item.rows[0]["row_number"]: snapshots[0].user_id}
+                if set(mapping) != numbers or set(mapping.values()) != set(by_id) or len(set(mapping.values())) != len(mapping):
+                    raise ApiError(422, "TASK_MAPPING_INVALID", "对应关系已失效，请重新核对任务。")
+                originals = {}
+                for user_id in sorted(by_id, key=str):
+                    user = await owned(db, User, user_id, actor, lock=True)
+                    if user.status != "deleted" or by_id[user_id].reimported_at is not None:
+                        raise ApiError(409, "TEACHER_ALREADY_REIMPORTED", "任务内原教师已发生变更，请刷新核对。")
+                    originals[user_id] = user
+                imported, unresolved, versions = await _apply_task_rows(
+                    db, actor, item, task, mapping, by_id, originals, hashes
+                )
+                operator = await db.get(User, created_by)
+                item.status, item.confirmed_at = "succeeded", now()
+                item.report = {
+                    **(item.report or {}),
+                    "success_count": len(imported),
+                    "skipped_count": 0,
+                    "skipped_rows": [],
+                    "imported": imported,
+                    "changed_count": len(imported),
+                    "unresolved_teaching": unresolved,
+                    "versions": versions,
+                    "confirmed_by": str(created_by),
+                    "confirmed_by_name": (operator.display_name or operator.username) if operator else "",
+                    "confirmed_at": item.confirmed_at.isoformat(),
+                    "progress": {"total": len(item.rows), "processed": len(imported)},
+                }
+                task.status, task.completed_at = "succeeded", item.confirmed_at
+                task.confirmation = {"batch_id": str(item.id), "filename": item.filename,
+                                     "mapping": {str(n): str(i) for n, i in mapping.items()},
+                                     "confirmed_by": str(created_by),
+                                     "confirmed_by_name": (operator.display_name or operator.username) if operator else "",
+                                     "versions": versions}
+                audit(db, actor, "roster.teacher.task.complete", task, {"batch_id": str(item.id), "success_count": len(imported)})
+    except Exception:
+        logger.exception("teacher change task import failed: %s", identifier)
+        async with factory() as db:
+            async with db.begin():
+                item = await db.scalar(
+                    select(RosterImport)
+                    .where(RosterImport.id == identifier)
+                    .with_for_update(skip_locked=True)
+                )
+                task = await db.scalar(
+                    select(TeacherChangeTask)
+                    .where(TeacherChangeTask.id == task_id)
+                    .with_for_update(skip_locked=True)
+                )
+                if item is not None and item.status == "running":
+                    item.status = "failed"
+                    item.report = {
+                        **(item.report or {}),
+                        "failed_reason": "变更任务写入失败，本次未改动任何教师档案，可重新提交。",
+                        "failed_at": now().isoformat(),
+                    }
+                if task is not None and task.status == "running":
+                    task.status = "pending"

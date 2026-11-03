@@ -136,9 +136,10 @@ async def original(identifier: UUID, actor=Depends(reader), db: AsyncSession = D
 async def confirm(identifier: UUID, body: RosterConfirm, background: BackgroundTasks, compact: bool = False, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
     result = await write(db, roster.confirm(db, actor, identifier, body))
     queued = result.pop("_queued", False)
-    if queued:
+    worker = roster.execute_import if queued == "import" else teacher_changes.execute_task_import if queued == "task" else None
+    if worker is not None:
         background.add_task(
-            roster.execute_import,
+            worker,
             async_sessionmaker(db.bind, expire_on_commit=False),
             identifier,
         )
