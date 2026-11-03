@@ -64,7 +64,7 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   await expect(dialog.getByText('导入完成', { exact: true })).toBeVisible()
   await expect(dialog.getByText('成功 1 条 · 放弃 1 条', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(page.getByText(`共 ${beforeImport + 1} 条`, { exact: true })).toBeVisible()
+  await expect(page.locator('.teacher-list-bar__title').getByText(`共 ${beforeImport + 1} 条`, { exact: true })).toBeVisible()
   await page.getByLabel('学生关键词').fill('r79-student-old')
   await expect(page.locator('.student-table tbody tr')).toHaveCount(1)
   const record = (await records(request, headers, 'r79-student-old')).items[0]
