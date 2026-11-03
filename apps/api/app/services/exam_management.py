@@ -414,13 +414,16 @@ def question_maxima(rows, questions, subject):
     return {q: float(value) for q, value in maxima.items()}
 
 
-def score_validation(exam, config, subject, rows):
+def score_validation(exam, config, subject, rows, accounts):
     errors, parsed, seen = [], [], set()
-    lookup = {str(s["platform_id"]): sid for sid, s in config["snapshots"].items()}
     expected = set(subject["student_ids"])
     if not rows:
         return [], ["工作簿为空。"]
     legacy = rows[0][1] == LEGACY
+    legacy_ids = {str(config["snapshots"][sid]["platform_id"]): sid for sid in expected} if legacy else {}
+    by_account = defaultdict(list)
+    for sid, account in accounts.items():
+        by_account[account].append(sid)
     header_index = 0 if legacy else next((i for i, (_, row) in enumerate(rows[:6]) if row[:9] == FIXED), -1)
     if header_index < 0:
         return [], ["表头前 9 列须依次为：" + " / ".join(FIXED)]
@@ -445,22 +448,28 @@ def score_validation(exam, config, subject, rows):
                     raise ValueError("考试ID不符")
                 if subject_name != subject["name"]:
                     raise ValueError("科目与当前导入科目不符")
-                account, classroom, school_name = "", "", ""
+                sid = legacy_ids.get(sid_text, sid_text)
+                if sid not in expected:
+                    raise ValueError("学生ID不在该科参试名单")
+                classroom, school_name = "", ""
                 qvalues, objective, subjective = {}, None, None
             else:
-                _, account, name, classroom, school_name, sid_text, total, obj, sub = row[:9]
+                _, account, name, classroom, school_name, _, total, obj, sub = row[:9]
+                if not account:
+                    raise ValueError("考生号不能为空，请填写学生登录账号")
+                matches = by_account.get(account, [])
+                if not matches:
+                    raise ValueError("考生号（学生登录账号）不在该科参试名单")
+                if len(matches) != 1:
+                    raise ValueError("考生号对应多名参试学生，请核对登录账号")
+                sid = matches[0]
                 objective, subjective = number(obj, "客观分", True), number(sub, "主观分", True)
                 qvalues = {q: float(number(row[9+i], f"小题「{q}」得分")) for i, q in enumerate(questions) if row[9+i] != ""}
                 if not total and qvalues:
                     total = str(sum(Decimal(str(v)) for v in qvalues.values()))
-            sid = lookup.get(sid_text, sid_text)
-            if sid not in expected:
-                raise ValueError("准考证号（学生ID）不在该科参试名单")
             snap = config["snapshots"][sid]
             if name != snap["name"]:
                 raise ValueError("姓名与考试名单不符")
-            if account and account != snap["account"]:
-                raise ValueError("考生号（账号）与考试名单不符")
             if school_name and school_name != snap["school"]:
                 raise ValueError("学校与本校不符")
             if classroom and classroom not in {snap["class_number"], class_key(snap), snap["grade"]+snap["class_number"]}:
@@ -473,7 +482,7 @@ def score_validation(exam, config, subject, rows):
             if any(value > maxima[q] for q, value in qvalues.items() if q in maxima):
                 raise ValueError("小题得分超过该题满分")
             if sid in seen:
-                raise ValueError("学生重复（学生ID重复）")
+                raise ValueError("学生重复（学生ID重复）" if legacy else "考生号重复")
             seen.add(sid)
             parsed.append({"student_id": sid, "score": float(value), "objective": float(objective) if objective is not None else None,
                            "subjective": float(subjective) if subjective is not None else None, "questions": qvalues,
@@ -488,12 +497,21 @@ def score_validation(exam, config, subject, rows):
     return parsed, errors
 
 
+async def participant_accounts(db, school_id, subject):
+    rows = await db.execute(select(Student.id, User.username).join(
+        User, (User.id == Student.user_id) & (User.school_id == Student.school_id)
+    ).where(Student.school_id == school_id, Student.id.in_([UUID(sid) for sid in subject["student_ids"]]),
+            User.status != "deleted"))
+    return {str(sid): account for sid, account in rows if account}
+
+
 async def score_template(db, actor, identifier, subject_id):
     item = await administration(db, actor, identifier)
     subject = subject_config(item.configuration, subject_id)
     snaps = item.configuration["snapshots"]
-    return workbook_bytes(FIXED, [[i, snaps[sid]["account"], snaps[sid]["name"], snaps[sid]["class_number"],
-        snaps[sid]["school"], snaps[sid]["platform_id"], "", "", ""] for i, sid in enumerate(subject["student_ids"], 1)])
+    accounts = await participant_accounts(db, actor.school_id, subject)
+    return workbook_bytes(FIXED, [[i, accounts.get(sid, ""), snaps[sid]["name"], snaps[sid]["class_number"],
+        snaps[sid]["school"], "", "", "", ""] for i, sid in enumerate(subject["student_ids"], 1)])
 
 
 async def score_preflight(db, actor, identifier, body):
@@ -503,7 +521,8 @@ async def score_preflight(db, actor, identifier, body):
         fail("该科已有成绩文件，请先在「查看已导入成绩」中删除后再导入。", "SCORE_FILE_EXISTS", 409)
     content, rows = matrix(body)
     exam = await owned(db, Exam, identifier, actor)
-    parsed, errors = score_validation(exam, item.configuration, subject, rows)
+    accounts = await participant_accounts(db, actor.school_id, subject)
+    parsed, errors = score_validation(exam, item.configuration, subject, rows, accounts)
     batch = ExamScoreFile(id=uuid4(), school_id=actor.school_id, exam_id=identifier, subject_id=body.subject_id,
         filename=body.filename, original_content=content, content_hash=hashlib.sha256(content).hexdigest(),
         rows=parsed if not errors else [], errors=errors, revision=item.revision, created_by=actor.user_id,

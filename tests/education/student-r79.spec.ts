@@ -46,6 +46,7 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   const headers = await admin(page, request)
   await page.setViewportSize({ width: 1920, height: 1000 })
   await expect(page.getByRole('button', { name: '教师任教', exact: true })).toHaveCount(0)
+  const beforeImport = (await records(request, headers)).total
   await page.getByRole('button', { name: '导入学生', exact: true }).click()
   let dialog = page.getByRole('dialog')
   const values = [
@@ -61,7 +62,9 @@ test('r79 real student import, ordinary archive change, rename, account, class, 
   for (const checkbox of await dialog.getByRole('checkbox', { name: '已核实本行选择' }).all()) await checkbox.check()
   await dialog.getByRole('button', { name: '确认入库', exact: true }).click()
   await expect(dialog.getByText('导入完成', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('成功 1 条 · 放弃 1 条', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.getByText(`共 ${beforeImport + 1} 条`, { exact: true })).toBeVisible()
   await page.getByLabel('学生关键词').fill('r79-student-old')
   await expect(page.locator('.student-table tbody tr')).toHaveCount(1)
   const record = (await records(request, headers, 'r79-student-old')).items[0]

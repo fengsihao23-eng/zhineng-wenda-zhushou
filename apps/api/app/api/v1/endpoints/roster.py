@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from fastapi.responses import Response
 from sqlalchemy import select
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import defer, load_only
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.api.deps import require_management
 from app.api.v1.endpoints.education import writer, write
@@ -50,7 +50,8 @@ async def student_error_template(actor=Depends(reader)):
 
 
 @router.get("/{kind}/records")
-async def records(kind: RosterKind, search: str = Query("", max_length=100), phone: str = Query("", max_length=100), class_name: str = Query("", max_length=100), status: str = Query("", max_length=30), page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+async def records(kind: RosterKind, response: Response, search: str = Query("", max_length=100), phone: str = Query("", max_length=100), class_name: str = Query("", max_length=100), status: str = Query("", max_length=30), page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
     if kind == "students":
         return await student_roster.listing(db, actor, search, class_name, status, page, page_size)
     return await roster.listing(db, actor, kind, search, phone, class_name, page, page_size)
@@ -111,9 +112,18 @@ async def upload(kind: RosterKind, body: RosterUpload, compact: bool = False, ke
 
 
 @router.get("/imports/{identifier}")
-async def detail(identifier: UUID, progress: bool = False, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    item = await owned(db, RosterImport, identifier, actor)
-    return roster.progress_view(item) if progress else roster.view(item)
+async def detail(identifier: UUID, response: Response, progress: bool = False, actor=Depends(reader), db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    if progress:
+        item = await db.scalar(select(RosterImport).where(
+            RosterImport.id == identifier, RosterImport.school_id == actor.school_id,
+        ).options(load_only(RosterImport.id, RosterImport.kind, RosterImport.filename, RosterImport.status,
+                            RosterImport.revision, RosterImport.created_at, RosterImport.confirmed_at,
+                            RosterImport.report)).execution_options(populate_existing=True))
+        if item is None:
+            raise ApiError(404, "RESOURCE_NOT_AVAILABLE", "记录不存在或不在授权范围内。")
+        return roster.progress_view(item)
+    return roster.view(await owned(db, RosterImport, identifier, actor))
 
 
 @router.get("/imports/{identifier}/errors")

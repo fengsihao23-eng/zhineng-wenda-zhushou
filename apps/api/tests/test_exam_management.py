@@ -158,6 +158,42 @@ async def test_score_full_roster_template_validation_original_and_questions(clie
 
 
 @pytest.mark.asyncio
+async def test_scores_match_current_login_in_subject_and_ignore_admission_number(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people, subjects=1)
+    first = await test_db.get(Student, exam_people[0].id)
+    first_user = await test_db.get(User, first.user_id)
+    first_user.username = "00001234"
+    outsider = await test_db.get(Student, exam_people[2].id)
+    outsider_user = await test_db.get(User, outsider.user_id)
+    outsider_account = outsider_user.username
+    await test_db.commit()
+    body, original = await score_file(client, exam)
+    path = f"/{exam['id']}/score-files"
+    book = load_workbook(io.BytesIO(original))
+    sheet = book.active
+    assert sheet.cell(2, 2).value == "00001234"
+    assert sheet.cell(2, 6).value is None
+    sheet.cell(2, 6, str(first.platform_id))
+    for account, error in [(None, "考生号不能为空"), (outsider_account, "不在该科参试名单")]:
+        sheet.cell(2, 2).value = account
+        output = io.BytesIO()
+        book.save(output)
+        invalid = await post(client, path, {**body, "content_base64": base64.b64encode(output.getvalue()).decode()})
+        assert invalid["status"] == "invalid"
+        assert any(error in row for row in invalid["errors"])
+    sheet.cell(2, 2).value = "00001234"
+    sheet.cell(2, 6).value = "外部阅卷系统的准考证号"
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    validated = await post(client, path, {**body, "content_base64": base64.b64encode(output.getvalue()).decode()})
+    assert validated["status"] == "validated"
+    await post(client, f"{path}/{validated['id']}/confirm")
+    scores = (await test_db.scalars(select(StudentSubjectScore))).all()
+    assert {s.student_id: float(s.score) for s in scores} == {exam_people[0].id: 90, exam_people[1].id: 95}
+
+
+@pytest.mark.asyncio
 async def test_question_scores_without_maxima_visible_and_can_be_completed_without_reimport(client, test_db, actors, exam_people):
     exam = await create(client, exam_people, subjects=1)
     exam, _, _ = await import_score(client, exam, questions=True)
@@ -217,7 +253,7 @@ async def test_bad_score_files_do_not_write_scores(client, test_db, actors, exam
     if bad == "formula": sheet.cell(2, 7, "=10+20")
     if bad == "negative": sheet.cell(2, 7, -1)
     if bad == "overflow": sheet.cell(2, 7, 151)
-    if bad == "duplicate": sheet.cell(3, 6, sheet.cell(2, 6).value)
+    if bad == "duplicate": sheet.cell(3, 2, sheet.cell(2, 2).value)
     if bad == "name": sheet.cell(2, 3, "错误姓名")
     if bad == "columns": sheet.cell(1, 6, "已改名")
     if bad == "questions": sheet.cell(1, 10, "1"); sheet.cell(1, 11, "1")

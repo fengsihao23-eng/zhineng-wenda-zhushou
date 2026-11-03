@@ -83,13 +83,13 @@ def audit(db, actor, action, item, extra=None):
     )
 
 
-async def claim(db, actor, operation, key, payload):
+async def claim(db, actor, operation, key, payload, *, resource_id=None):
     """Reserve a receipt in the caller's transaction; never commit partial work."""
     content_hash = digest(payload)
     request_hash = digest(
         [str(actor.school_id), str(actor.user_id), operation, str(key or content_hash)]
     )
-    identifier = uuid4()
+    identifier = resource_id or uuid4()
     insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
     result = await db.scalar(
         insert(OperationReceipt)

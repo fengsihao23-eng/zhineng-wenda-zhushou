@@ -2,7 +2,7 @@
 import io
 import base64
 from copy import deepcopy
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from openpyxl import load_workbook
@@ -45,6 +45,7 @@ async def test_compact_roster_upload_returns_batch_reference_only(client, actors
 async def test_compact_student_confirmation_keeps_full_detail_readback(client, actors):
     columns = STUDENT_COLUMNS
     row = student("compact-confirm-student")
+    before = (await client.get(P + "/roster/students/records")).json()["total"]
     content = workbook_bytes(columns, [[row.get(field, "") for field in columns]])
     uploaded = await client.post(
         P + "/roster/students/imports?compact=true",
@@ -62,11 +63,37 @@ async def test_compact_student_confirmation_keeps_full_detail_readback(client, a
     detail = await wait_import(client, batch["id"])
     assert detail["status"] == "succeeded"
     assert detail["report"]["success_count"] == 1
+    assert detail["report"]["skipped_count"] == 0 and detail["confirmed_at"]
     assert len(detail["rows"]) == 1
     progress = (await client.get(P + f"/roster/imports/{batch['id']}?progress=true")).json()
     assert progress["status"] == "succeeded"
     assert "rows" not in progress and "columns" not in progress
     assert progress["report"]["success_count"] == 1
+    listing = await client.get(P + "/roster/students/records")
+    assert listing.json()["total"] == before + 1
+    assert listing.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_reupload_same_running_workbook_returns_existing_student_batch(client, test_db, actors):
+    content = workbook_bytes(STUDENT_COLUMNS, [[student("running-student").get(field, "") for field in STUDENT_COLUMNS]])
+    path = P + "/roster/students/imports"
+    body = {"filename": "初次.xlsx", "content_base64": base64.b64encode(content).decode()}
+    batch = (await client.post(path, json=body)).json()
+    item = await test_db.get(RosterImport, UUID(batch["id"]))
+    item.status = "running"
+    await test_db.commit()
+    body["filename"] = "改名重传.xlsx"
+    key = {"Idempotency-Key": str(uuid4())}
+    repeated = await client.post(path, json=body, headers=key)
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == batch["id"] and repeated.json()["status"] == "running"
+    assert await test_db.scalar(select(func.count()).select_from(RosterImport)) == 1
+    item = await test_db.get(RosterImport, UUID(batch["id"]))
+    item.status = "failed"
+    await test_db.commit()
+    repeated = await client.post(path, json=body, headers=key)
+    assert repeated.json()["id"] == batch["id"] and repeated.json()["status"] == "failed"
 
 
 

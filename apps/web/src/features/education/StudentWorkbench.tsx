@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useJsonQuery } from "../../hooks/useApi";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthScope, useJsonQuery } from "../../hooks/useApi";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
 import { apiFetch, apiError } from "../../services/api";
 import { TeacherDialog as RosterDialog, Download, Steps } from "./TeacherWorkbench";
@@ -26,6 +27,7 @@ function StudentSnapshot({ row }: { row: Row }) { return <div className="teacher
 
 export function StudentWorkbench() {
   const [params, setParams] = useSearchParams();
+  const queryClient = useQueryClient(), scope = useAuthScope();
   const [search, setSearch] = useState("");
   const [className, setClassName] = useState("");
   const [status, setStatus] = useState("");
@@ -48,7 +50,7 @@ export function StudentWorkbench() {
     values.set("tab", "students"); values.set("student_view", next);
     ["student_task", "student_batch", "student_return"].forEach(key => values.delete(key));
     if (next === "task") values.set("student_task", id);
-    if (next === "batch") values.set("student_batch", id);
+    if ((next === "batch" || next === "import") && id) values.set("student_batch", id);
     if (returnTask) values.set("student_return", returnTask);
     setParams(values);
   };
@@ -60,6 +62,15 @@ export function StudentWorkbench() {
     setParams(values, { replace: true });
   };
   const completed = () => { setSelection({ key: "", rows: [] }); setNotice("办理完成，学生档案和操作记录已更新。"); };
+  const importCompleted = (batch: Row) => {
+    setSelection({ key: "", rows: [] });
+    setNotice(`学生导入完成：成功 ${batch.report.success_count} 条，放弃 ${batch.report.skipped_count} 条。`);
+    void queryClient.invalidateQueries({ predicate: ({ queryKey }) =>
+      queryKey[0] === "json" && queryKey[queryKey.length - 1] === scope &&
+      [`${BASE}/roster/students/records?`, `${BASE}/roster/students/imports?`, `${BASE}/roster/students/context`]
+        .some(path => String(queryKey[1]).startsWith(path))
+    });
+  };
   return <section className="teacher-workbench student-workbench" aria-label="学生档案">
     <div className="teacher-list-bar"><div className="teacher-list-bar__title"><h2>学生信息列表</h2><HelpTip label="办理说明"><Table headers={["办理事项", "页面入口"]}><tr><td>新增学生</td><td>右上角「导入学生」</td></tr><tr><td>普通档案字段</td><td>顶部「档案变更」，31 列整批更新</td></tr><tr><td>年级或班级</td><td>顶部「升级/换班」，5 列名单</td></tr><tr><td>离校、应届毕业、同学段恢复在读</td><td>行内「离校办理」或「恢复在读」；批量勾选后办理</td></tr><tr><td>姓名或账号</td><td>行内「姓名·账号变更」，每次仅改一项</td></tr><tr><td>误导入或多余记录</td><td>行内「误导入删除」或顶部批量操作</td></tr></Table><p>学生ID为平台统一分配的8～10位数字，仅用于数据关联和检索。改名、换账号、升级换班不改变ID；账号、学号、考号是独立字段。</p><p>真实有效的学生记录办理离校；资料修改使用对应变更流程。身份存疑提交当前事项的待审核任务，审核期间不更新学生。</p></HelpTip><span className="teacher-muted">共 {query.data?.total ?? "—"} 条</span></div>
       <div className="teacher-actions">{canWrite() && <><button disabled={!context.data} onClick={() => setInitial({ kind: "promotion", rows: chosen })}>升级/换班</button><button disabled={!context.data} onClick={() => setInitial({ kind: "archive", rows: chosen })}>档案变更</button><button disabled={!chosen.length || !context.data} onClick={() => setInitial({ kind: "status", rows: chosen })}>批量离校/毕业</button><button disabled={!chosen.length || !context.data} onClick={() => setInitial({ kind: "deletion", rows: chosen })}>批量误导入删除</button></>}<button onClick={() => open("records")}>操作记录</button>{canWrite() && <button className="teacher-primary" onClick={() => open("import")}>导入学生</button>}</div>
@@ -72,8 +83,8 @@ export function StudentWorkbench() {
     {archive && <StudentArchive id={archive.id} onClose={() => setArchive(null)} onAction={kind => { setInitial({ kind, rows: [archive] }); setArchive(null); }} />}
     {initial && context.data && <InitialWorkflow initial={initial} context={context.data} filter={{ search, className, status }} onClose={() => { const returning = initial.returnTask; setInitial(null); if (returning) open("task", returning); }} onCreated={task => { const returning = initial.returnTask; setInitial(null); open("task", task.id, returning); }} />}
     {view === "records" && <StudentRecords onClose={close} onBatch={id => open("batch", id)} onTask={id => open("task", id)} />}
-    {view === "import" && <StudentImport onClose={close} onComplete={completed} />}
-    {view === "batch" && batchId && <StudentBatch id={batchId} onClose={close} onComplete={completed} />}
+    {view === "import" && (batchId ? <StudentBatch id={batchId} onClose={close} onComplete={importCompleted} trackCompletion /> : <StudentImport onClose={close} onComplete={importCompleted} onRunning={id => open("import", id)} />)}
+    {view === "batch" && batchId && <StudentBatch id={batchId} onClose={close} onComplete={importCompleted} />}
     {view === "task" && taskId && <StudentTask id={taskId} onClose={close} onComplete={completed} onRestart={task => { close(); setInitial({ kind: task.kind, mode: task.request_payload.mode, rows: task.snapshots.map((row: Row) => ({ ...row, name: row.fields.姓名, username: row.fields.账号, status: row.fields.状态 === "正常" ? "active" : row.fields.状态 === "毕业" ? "graduated" : "departed" })) }); }} onGraduate={rows => { close(); setInitial({ kind: "status", action: "graduate", rows: rows.map(row => ({ ...row, id: row.student_id, username: row.account, fields: { "年级（1-12）": row.grade, "班级号": row.class_number } })), returnTask: taskId }); }} />}
   </section>;
 }
@@ -146,27 +157,64 @@ function OriginalRows({ batch }: { batch: Row }) {
   return <details className="teacher-preview"><summary>查看原始资料明细（30 列 · {batch.rows.length}行）</summary><Table paginate headers={["原文件行号", "原姓名 / 原账号", "原年级 / 班级", "完整原始资料"]}>{batch.rows.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values.姓名}<small>{row.values.账号}</small></td><td>{row.values["年级（1-12）"]}<small>{row.values.班级号}</small></td><td><details><summary>展开 30 列资料</summary><dl className="teacher-field-grid">{columns.filter(field => field !== "学生ID").map(field => <div key={field}><dt>{field}</dt><dd>{row.values[field] || row.values[field + " "] || "—"}</dd></div>)}</dl></details></td></tr>)}</Table></details>;
 }
 
-function StudentImport({ onClose, onComplete, initialBatch }: { onClose: () => void; onComplete: () => void; initialBatch?: Row }) {
+function StudentImport({ onClose, onComplete, onRunning, initialBatch }: { onClose: () => void; onComplete: (batch: Row) => void; onRunning?: (id: string) => void; initialBatch?: Row }) {
   const action = useAction();
   const [batch, setBatch] = useState<Row | null>(initialBatch || null), [file, setFile] = useState<File | null>(null), [reading, setReading] = useState(false);
   const [step, setStep] = useState(initialBatch?.status === "succeeded" ? 4 : initialBatch ? (initialBatch.status === "failed" || initialBatch.status === "running" ? 3 : 2) : 1);
-  const [reviewed, setReviewed] = useState<Record<number, boolean>>({}), [decisions, setDecisions] = useState<Record<number, boolean>>({});
-  const pollError = useImportPolling(batch, setBatch, (final) => { if (final.status === "succeeded") { setStep(4); onComplete(); } else if (final.status === "invalid") setStep(2); });
-  const busy = reading || action.isPending || batch?.status === "running";
+  const [reviewed, setReviewed] = useState<Record<number, boolean>>({}), [decisions, setDecisions] = useState<Record<number, boolean>>(initialBatch?.confirmation?.duplicate_decisions || {});
+  const applyStatus = (result: Row) => {
+    if (result.status === "succeeded") { setStep(4); onComplete(result); }
+    else if (result.status === "running" || result.status === "failed") setStep(3);
+    else setStep(2);
+  };
+  const pollError = useImportPolling(batch, next => setBatch(current =>
+    next.status === "running" && current ? { ...current, ...next, report: { ...current.report, ...next.report } } : next
+  ), applyStatus);
+  const submitting = reading || action.isPending;
+  const running = batch?.status === "running";
+  const busy = submitting || running;
+  const accept = (result: Row) => {
+    setBatch(result);
+    applyStatus(result);
+    if (result.status === "running") onRunning?.(result.id);
+  };
   const reset = () => { setBatch(null); setFile(null); setStep(1); setReviewed({}); setDecisions({}); action.reset(); };
-  const upload = async () => { if (!file) return; setReading(true); try { const result = await action.mutateAsync({ path: "/roster/students/imports", body: { filename: file.name, content_base64: await fileBase64(file) } }); setBatch(result); setStep(2); } catch { /* Displayed by ActionError. */ } finally { setReading(false); } };
-  const confirm = async () => { if (!batch || busy) return; try { const result = await action.mutateAsync({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: Object.fromEntries(batch.report.suspicious.map((r: Row) => [r.row_number, decisions[r.row_number] ?? true])) } }); setBatch(result); if (result.status === "succeeded") { setStep(4); onComplete(); } } catch { try { const response = await fetchBatch(batch.id); setBatch(response); if (response.status === "invalid") setStep(2); } catch { /* Preserve the original mutation error. */ } } };
-  return <RosterDialog title="导入学生（Excel 批量新增）" busy={busy} onClose={onClose} footer={<><button disabled={busy} onClick={onClose}>{step === 4 ? "关闭" : "取消"}</button>{step === 1 && canWrite() && <button className="teacher-primary" disabled={!file || busy} onClick={() => void upload()}>开始预校验</button>}{step === 2 && <><button disabled={busy} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={!batch?.report.ok || busy || !canWrite()} onClick={() => setStep(3)}>下一步：同班同名确认</button></>}{step === 3 && <><button disabled={busy} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={busy || batch?.status === "failed" || !canWrite() || batch?.report.suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => void confirm()}>{batch?.status === "running" ? "正在整批入库…" : "确认入库"}</button></>}</>}>
+  const upload = async () => { if (!file) return; setReading(true); try { accept(await action.mutateAsync({ path: "/roster/students/imports", body: { filename: file.name, content_base64: await fileBase64(file) } })); } catch { /* Displayed by ActionError. */ } finally { setReading(false); } };
+  const confirm = async () => {
+    if (!batch || busy) return;
+    const duplicateDecisions = batch.status === "failed" ? batch.confirmation?.duplicate_decisions || {} :
+      Object.fromEntries(batch.report.suspicious.map((r: Row) => [r.row_number, decisions[r.row_number] ?? true]));
+    try {
+      accept(await action.mutateAsync({ path: `/roster/imports/${batch.id}/confirm`, body: { expected_revision: batch.revision, duplicate_decisions: duplicateDecisions } }));
+    } catch {
+      try {
+        const result = await fetchBatch(batch.id);
+        if (result.status !== "ready") { action.reset(); accept(result); }
+      } catch { /* Preserve the original mutation error. */ }
+    }
+  };
+  return <RosterDialog title="导入学生（Excel 批量新增）" busy={submitting} onClose={onClose} footer={<><button disabled={submitting} onClick={onClose}>{running ? "关闭，稍后查看" : step === 4 ? "关闭" : "取消"}</button>{step === 1 && canWrite() && <button className="teacher-primary" disabled={!file || busy} onClick={() => void upload()}>开始预校验</button>}{step === 2 && <><button disabled={busy} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={!batch?.report.ok || busy || !canWrite()} onClick={() => setStep(3)}>下一步：同班同名确认</button></>}{step === 3 && <><button disabled={busy} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={busy || batch?.status === "failed" || !canWrite() || batch?.report.suspicious.some((row: Row) => !reviewed[row.row_number])} onClick={() => void confirm()}>{batch?.status === "running" ? "正在整批入库…" : "确认入库"}</button></>}</>}>
     <Steps labels={["上传文件", "预校验与错误清单", "同班同名确认", "回执"]} step={step} /><ActionError action={action} />
     {step === 1 && <><FilePicker label="学生资料模板" description="30 列，列名与顺序完全一致；姓名、账号必填，账号唯一；状态仅接受正常" file={file} onFile={setFile} busy={busy} /><p>初始密码＝账号，首次登录强制修改；导入后每名学生生成独立学生ID。年级、班级不做字典匹配，其余字段可留空。</p><Download path="/roster/students/template" filename="学生资料模板.xlsx">下载《学生资料模板.xlsx》</Download></>}
     {step === 2 && batch && (batch.report.ok ? <div className="teacher-alert teacher-alert--ok">预校验通过，共 {batch.report.total_rows} 行。请继续核对 {batch.report.suspicious.length} 条同班同名提醒。</div> : <ImportIssues batch={batch} />)}
-    {step === 3 && batch && (batch.status === "running" ? <ImportRunning batch={batch} error={pollError} /> : batch.status === "failed" ? <><ImportFailure batch={batch} /><div className="teacher-nav"><button onClick={reset}>重新上传</button><button className="teacher-primary" onClick={() => void confirm()}>重试入库</button></div></> : <>{batch.report.suspicious.length ? <><h3>同班同名清单</h3><p>按姓名＋年级（1-12）＋班级号比对已有学生及文件内其他行。同班同名只提醒，核实为不同学生可保留；放弃的行不入库。</p><Table paginate headers={["原文件行号", "姓名 / 账号", "命中的记录", "选择与核实"]}>{batch.report.suspicious.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.name}<small>{row.account}</small></td><td>{row.matches.map((match: Row, index: number) => <div key={index}>{match.name} / {match.account}<small>{match.row_number ? `文件内第${match.row_number}行` : `已有学生ID ${personId(match)}`} · {match.grade_class}</small></div>)}</td><td><select aria-label={`第${row.row_number}行同名处理`} value={decisions[row.row_number] === false ? "skip" : "keep"} onChange={e => setDecisions({ ...decisions, [row.row_number]: e.target.value === "keep" })}><option value="keep">保留该行</option><option value="skip">放弃该行</option></select><Confirmation checked={!!reviewed[row.row_number]} onChange={value => setReviewed({ ...reviewed, [row.row_number]: value })}>已核实本行选择</Confirmation></td></tr>)}</Table></> : <div className="teacher-alert teacher-alert--ok">未发现同班同名记录，可确认整批入库。</div>}<details className="teacher-preview"><summary>查看原文件资料明细（{batch.rows.length}行）</summary><Table paginate headers={["行号", "姓名 / 账号", "年级 / 班级", "学号"]}>{batch.rows.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values.姓名}<small>{row.values.账号}</small></td><td>{row.values["年级（1-12）"]} / {row.values.班级号}</td><td>{row.values.学号 || "—"}</td></tr>)}</Table></details></>)}
+    {step === 3 && batch && (batch.status === "running" ? <ImportRunning batch={batch} error={pollError} /> : batch.status === "failed" ? <><ImportFailure batch={batch} /><div className="teacher-nav"><button disabled={busy} onClick={reset}>重新上传</button><button className="teacher-primary" disabled={busy || !canWrite()} onClick={() => void confirm()}>重试入库</button></div></> : <>{batch.report.suspicious.length ? <><h3>同班同名清单</h3><p>按姓名＋年级（1-12）＋班级号比对已有学生及文件内其他行。同班同名只提醒，核实为不同学生可保留；放弃的行不入库。</p><Table paginate headers={["原文件行号", "姓名 / 账号", "命中的记录", "选择与核实"]}>{batch.report.suspicious.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.name}<small>{row.account}</small></td><td>{row.matches.map((match: Row, index: number) => <div key={index}>{match.name} / {match.account}<small>{match.row_number ? `文件内第${match.row_number}行` : `已有学生ID ${personId(match)}`} · {match.grade_class}</small></div>)}</td><td><select aria-label={`第${row.row_number}行同名处理`} value={decisions[row.row_number] === false ? "skip" : "keep"} onChange={e => setDecisions({ ...decisions, [row.row_number]: e.target.value === "keep" })}><option value="keep">保留该行</option><option value="skip">放弃该行</option></select><Confirmation checked={!!reviewed[row.row_number]} onChange={value => setReviewed({ ...reviewed, [row.row_number]: value })}>已核实本行选择</Confirmation></td></tr>)}</Table></> : <div className="teacher-alert teacher-alert--ok">未发现同班同名记录，可确认整批入库。</div>}<details className="teacher-preview"><summary>查看原文件资料明细（{batch.rows.length}行）</summary><Table paginate headers={["行号", "姓名 / 账号", "年级 / 班级", "学号"]}>{batch.rows.map((row: Row) => <tr key={row.row_number}><td>{row.row_number}</td><td>{row.values.姓名}<small>{row.values.账号}</small></td><td>{row.values["年级（1-12）"]} / {row.values.班级号}</td><td>{row.values.学号 || "—"}</td></tr>)}</Table></details></>)}
     {step === 4 && batch && <ImportReceipt batch={batch} />}
   </RosterDialog>;
 }
 
 async function fetchBatch(id: string) { const response = await apiFetch(`${BASE}/roster/imports/${id}`); if (!response.ok) throw await apiError(response, "读取批次失败"); return response.json(); }
-function StudentBatch({ id, onClose, onComplete }: { id: string; onClose: () => void; onComplete: () => void }) { const query = useJsonQuery<Row>(`${BASE}/roster/imports/${id}`); if (query.data) return <StudentImport key={id} initialBatch={query.data} onClose={onClose} onComplete={onComplete} />; return <RosterDialog title="学生导入回执" onClose={onClose}><QueryState query={query}>{null}</QueryState></RosterDialog>; }
+function StudentBatch({ id, onClose, onComplete, trackCompletion }: { id: string; onClose: () => void; onComplete: (batch: Row) => void; trackCompletion?: boolean }) {
+  const query = useJsonQuery<Row>(`${BASE}/roster/imports/${id}`);
+  const completedId = useRef("");
+  useEffect(() => {
+    if (trackCompletion && query.data?.status === "succeeded" && completedId.current !== id) {
+      completedId.current = id;
+      onComplete(query.data);
+    }
+  }, [id, onComplete, query.data, trackCompletion]);
+  if (query.data) return <StudentImport key={id} initialBatch={query.data} onClose={onClose} onComplete={onComplete} />;
+  return <RosterDialog title="学生导入回执" onClose={onClose}><QueryState query={query}>{null}</QueryState></RosterDialog>;
+}
 
 function StudentTask({ id, onClose, onComplete, onGraduate, onRestart }: { id: string; onClose: () => void; onComplete: () => void; onGraduate: (rows: Row[]) => void; onRestart: (task: Row) => void }) {
   const query = useJsonQuery<Row>(`${BASE}/roster/students/tasks/${id}`);

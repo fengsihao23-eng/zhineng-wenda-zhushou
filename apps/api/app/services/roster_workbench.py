@@ -13,6 +13,8 @@ from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.models.user import User, Role, UserRole
 from app.db.models.student import Student
+from app.db.models.student_roster import StudentYearClass
+from app.db.models.school import School
 from app.db.models.roster import TeacherProfile, TeacherDeletion, RosterImport
 from app.db.models.import_batch import ImportedClass
 from app.db.models.teaching import TeachingAssignment
@@ -222,25 +224,39 @@ def progress_view(item):
 
 
 async def upload(db, actor, kind, body, key):
-    rows, issues = parse_excel(kind, body.filename, body.content_base64)
-    identifier, fresh = await claim(db, actor, f"roster.upload.{kind}", key, body.model_dump())
-    if fresh:
+    content_hash = digest(body.content_base64)
+    running_id = None
+    if kind == "students":
+        running_id = await db.scalar(select(RosterImport.id).where(
+            RosterImport.school_id == actor.school_id, RosterImport.kind == kind,
+            RosterImport.content_hash == content_hash, RosterImport.status == "running",
+        ).order_by(RosterImport.created_at, RosterImport.id).limit(1))
+    identifier, fresh = await claim(db, actor, f"roster.upload.{kind}", key, body.model_dump(), resource_id=running_id)
+    if fresh and running_id is not None:
+        await db.commit()
+    elif fresh:
+        rows, issues = parse_excel(kind, body.filename, body.content_base64)
         report = {"ok": False, "issues": issues, "suspicious": [], "total_rows": 0} if issues else await preflight(db, actor.school_id, kind, rows)
         operator = await db.get(User, actor.user_id)
-        item = RosterImport(id=identifier, school_id=actor.school_id, kind=kind, filename=body.filename, content_hash=digest(body.content_base64), original_content=base64.b64decode(body.content_base64), rows=rows, report=report, status="ready" if report["ok"] else "invalid", created_by=actor.user_id, operator_name=operator.display_name or operator.username)
+        item = RosterImport(id=identifier, school_id=actor.school_id, kind=kind, filename=body.filename, content_hash=content_hash, original_content=base64.b64decode(body.content_base64), rows=rows, report=report, status="ready" if report["ok"] else "invalid", created_by=actor.user_id, operator_name=operator.display_name or operator.username)
         db.add(item)
         audit(db, actor, "roster.preflight", item, {"kind": kind, "error_rows": len(report["issues"])})
         await db.commit()
     return view(await owned(db, RosterImport, identifier, actor))
 
 
+async def import_role(db, code):
+    role = await db.scalar(select(Role).where(Role.code == code))
+    if role is None:
+        role = Role(id=uuid4(), code=code, name=ROLE_NAMES.get(code, code))
+        db.add(role)
+        await db.flush()
+    return role
+
+
 async def grant_roles(db, user, codes):
     for code in codes:
-        role = await db.scalar(select(Role).where(Role.code == code))
-        if role is None:
-            role = Role(id=uuid4(), code=code, name=ROLE_NAMES.get(code, code))
-            db.add(role)
-            await db.flush()
+        role = await import_role(db, code)
         db.add(UserRole(user_id=user.id, school_id=user.school_id, role_id=role.id))
 
 
@@ -264,8 +280,13 @@ async def password_hashes(rows, field):
     return dict(await asyncio.gather(*(hash_row(row) for row in rows)))
 
 
-async def student_password_hashes(rows):
-    return await password_hashes(rows, "账号")
+async def student_password_hashes(rows, on_progress):
+    hashes = {}
+    for offset in range(0, len(rows), 50):
+        hashes.update(await password_hashes(rows[offset:offset + 50], "账号"))
+        if not await on_progress(len(hashes), len(rows)):
+            return None
+    return hashes
 
 
 async def teacher_password_hashes(rows):
@@ -328,7 +349,7 @@ async def confirm(db, actor, identifier, body):
     item.confirmation = payload
     item.report = {
         **checked,
-        "progress": {"total": len(item.rows), "processed": 0},
+        "progress": {"total": len(item.rows) - sum(value is False for value in body.duplicate_decisions.values()), "processed": 0},
         "started_at": now().isoformat(),
     }
     audit(db, actor, "roster.import.start", item, {"kind": item.kind, "rows": len(item.rows)})
@@ -338,57 +359,83 @@ async def confirm(db, actor, identifier, body):
     return queued
 
 
+async def _insert_students(db, actor, item, decisions, hashes):
+    from app.services import student_roster
+
+    selected = [row for row in item.rows if decisions.get(row["row_number"]) is not False]
+    skipped = [row["row_number"] for row in item.rows if decisions.get(row["row_number"]) is False]
+    if not selected:
+        return [], skipped, []
+    school = await student_roster.school(db, actor.school_id)
+    academic_year = student_roster.current_year(school)
+    if not school.current_academic_year:
+        school.current_academic_year = academic_year
+    role = await import_role(db, "STUDENT")
+    classes = (await db.scalars(select(ImportedClass).where(
+        ImportedClass.school_id == actor.school_id, ImportedClass.status == "active"))).all()
+    users, students, grants, year_records = [], [], [], []
+    classrooms = {}
+    for row in selected:
+        values = row["values"]
+        contact = values["手机号"]
+        user = User(id=uuid4(), school_id=actor.school_id, username=values["账号"].strip(),
+                    account_type="student", password_hash=hashes[row["row_number"]],
+                    display_name=values["姓名"].strip(), must_change_password=True,
+                    phone=contact if 0 < len(contact) <= 100 else None)
+        key = values["年级（1-12）"], values["班级号"]
+        if key not in classrooms:
+            classrooms[key] = await resolve_student_class(db, actor.school_id, values, classes)
+        classroom = classrooms[key]
+        student = Student(id=uuid4(), school_id=actor.school_id, user_id=user.id, name=user.display_name,
+                          student_no=values["学号"].strip() or None, external_student_id=str(user.id),
+                          class_id=classroom.id if classroom else None,
+                          external_class_id=classroom.external_class_id if classroom else None,
+                          source_system="roster_excel", profile_fields=values)
+        users.append(user)
+        students.append(student)
+        grants.append(UserRole(user_id=user.id, school_id=actor.school_id, role_id=role.id))
+        year_records.append(StudentYearClass(school_id=actor.school_id, student_id=student.id,
+                                             academic_year=academic_year, grade=key[0], class_number=key[1],
+                                             class_id=student.class_id))
+    # Flush by dependency level so the database can batch inserts and the
+    # normal platform ID allocator still runs for each new student.
+    db.add_all(users)
+    await db.flush()
+    db.add_all(students)
+    await db.flush()
+    db.add_all(grants + year_records)
+    await db.flush()
+    imported = [{"row_number": row["row_number"], "id": str(student.id),
+                 "platform_id": str(student.platform_id), "account": user.username}
+                for row, user, student in zip(selected, users, students)]
+    return imported, skipped, []
+
+
 async def _insert_rows(db, actor, item, decisions, password_hashes):
     """Insert every row inside the caller's transaction; never commit here."""
-    classes = (await db.scalars(select(ImportedClass).where(ImportedClass.school_id == actor.school_id, ImportedClass.status == "active"))).all() if item.kind == "students" else []
+    if item.kind == "students":
+        return await _insert_students(db, actor, item, decisions, password_hashes)
     imported, skipped, unresolved = [], [], []
     for row in item.rows:
         number, values = row["row_number"], row["values"]
         if decisions.get(number) is False:
             skipped.append(number)
             continue
-        teacher = item.kind == "teachers"
-        username = values["教师账号" if teacher else "账号"].strip()
+        username = values["教师账号"].strip()
         password_hash = password_hashes.get(number)
         if password_hash is None:
             password_hash = await run_in_threadpool(get_password_hash, username)
-        contact = values["手机号码" if teacher else "手机号"]
-        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher" if teacher else "student", password_hash=password_hash, display_name=values["教师姓名" if teacher else "姓名"].strip(), must_change_password=True, phone=(contact or None) if teacher or len(contact) <= 100 else None)
+        user = User(id=uuid4(), school_id=actor.school_id, username=username, account_type="teacher", password_hash=password_hash, display_name=values["教师姓名"].strip(), must_change_password=True, phone=values["手机号码"] or None)
         db.add(user)
         await db.flush()
-        if teacher:
-            duties = duty_codes(values)
-            await grant_roles(db, user, duties)
-            profile = TeacherProfile(id=user.id, school_id=actor.school_id, fields=values, duties=duties)
-            db.add(profile)
-            refs = await teacher_grants(db, user, values, duties)
-            if refs:
-                unresolved.append({"row_number": number, "references": refs})
-            record_id = user.id
-        else:
-            await grant_roles(db, user, ["STUDENT"])
-            classroom = await resolve_student_class(db, actor.school_id, values, classes)
-            student = Student(
-                id=uuid4(),
-                school_id=actor.school_id,
-                user_id=user.id,
-                name=user.display_name,
-                student_no=values["学号"].strip() or None,
-                external_student_id=str(user.id),
-                class_id=classroom.id if classroom else None,
-                external_class_id=classroom.external_class_id if classroom else None,
-                source_system="roster_excel",
-                profile_fields=values,
-            )
-            db.add(student)
-            await db.flush()
-            from app.services import student_roster
-            school = await student_roster.school(db, actor.school_id)
-            if not school.current_academic_year:
-                school.current_academic_year = student_roster.current_year(school)
-            await student_roster.year_record(db, student, student_roster.current_year(school), values)
-            record_id = student.id
-        imported.append({"row_number": number, "id": str(record_id), "platform_id": str(user.platform_id if teacher else student.platform_id), "account": username})
+        duties = duty_codes(values)
+        await grant_roles(db, user, duties)
+        profile = TeacherProfile(id=user.id, school_id=actor.school_id, fields=values, duties=duties)
+        db.add(profile)
+        refs = await teacher_grants(db, user, values, duties)
+        if refs:
+            unresolved.append({"row_number": number, "references": refs})
+        imported.append({"row_number": number, "id": str(user.id), "platform_id": str(user.platform_id), "account": username})
     return imported, skipped, unresolved
 
 
@@ -399,20 +446,38 @@ async def execute_import(factory, identifier):
         if item is None or item.status != "running":
             return
         kind, rows, school_id, created_by = item.kind, item.rows, item.school_id, item.created_by
+        started_at = item.report.get("started_at")
         decisions = (item.confirmation or {}).get("duplicate_decisions") or {}
         # model_dump(mode="json") stringifies integer dict keys; restore row numbers.
         decisions = {int(key): value for key, value in decisions.items()}
     actor = SimpleNamespace(school_id=school_id, user_id=created_by)
+
+    def is_current(item):
+        return item is not None and item.status == "running" and item.report.get("started_at") == started_at
+
+    async def save_progress(processed, total):
+        async with factory() as db, db.begin():
+            item = await db.scalar(select(RosterImport).where(RosterImport.id == identifier).with_for_update())
+            if not is_current(item):
+                return False
+            if processed > (item.report.get("progress") or {}).get("processed", 0):
+                item.report = {**item.report, "progress": {"total": total, "processed": processed}}
+            return True
+
     try:
-        hashes = await (teacher_password_hashes(rows) if kind == "teachers" else student_password_hashes(rows))
+        selected = [row for row in rows if decisions.get(row["row_number"]) is not False]
+        hashes = await (teacher_password_hashes(selected) if kind == "teachers" else student_password_hashes(selected, save_progress))
+        if hashes is None:
+            return
         async with factory() as db:
             async with db.begin():
+                await db.scalar(select(School.id).where(School.id == school_id).with_for_update())
                 item = await db.scalar(
                     select(RosterImport)
                     .where(RosterImport.id == identifier)
                     .with_for_update(skip_locked=True)
                 )
-                if item is None or item.status != "running":
+                if not is_current(item):
                     return
                 checked = await preflight(db, school_id, kind, item.rows)
                 if not checked["ok"]:
@@ -454,7 +519,7 @@ async def execute_import(factory, identifier):
                     .where(RosterImport.id == identifier)
                     .with_for_update(skip_locked=True)
                 )
-                if item is not None and item.status == "running":
+                if is_current(item):
                     item.status = "failed"
                     item.report = {
                         **(item.report or {}),
