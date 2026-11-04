@@ -451,10 +451,10 @@ def score_validation(exam, config, subject, rows, accounts):
                 sid = legacy_ids.get(sid_text, sid_text)
                 if sid not in expected:
                     raise ValueError("学生ID不在该科参试名单")
-                classroom, school_name = "", ""
+                classroom = ""
                 qvalues, objective, subjective = {}, None, None
             else:
-                _, account, name, classroom, school_name, _, total, obj, sub = row[:9]
+                _, account, name, classroom, _, _, total, obj, sub = row[:9]
                 if not account:
                     raise ValueError("考生号不能为空，请填写学生登录账号")
                 matches = by_account.get(account, [])
@@ -470,8 +470,6 @@ def score_validation(exam, config, subject, rows, accounts):
             snap = config["snapshots"][sid]
             if name != snap["name"]:
                 raise ValueError("姓名与考试名单不符")
-            if school_name and school_name != snap["school"]:
-                raise ValueError("学校与本校不符")
             if classroom and classroom not in {snap["class_number"], class_key(snap), snap["grade"]+snap["class_number"]}:
                 raise ValueError("行政班与考试学年名单不符")
             value = number(total, "分数")

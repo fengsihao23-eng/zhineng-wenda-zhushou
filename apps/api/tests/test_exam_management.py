@@ -158,7 +158,7 @@ async def test_score_full_roster_template_validation_original_and_questions(clie
 
 
 @pytest.mark.asyncio
-async def test_scores_match_current_login_in_subject_and_ignore_admission_number(client, test_db, actors, exam_people):
+async def test_scores_match_current_login_in_subject_and_ignore_school_and_admission_columns(client, test_db, actors, exam_people):
     exam = await create(client, exam_people, subjects=1)
     first = await test_db.get(Student, exam_people[0].id)
     first_user = await test_db.get(User, first.user_id)
@@ -182,6 +182,8 @@ async def test_scores_match_current_login_in_subject_and_ignore_admission_number
         assert invalid["status"] == "invalid"
         assert any(error in row for row in invalid["errors"])
     sheet.cell(2, 2).value = "00001234"
+    sheet.cell(2, 5).value = "与系统名称不同的阅卷学校名称"
+    sheet.cell(3, 5).value = None
     sheet.cell(2, 6).value = "外部阅卷系统的准考证号"
     output = io.BytesIO()
     book.save(output)
