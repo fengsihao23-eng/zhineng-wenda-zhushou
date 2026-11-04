@@ -3,6 +3,7 @@ import base64
 import io
 import hashlib
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 from types import SimpleNamespace
 import pytest
@@ -10,7 +11,7 @@ from openpyxl import load_workbook, Workbook
 from sqlalchemy import select, func
 from app.db.models import (School, User, Student, StudentYearClass, StudentExamPlacement, StudentSubjectScore,
                            StudentExamScore, QuestionScore, Exam, DiagnosisReport, TeacherProfile)
-from app.db.models.exam_management import ExamAdministration, ExamQueryGrant, ExamOperation
+from app.db.models.exam_management import ExamAdministration, ExamQueryGrant, ExamOperation, ExamScoreFile
 from app.db.models.education import PrivateAsset, ReportAttachment
 from app.tools.exam_tools import GetExamSummaryTool
 from app.tools.score_tools import GetSubjectScoresTool
@@ -210,9 +211,9 @@ async def test_question_scores_without_maxima_visible_and_can_be_completed_witho
     path = f"/{exam['id']}/question-maxima/{subject}"
     options = (await client.get(ROOT+path)).json()
     assert all(row['pending_count'] == 2 for row in options['questions'])
-    for invalid in [{'1': 39}, {'1': 0}, {'1': -1}, {'不存在': 50}, {'1': 100, '作文': 60}, {'1': 'NaN'}, {'1': '40.123'}]:
+    for invalid in [{'1': 0}, {'1': -1}, {'不存在': 50}, {'1': 100, '作文': 60}, {'1': 'NaN'}, {'1': '40.123'}]:
         await post(client, path, {'expected_revision': options['revision'], 'full_scores': invalid}, 422)
-    saved = await post(client, path, {'expected_revision': options['revision'], 'full_scores': {'1': 40, '作文': 60}})
+    saved = await post(client, path, {'expected_revision': options['revision'], 'full_scores': {'1': 39, '作文': 60}})
     assert all(row['pending_count'] == 0 for row in saved['questions'])
     await post(client, path, {'expected_revision': options['revision'], 'full_scores': {'1': 40}}, 409)
     switch(actors, test_db, 'student')
@@ -224,37 +225,81 @@ async def test_question_scores_without_maxima_visible_and_can_be_completed_witho
 
 
 @pytest.mark.asyncio
-async def test_explicit_question_maximum_row_imports_losses_and_rejects_impossible_scores(client, test_db, actors, exam_people):
+async def test_import_preserves_decimal_negative_and_above_full_scores(client, test_db, actors, exam_people):
     exam = await create(client, exam_people, subjects=1)
     body, original = await score_file(client, exam, questions=True)
     # Old score-only files are accepted with a clear preflight warning.
     old = await post(client, f"/{exam['id']}/score-files", body)
     assert old['warnings'] and old['status'] == 'validated'
-    for maximum, valid in [(39, False), (0, False), (40, True)]:
-        book = load_workbook(io.BytesIO(original)); sheet = book.active
-        sheet.insert_rows(2)
-        sheet.cell(2, 1, '满分'); sheet.cell(2, 10, maximum); sheet.cell(2, 11, 60)
-        output = io.BytesIO(); book.save(output); book.close()
-        checked = await post(client, f"/{exam['id']}/score-files", {**body, 'content_base64': base64.b64encode(output.getvalue()).decode()})
-        assert checked['status'] == ('validated' if valid else 'invalid')
-        if valid:
-            assert not checked['warnings']
-            await post(client, f"/{exam['id']}/score-files/{checked['id']}/confirm")
-    rows = (await test_db.scalars(select(QuestionScore))).all()
-    assert len(rows) == 4
-    assert all(row.lost_score == (0 if row.question_no == '1' else 10) for row in rows)
-    assert all(row.full_score == (40 if row.question_no == '1' else 60) for row in rows)
+    book = load_workbook(io.BytesIO(original))
+    sheet = book.active
+    sheet.insert_rows(2)
+    sheet.cell(2, 1, "满分")
+    sheet.cell(2, 10, 39.125)
+    sheet.cell(2, 11, 60)
+    first_total = "100000000.123456789012345" if test_db.bind.dialect.name == "postgresql" else "100000000.125"
+    sheet.cell(3, 7, first_total)
+    sheet.cell(3, 8, -1.125)
+    sheet.cell(3, 9, 20.0625)
+    sheet.cell(3, 10, 160.375)
+    sheet.cell(4, 7, -5.0625)
+    sheet.cell(4, 10, -2.125)
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    path = f"/{exam['id']}/score-files"
+    checked = await post(client, path, {**body, "content_base64": base64.b64encode(output.getvalue()).decode()})
+    assert checked["status"] == "validated" and not checked["warnings"]
+    await post(client, f"{path}/{checked['id']}/confirm")
+    expected = {exam_people[0].id: Decimal(first_total), exam_people[1].id: Decimal("-5.0625")}
+    scores = (await test_db.scalars(select(StudentSubjectScore))).all()
+    totals = (await test_db.scalars(select(StudentExamScore))).all()
+    assert {row.student_id: row.score for row in scores} == expected
+    assert {row.student_id: row.total_score for row in totals} == expected
+    staged = await test_db.get(ExamScoreFile, UUID(checked["id"]))
+    assert [(r["objective"], r["subjective"]) for r in staged.rows] == [("-1.125", "20.0625"), (None, None)]
+    questions = (await test_db.scalars(select(QuestionScore).where(QuestionScore.question_no == "1"))).all()
+    assert {row.student_id: (row.score, row.full_score, row.lost_score, row.answer_status) for row in questions} == {
+        exam_people[0].id: (Decimal("160.375"), Decimal("39.125"), Decimal(0), "correct"),
+        exam_people[1].id: (Decimal("-2.125"), Decimal("39.125"), Decimal("41.25"), "wrong"),
+    }
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad", ["formula", "negative", "overflow", "duplicate", "name", "columns", "questions"])
+async def test_absent_and_blank_scores_match_roster_without_creating_zero_scores(client, test_db, actors, exam_people):
+    exam = await create(client, exam_people, count=3, subjects=1)
+    body, original = await score_file(client, exam, questions=True)
+    book = load_workbook(io.BytesIO(original))
+    sheet = book.active
+    sheet.cell(2, 7).value = "缺考"
+    sheet.cell(3, 7).value = None  # Existing question scores do not replace the blank subject score.
+    sheet.cell(4, 7).value = 0
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    path = f"/{exam['id']}/score-files"
+    checked = await post(client, path, {**body, "content_base64": base64.b64encode(output.getvalue()).decode()})
+    assert checked["status"] == "validated" and checked["row_count"] == 3
+    assert checked["absent_count"] == checked["blank_score_count"] == 1
+    saved = await post(client, f"{path}/{checked['id']}/confirm")
+    file = saved["score_files"][exam["subjects"][0]["subject_id"]]
+    assert file["absent_count"] == file["blank_score_count"] == 1
+    staged = await test_db.get(ExamScoreFile, UUID(checked["id"]))
+    assert [(r["score"], r["score_mark"]) for r in staged.rows] == [(None, "缺考"), (None, None), ("0", None)]
+    scores = (await test_db.scalars(select(StudentSubjectScore))).all()
+    assert [(r.student_id, r.score, r.class_rank) for r in scores] == [(exam_people[2].id, Decimal(0), 1)]
+    assert set(await test_db.scalars(select(QuestionScore.student_id))) == {exam_people[1].id, exam_people[2].id}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["formula", "text", "nonfinite", "duplicate", "name", "columns", "questions"])
 async def test_bad_score_files_do_not_write_scores(client, test_db, actors, exam_people, bad):
     exam = await create(client, exam_people, subjects=1)
     body, original = await score_file(client, exam)
     book = load_workbook(io.BytesIO(original)); sheet = book.active
     if bad == "formula": sheet.cell(2, 7, "=10+20")
-    if bad == "negative": sheet.cell(2, 7, -1)
-    if bad == "overflow": sheet.cell(2, 7, 151)
+    if bad == "text": sheet.cell(2, 7, "非数字")
+    if bad == "nonfinite": sheet.cell(2, 7, "Infinity")
     if bad == "duplicate": sheet.cell(3, 2, sheet.cell(2, 2).value)
     if bad == "name": sheet.cell(2, 3, "错误姓名")
     if bad == "columns": sheet.cell(1, 6, "已改名")

@@ -168,6 +168,12 @@ async def files_for(db, actor, identifier):
         ExamScoreFile.exam_id == identifier, ExamScoreFile.status == "imported"))).all()
 
 
+def score_row_counts(rows):
+    return {"row_count": len(rows),
+            "absent_count": sum(row.get("score_mark") == "缺考" for row in rows),
+            "blank_score_count": sum(row.get("score") is None and not row.get("score_mark") for row in rows)}
+
+
 async def detail(db, actor, identifier):
     item = await administration(db, actor, identifier)
     exam = await owned(db, Exam, identifier, actor)
@@ -184,7 +190,7 @@ async def detail(db, actor, identifier):
     return {"id": str(exam.id), "exam_id": exam.external_exam_id or str(exam.id), "revision": item.revision,
             **item.configuration, "participant_count": len(ids), "teacher_permissions": teachers, "student_permissions": students,
             "open_state": state, "open_state_label": {"open": "已开放", "part": "部分开放", "none": "未开放"}[state],
-            "score_files": {str(f.subject_id): {**data(f, "id", "filename", "created_at"), "row_count": len(f.rows)} for f in files if str(f.subject_id) in current_subjects}}
+            "score_files": {str(f.subject_id): {**data(f, "id", "filename", "created_at"), **score_row_counts(f.rows)} for f in files if str(f.subject_id) in current_subjects}}
 
 
 async def listing(db, actor, search="", year="", state="", grade="", subject="", page=1, page_size=20):
@@ -370,7 +376,7 @@ def matrix(body):
                     fail(f"第 {i} 行包含公式，请粘贴为数值后上传。")
                 result.append((i, [c.value if c.value is not None else "" for c in row]))
             book.close()
-        return content, [(line, [str(int(v)) if isinstance(v, float) and v.is_integer() else str(v).strip() for v in row])
+        return content, [(line, [str(v).removesuffix(".0") if isinstance(v, float) else str(v).strip() for v in row])
                          for line, row in result if any(str(v).strip() for v in row)]
     except ApiError:
         raise
@@ -383,11 +389,11 @@ def number(value, label, allow_blank=False):
         return None
     try:
         result = Decimal(str(value))
-        if not result.is_finite() or result < 0 or result > Decimal("1000000") or result.as_tuple().exponent < -2:
+        if not result.is_finite():
             raise ValueError()
         return result
     except (ValueError, InvalidOperation):
-        raise ValueError(f"{label}须为最多两位小数的非负数") from None
+        raise ValueError(f"{label}须为有效数字") from None
 
 
 def subject_config(config, subject_id):
@@ -397,7 +403,7 @@ def subject_config(config, subject_id):
     return result
 
 
-def question_maxima(rows, questions, subject):
+def question_maxima(rows, questions):
     """Only an explicitly labelled row supplies maxima; observed student scores never do."""
     candidates = [(line, row) for line, row in rows if row and row[0] in {"满分", "小题满分"}]
     if len(candidates) > 1:
@@ -409,9 +415,9 @@ def question_maxima(rows, questions, subject):
     if any(row[1:6]) or any(row[9+len(questions):]):
         raise ValueError(f"第 {line} 行满分行格式错误：首列填「满分」，小题列填写满分")
     maxima = {q: number(row[9+i], f"小题「{q}」满分") for i, q in enumerate(questions) if row[9+i] != ""}
-    if any(v <= 0 for v in maxima.values()) or sum(maxima.values()) > Decimal(str(subject["full_score"])):
-        raise ValueError("小题满分须大于0，合计不得超过科目满分")
-    return {q: float(value) for q, value in maxima.items()}
+    if any(v <= 0 for v in maxima.values()):
+        raise ValueError("小题满分须大于0")
+    return {q: str(value) for q, value in maxima.items()}
 
 
 def score_validation(exam, config, subject, rows, accounts):
@@ -432,7 +438,7 @@ def score_validation(exam, config, subject, rows, accounts):
     if any(not q or len(q) > 20 for q in questions) or len(set(questions)) != len(questions):
         return [], ["小题题号不得为空、重复或超过20个字符。"]
     try:
-        maxima = question_maxima(rows, questions, subject) if not legacy else {}
+        maxima = question_maxima(rows, questions) if not legacy else {}
     except ValueError as exc:
         return [], [str(exc)]
     for line, raw in rows[header_index+1:]:
@@ -452,7 +458,7 @@ def score_validation(exam, config, subject, rows, accounts):
                 if sid not in expected:
                     raise ValueError("学生ID不在该科参试名单")
                 classroom = ""
-                qvalues, objective, subjective = {}, None, None
+                obj, sub = "", ""
             else:
                 _, account, name, classroom, _, _, total, obj, sub = row[:9]
                 if not account:
@@ -463,34 +469,29 @@ def score_validation(exam, config, subject, rows, accounts):
                 if len(matches) != 1:
                     raise ValueError("考生号对应多名参试学生，请核对登录账号")
                 sid = matches[0]
-                objective, subjective = number(obj, "客观分", True), number(sub, "主观分", True)
-                qvalues = {q: float(number(row[9+i], f"小题「{q}」得分")) for i, q in enumerate(questions) if row[9+i] != ""}
-                if not total and qvalues:
-                    total = str(sum(Decimal(str(v)) for v in qvalues.values()))
             snap = config["snapshots"][sid]
             if name != snap["name"]:
                 raise ValueError("姓名与考试名单不符")
             if classroom and classroom not in {snap["class_number"], class_key(snap), snap["grade"]+snap["class_number"]}:
                 raise ValueError("行政班与考试学年名单不符")
-            value = number(total, "分数")
-            if value > Decimal(str(subject["full_score"])):
-                raise ValueError("分数超过科目满分")
-            if any(Decimal(str(v)) > Decimal(str(subject["full_score"])) for v in qvalues.values()):
-                raise ValueError("小题得分超过科目满分")
-            if any(value > maxima[q] for q, value in qvalues.items() if q in maxima):
-                raise ValueError("小题得分超过该题满分")
             if sid in seen:
                 raise ValueError("学生重复（学生ID重复）" if legacy else "考生号重复")
             seen.add(sid)
-            parsed.append({"student_id": sid, "score": float(value), "objective": float(objective) if objective is not None else None,
-                           "subjective": float(subjective) if subjective is not None else None, "questions": qvalues,
+            mark = "缺考" if total == "缺考" else None
+            value = None if mark else number(total, "分数", True)
+            objective, subjective = number(obj, "客观分", True), number(sub, "主观分", True)
+            qvalues = {q: number(row[9+i], f"小题「{q}」得分") for i, q in enumerate(questions) if row[9+i] != ""}
+            # Keep the Excel decimals exact across the JSON staging step.
+            parsed.append({"student_id": sid, "score": str(value) if value is not None else None, "score_mark": mark,
+                           "objective": str(objective) if objective is not None else None,
+                           "subjective": str(subjective) if subjective is not None else None, "questions": {q: str(v) for q, v in qvalues.items()},
                            "question_full_scores": maxima})
         except ValueError as exc:
             errors.append(f"第 {line} 行：{exc}")
     missing = expected - seen
     if missing:
         errors.append(f"必须导入完整名单，缺少 {len(missing)} 名参试学生。")
-    if len(parsed) != len(expected):
+    if len(seen) != len(expected):
         errors.append(f"成绩行数须与本次该科完整参试名单一致（{len(expected)} 人）。")
     return parsed, errors
 
@@ -527,8 +528,9 @@ async def score_preflight(db, actor, identifier, body):
         status="invalid" if errors else "validated")
     db.add(batch)
     await db.commit()
-    pending = sum(1 for row in parsed for question in row["questions"] if question not in row.get("question_full_scores", {}))
-    return {**data(batch, "id", "status", "filename", "revision", "errors"), "row_count": len(batch.rows),
+    pending = sum(1 for row in batch.rows if not row.get("score_mark")
+                  for question in row["questions"] if question not in row.get("question_full_scores", {}))
+    return {**data(batch, "id", "status", "filename", "revision", "errors"), **score_row_counts(batch.rows),
             "warnings": [f"{pending} 条小题记录缺少满分，将展示得分并标记待补满分；补齐后自动计算失分。"] if pending and not errors else []}
 
 
@@ -584,16 +586,21 @@ async def score_confirm(db, actor, identifier, file_id):
         fail("该科已有成绩文件，请先删除后重新导入。", "SCORE_FILE_EXISTS", 409)
     sub = subject_config(item.configuration, batch.subject_id)
     for row in batch.rows:
-        db.add(StudentSubjectScore(school_id=actor.school_id, exam_id=identifier, student_id=UUID(row["student_id"]),
-            subject_id=batch.subject_id, score=Decimal(str(row["score"])), full_score=Decimal(str(sub["full_score"]))))
+        if row.get("score_mark") == "缺考":
+            continue
+        student_id = UUID(row["student_id"])
+        if row["score"] is not None:
+            db.add(StudentSubjectScore(school_id=actor.school_id, exam_id=identifier, student_id=student_id,
+                subject_id=batch.subject_id, score=Decimal(str(row["score"])), full_score=Decimal(str(sub["full_score"]))))
         for question, value in row["questions"].items():
             full = row.get("question_full_scores", {}).get(question)
             full = Decimal(str(full)) if full is not None else None
             score = Decimal(str(value))
-            db.add(QuestionScore(school_id=actor.school_id, exam_id=identifier, student_id=UUID(row["student_id"]),
-                subject_id=batch.subject_id, question_no=question, score=score, full_score=full,
-                lost_score=full-score if full is not None else None,
-                answer_status=("correct" if score == full else "wrong" if score == 0 else "partial") if full is not None else None))
+            item_score = QuestionScore(school_id=actor.school_id, exam_id=identifier, student_id=student_id,
+                subject_id=batch.subject_id, question_no=question, score=score)
+            if full is not None:
+                apply_question_maximum(item_score, full)
+            db.add(item_score)
     batch.status = "imported"
     item.revision += 1
     await db.flush()
@@ -615,6 +622,12 @@ async def question_score_options(db, actor, identifier, subject_id):
         "max_score": float(score), "pending_count": count-known} for q, full, score, count, known in rows]}
 
 
+def apply_question_maximum(row, maximum):
+    row.full_score = maximum
+    row.lost_score = max(maximum - row.score, Decimal(0))
+    row.answer_status = "correct" if row.lost_score == 0 else "wrong" if row.score <= 0 else "partial"
+
+
 async def save_question_maxima(db, actor, identifier, subject_id, body):
     item = await administration(db, actor, identifier, lock=True, revision=body.expected_revision)
     subject = subject_config(item.configuration, subject_id)
@@ -628,15 +641,12 @@ async def save_question_maxima(db, actor, identifier, subject_id, body):
     except ValueError as exc:
         fail(str(exc))
     existing = {r.question_no: r.full_score for r in rows if r.full_score is not None}
-    if any(v <= 0 for v in maxima.values()) or sum({**existing, **maxima}.values()) > Decimal(str(subject["full_score"])):
+    if (any(v <= 0 or v.as_tuple().exponent < -2 for v in maxima.values()) or
+            sum({**existing, **maxima}.values()) > Decimal(str(subject["full_score"]))):
         fail("小题满分须大于0，合计不得超过科目满分。")
-    if any(r.score > maxima[r.question_no] for r in rows if r.question_no in maxima):
-        fail("小题满分不能小于已导入的该题得分。")
     for row in rows:
         if row.question_no in maxima:
-            row.full_score = maxima[row.question_no]
-            row.lost_score = row.full_score - row.score
-            row.answer_status = "correct" if row.lost_score == 0 else "wrong" if row.score == 0 else "partial"
+            apply_question_maximum(row, maxima[row.question_no])
     item.revision += 1
     await operation(db, actor, identifier, "question_maxima", {"subject_id": str(subject_id),
         "full_scores": {q: float(v) for q, v in maxima.items()}})

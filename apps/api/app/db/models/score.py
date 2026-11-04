@@ -1,7 +1,7 @@
 """
 成绩模型
 """
-from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, ForeignKeyConstraint, UniqueConstraint, DECIMAL
+from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, ForeignKeyConstraint, UniqueConstraint, DECIMAL, Numeric
 from app.db.types import UUID
 from sqlalchemy.sql import func
 import uuid
@@ -17,7 +17,7 @@ class StudentExamScore(Base):
     school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False)
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False, index=True)
     exam_id = Column(UUID(as_uuid=True), ForeignKey("exams.id"), nullable=False, index=True)
-    total_score = Column(DECIMAL(10, 2), nullable=False, comment="总分")
+    total_score = Column(Numeric(), nullable=False, comment="总分")
     full_score = Column(DECIMAL(10, 2), comment="满分")
     class_rank = Column(Integer, comment="班级排名")
     grade_rank = Column(Integer, comment="年级排名")
@@ -43,12 +43,12 @@ class StudentSubjectScore(Base):
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False, index=True)
     exam_id = Column(UUID(as_uuid=True), ForeignKey("exams.id"), nullable=False, index=True)
     subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
-    score = Column(DECIMAL(10, 2), nullable=False, comment="得分")
+    score = Column(Numeric(), nullable=False, comment="得分")
     full_score = Column(DECIMAL(10, 2), nullable=False, comment="满分")
     class_rank = Column(Integer, comment="班级排名")
     grade_rank = Column(Integer, comment="年级排名")
-    class_avg = Column(DECIMAL(10, 2), comment="班级平均分")
-    grade_avg = Column(DECIMAL(10, 2), comment="年级平均分")
+    class_avg = Column(Numeric(), comment="班级平均分")
+    grade_avg = Column(Numeric(), comment="年级平均分")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -73,9 +73,9 @@ class QuestionScore(Base):
     question_id = Column(UUID(as_uuid=True), comment="题目ID")
     question_version_id = Column(UUID(as_uuid=True), nullable=True, comment="经核验的正式题目版本")
     question_no = Column(String(20), nullable=False, comment="题号")
-    score = Column(DECIMAL(10, 2), nullable=False, comment="得分")
-    full_score = Column(DECIMAL(10, 2), nullable=True, comment="满分；原文件未提供时为空")
-    lost_score = Column(DECIMAL(10, 2), nullable=True, comment="丢分；未知小题满分时为空")
+    score = Column(Numeric(), nullable=False, comment="得分")
+    full_score = Column(Numeric(), nullable=True, comment="满分；原文件未提供时为空")
+    lost_score = Column(Numeric(), nullable=True, comment="丢分；未知小题满分时为空")
     answer_status = Column(String(20), comment="答题状态")
     knowledge_point_id = Column(UUID(as_uuid=True), comment="知识点ID")
 
