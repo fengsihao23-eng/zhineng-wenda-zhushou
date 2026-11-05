@@ -90,7 +90,7 @@ export function AnswerWorkbenchPage({ mode = 'web' }: { mode?: 'admin' | 'mini' 
     document.getElementById(theme.id)?.remove()
     document.head.insertBefore(theme, document.head.firstChild)
   }
-  const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=role-access-20261020`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
+  const content = <><iframe ref={frame} onLoad={onLoad} title={mode === 'admin' ? '提示词及人工' : mode === 'web' ? '智能问答助手' : '学科智能问答小程序'} src={`/answer-workbench/${mode}.html?v=${mode === 'admin' ? 'school-scope-20261105' : 'role-access-20261020'}`} style={{ width: '100%', height: mode === 'mini' ? '100dvh' : '100%', minHeight: 0, flex: '1 1 0', border: 0, display: 'block' }} />{mode === 'web' && answers.map(answer => createPortal(<AnswerText content={answer.text} />, answer.node, answer.id))}</>
   if (mode === 'admin') return <AppShell>{content}</AppShell>
   if (mode === 'web') return <AppShell bleed title="智能问答" eyebrow={`${getUserInfo()?.roles.includes('STUDENT') ? '学生空间' : '教师工作台'} / 智能问答`}><div className="chat-page-frame">{content}</div></AppShell>
   return content

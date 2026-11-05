@@ -4,6 +4,7 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError } from 'axios';
 import { getToken, getRefreshToken, setToken, clearAuth } from '../utils/auth';
 import { refreshTokenApi } from './auth';
+import { getManagementSchool, schoolScopedApi } from '../utils/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -20,6 +21,8 @@ const axiosInstance: AxiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = getToken();
+    const school = getManagementSchool();
+    if (school && schoolScopedApi(config.url || '')) config.headers.set('X-School-ID', school.id);
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }

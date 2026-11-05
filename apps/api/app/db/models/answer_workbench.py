@@ -53,11 +53,12 @@ class AnswerOperation(Base):
     __tablename__ = "answer_operations"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", name="fk_answer_operation_actor"), nullable=False)
     action = Column(String(100), nullable=False)
     body = Column(JSONB, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    __table_args__ = (ForeignKeyConstraint(["school_id", "user_id"], ["users.school_id", "users.id"], name="fk_answer_operation_user"),)
+    # The audited school and the operator's home school are independent:
+    # SUPER_ADMIN can maintain another school without moving their account.
 
 
 class AnswerDailyUsage(Base):

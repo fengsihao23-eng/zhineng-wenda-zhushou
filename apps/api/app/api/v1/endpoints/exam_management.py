@@ -17,6 +17,7 @@ from app.schemas.exam_management import (ExamDraft, ScoreUpload, Revision, Quest
 from app.services import exam_management as service
 from app.services import report_management as report_service
 from app.services.education_common import data, audit
+from app.core.school_scope import label_school_rows
 
 router = APIRouter(prefix="/platform/education/exam-management", tags=["exam-management"])
 
@@ -56,7 +57,7 @@ async def teacher_default_rules(actor=Depends(exam_read_role)):
 @router.get("/operations")
 async def operations(exam_id: UUID | None = None, category: Literal["", "exam", "permission"] = "", page: int = Query(1, ge=1),
                      page_size: int = Query(20, ge=1, le=100), actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):
-    return await service.logs(db, actor, exam_id, category, page, page_size)
+    return await label_school_rows(db, actor, await service.logs(db, actor, exam_id, category, page, page_size))
 
 
 @router.get("")
@@ -64,7 +65,7 @@ async def listing(search: str = Query("", max_length=200), academic_year: str = 
                   state: Literal["", "none", "part", "open"] = "", grade: str = Query("", max_length=100),
                   subject: str = Query("", max_length=100), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
                   actor=Depends(exam_read_role), db: AsyncSession = Depends(get_db)):
-    return await service.listing(db, actor, search, academic_year, state, grade, subject, page, page_size)
+    return await label_school_rows(db, actor, await service.listing(db, actor, search, academic_year, state, grade, subject, page, page_size))
 
 
 @router.post("/preview")

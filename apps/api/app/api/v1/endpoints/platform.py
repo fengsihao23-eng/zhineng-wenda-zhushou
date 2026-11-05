@@ -18,6 +18,7 @@ from app.api.deps import (
     require_management,
 )
 from app.core.database import get_db
+from app.core.school_scope import label_management_rows
 from app.core.logging import get_logger
 from app.core.access_scope import scoped as scope_query, scoped_scores, is_teacher_only, is_school_read_only, is_handoff_handler, teaching_handler, student_ids as teaching_students
 from app.core.diagnosis_access import authorized_reports, require_diagnosis, require_report, audit_report_access
@@ -623,7 +624,7 @@ async def management_schools(
     db: AsyncSession = Depends(get_db),
 ):
     # 优化：使用批量聚合避免 N+1 查询
-    schools_result = await db.execute(select(School).order_by(School.name.asc()))
+    schools_result = await db.execute(_scoped(select(School), current, School.id).order_by(School.name.asc()))
     schools = schools_result.scalars().all()
 
     if not schools:
@@ -696,8 +697,8 @@ async def management_feedback(
     query = _scoped(select(PlatformFeedback), current, PlatformFeedback.school_id).order_by(PlatformFeedback.created_at.desc()).limit(200)
     if state:
         query = query.where(PlatformFeedback.status == state)
-    return [{**_feedback_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
-            for item in (await db.execute(query)).scalars().all()]
+    return await label_management_rows(db, [{**_feedback_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
+            for item in (await db.execute(query)).scalars().all()])
 
 
 @router.patch("/management/feedback/{feedback_id}")
@@ -715,7 +716,7 @@ async def update_management_feedback(
 
 
 def _risk_out(item: RiskEvent) -> dict[str, Any]:
-    return {"id": str(item.id), "student_id": str(item.student_id) if item.student_id else None, "event_type": item.event_type, "severity": item.severity, "title": item.title, "detail": item.detail, "source": item.source, "status": item.status, "created_at": _iso(item.created_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("risk", item.status)}
+    return {"id": str(item.id), "school_id": str(item.school_id), "student_id": str(item.student_id) if item.student_id else None, "event_type": item.event_type, "severity": item.severity, "title": item.title, "detail": item.detail, "source": item.source, "status": item.status, "created_at": _iso(item.created_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("risk", item.status)}
 
 
 @router.get("/management/risks")
@@ -727,8 +728,8 @@ async def management_risks(
     query = _scoped(select(RiskEvent), current, RiskEvent.school_id).order_by(RiskEvent.created_at.desc()).limit(300)
     if state:
         query = query.where(RiskEvent.status == state)
-    return [{**_risk_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
-            for item in (await db.execute(query)).scalars().all()]
+    return await label_management_rows(db, [{**_risk_out(item), **({"allowed_transitions": []} if is_school_read_only(current) else {})}
+            for item in (await db.execute(query)).scalars().all()])
 
 
 @router.post("/management/risks", status_code=status.HTTP_201_CREATED)
@@ -766,7 +767,7 @@ async def update_management_risk(
 
 
 def _handoff_out(item: HumanHandoff) -> dict[str, Any]:
-    return {"id": str(item.id), "student_id": str(item.student_id), "reason": item.reason, "priority": item.priority, "summary": item.summary, "status": item.status, "assigned_to": str(item.assigned_to) if item.assigned_to else None, "created_at": _iso(item.created_at), "accepted_at": _iso(item.accepted_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("handoff", item.status)}
+    return {"id": str(item.id), "school_id": str(item.school_id), "student_id": str(item.student_id), "reason": item.reason, "priority": item.priority, "summary": item.summary, "status": item.status, "assigned_to": str(item.assigned_to) if item.assigned_to else None, "created_at": _iso(item.created_at), "accepted_at": _iso(item.accepted_at), "resolved_at": _iso(item.resolved_at), "resolution": item.resolution, "state_version": item.state_version, "allowed_transitions": workflow_next_states("handoff", item.status)}
 
 
 @router.get("/management/handoffs")
@@ -792,10 +793,10 @@ async def management_handoffs(
         tickets = tickets.where(AnswerTicket.body['status'].as_string().in_([k for k, v in states.items() if v == state]))
     for ticket in (await db.scalars(tickets)).all():
         body = await ticket_view(db, current, ticket, True)
-        result.append({"id": str(ticket.id), "source": "answer", "reason": "问答人工留言 · " + body.get('actorName', ''),
+        result.append({"id": str(ticket.id), "school_id": str(ticket.school_id), "source": "answer", "reason": "问答人工留言 · " + body.get('actorName', ''),
             "summary": body['question'], "status": states.get(body['status'], 'open'),
             "created_at": _iso(ticket.created_at), "assigned_to": (body.get('assignee') or {}).get('id')})
-    return sorted(result, key=lambda item: (item['created_at'] or '', item['id']), reverse=True)
+    return await label_management_rows(db, sorted(result, key=lambda item: (item['created_at'] or '', item['id']), reverse=True))
 
 
 @router.patch("/management/handoffs/{handoff_id}")
@@ -814,7 +815,7 @@ async def update_management_handoff(
 
 
 def _knowledge_out(item: KnowledgeDocument) -> dict[str, Any]:
-    return {"id": str(item.id), "title": item.title, "subject": item.subject, "doc_type": item.doc_type, "status": item.status, "version": item.version, "content": item.content, "source_name": item.source_name, "source_url": item.source_url, "source_reference": item.source_reference, "tags": item.tags or [], "rejection_reason": item.rejection_reason, "created_at": _iso(item.created_at), "reviewed_at": _iso(item.reviewed_at), "published_at": _iso(item.published_at), "offlined_at": _iso(item.offlined_at), "state_version": item.state_version, "allowed_actions": knowledge_actions(item.status)}
+    return {"id": str(item.id), "school_id": str(item.school_id), "title": item.title, "subject": item.subject, "doc_type": item.doc_type, "status": item.status, "version": item.version, "content": item.content, "source_name": item.source_name, "source_url": item.source_url, "source_reference": item.source_reference, "tags": item.tags or [], "rejection_reason": item.rejection_reason, "created_at": _iso(item.created_at), "reviewed_at": _iso(item.reviewed_at), "published_at": _iso(item.published_at), "offlined_at": _iso(item.offlined_at), "state_version": item.state_version, "allowed_actions": knowledge_actions(item.status)}
 
 
 @router.get("/management/knowledge")
@@ -826,7 +827,7 @@ async def management_knowledge(
     query = _scoped(select(KnowledgeDocument), current, KnowledgeDocument.school_id).order_by(KnowledgeDocument.updated_at.desc()).limit(300)
     if state:
         query = query.where(KnowledgeDocument.status == state)
-    return [_knowledge_out(item) for item in (await db.execute(query)).scalars().all()]
+    return await label_management_rows(db, [_knowledge_out(item) for item in (await db.execute(query)).scalars().all()])
 
 
 @router.post("/management/knowledge", status_code=status.HTTP_201_CREATED)

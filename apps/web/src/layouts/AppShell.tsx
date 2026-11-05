@@ -6,6 +6,8 @@ import { logoutApi } from '../services/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import { useJsonQuery } from '../hooks/useApi'
 import './AppShell.css'
+import { ManagementSchoolFilter } from '../components/ManagementSchoolFilter'
+import { schoolScopedPage } from '../utils/auth'
 
 type NavItem = { path: string; label: string; icon: string; group?: string }
 
@@ -180,6 +182,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
         <main className="workspace-main">
           <ErrorDisplay error={logoutError} title="未能完成安全退出" onRetry={() => { void logout() }} variant="banner" />
           {title && !bleed && <div className="page-heading"><div><div className="page-eyebrow">{eyebrow || roleLabels[role]}</div><h1>{title}</h1></div></div>}
+          {schoolScopedPage(location.pathname) && <ManagementSchoolFilter />}
           {children}
         </main>
       </section>

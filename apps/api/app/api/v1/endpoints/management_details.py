@@ -62,7 +62,7 @@ async def student_detail(student_id: UUID, current: AuthenticatedUser = Depends(
 
 @router.get("/schools/{school_id}")
 async def school_detail(school_id: UUID, current: AuthenticatedUser = Depends(city), db: AsyncSession = Depends(get_db)):
-    school = await db.scalar(select(School).where(School.id == school_id))
+    school = await db.scalar(scoped(select(School).where(School.id == school_id), current, School.id))
     if school is None:
         raise ApiError(404, "SCHOOL_NOT_FOUND", "学校不存在")
     counts = {}

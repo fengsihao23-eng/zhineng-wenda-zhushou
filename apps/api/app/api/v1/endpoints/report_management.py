@@ -11,6 +11,7 @@ from app.api.v1.endpoints.education import writer, write
 from app.schemas.report_management import PdfUpload, Classification, Batch, Replacement, ReportDelete
 from app.services import report_management as service
 from app.services.education_common import audit
+from app.core.school_scope import label_school_rows
 
 router = APIRouter(prefix="/platform/education/report-management", tags=["report-management"])
 admin_reader = require_management("SCHOOL_ADMIN", "SUPER_ADMIN", "QA")
@@ -63,7 +64,7 @@ async def batch_save(body: Batch, key: UUID | None = Header(None, alias="Idempot
 @router.get("/operations")
 async def operations(page: int = Query(1, ge=1), page_size: int = Query(12, ge=1, le=100),
                      actor=Depends(admin_reader), db: AsyncSession = Depends(get_db)):
-    return await service.logs(db, actor, page, page_size)
+    return await label_school_rows(db, actor, await service.logs(db, actor, page, page_size))
 
 
 @router.get("/access-check")
@@ -78,7 +79,7 @@ async def listing(category: Literal["", "diagnostic", "essay"] = "", exam_id: UU
                   grade: str = Query("", max_length=100), cls: str = Query("", max_length=250), search: str = Query("", max_length=200),
                   page: int = Query(1, ge=1), page_size: int = Query(12, ge=1, le=100),
                   actor=Depends(admin_reader), db: AsyncSession = Depends(get_db)):
-    return await service.listing(db, actor, category, exam_id, report_type, subject, grade, cls, search, page, page_size)
+    return await label_school_rows(db, actor, await service.listing(db, actor, category, exam_id, report_type, subject, grade, cls, search, page, page_size))
 
 
 @router.post("/delete")

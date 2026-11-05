@@ -90,7 +90,7 @@ def assigned_class(exam_id=None):
 def scoped(query, user, school_column, score_type="student"):
     """Apply tenancy and, for teachers, class-level queues/rosters or subject docs."""
     if is_city(user):
-        return query
+        return query.where(school_column == user.school_id) if getattr(user, "selected_school_id", None) else query
     query = query.where(school_column == user.school_id)
     if not is_teacher_only(user):
         return query

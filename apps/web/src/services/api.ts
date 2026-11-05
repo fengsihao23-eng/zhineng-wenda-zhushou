@@ -1,6 +1,7 @@
 import { clearAuth, getAuthScope, getAuthSignal, getRefreshToken, getToken, setToken } from '../utils/auth'
 import { refreshTokenApi } from './auth'
 import { ApiError, safeFetch } from './http'
+import { getManagementSchool, schoolScopedApi } from '../utils/auth'
 
 export { apiError } from './http'
 export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1'
@@ -28,6 +29,8 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   const sessionSignal = getAuthSignal()
   const signal = init.signal ? AbortSignal.any([sessionSignal, init.signal]) : sessionSignal
   const headers = new Headers(init.headers)
+  const school = getManagementSchool()
+  if (school && schoolScopedApi(path)) headers.set('X-School-ID', school.id)
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)

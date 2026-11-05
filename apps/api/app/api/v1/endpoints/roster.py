@@ -21,6 +21,7 @@ from app.schemas.student_roster import StudentTaskCreate, StudentTaskPrepare, St
 from app.core.errors import ApiError
 from app.services.roster_excel import student_error_template_bytes, student_template_bytes, teacher_template_bytes
 from app.services.education_common import owned, data
+from app.core.school_scope import label_school_rows
 TEMPLATES = Path(__file__).resolve().parents[3] / "resources" / "roster"
 
 router = APIRouter(prefix="/platform/education/roster", tags=["roster"])
@@ -53,13 +54,15 @@ async def student_error_template(actor=Depends(reader)):
 async def records(kind: RosterKind, response: Response, search: str = Query("", max_length=100), phone: str = Query("", max_length=100), class_name: str = Query("", max_length=100), status: str = Query("", max_length=30), page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store"
     if kind == "students":
-        return await student_roster.listing(db, actor, search, class_name, status, page, page_size)
-    return await roster.listing(db, actor, kind, search, phone, class_name, page, page_size)
+        result = await student_roster.listing(db, actor, search, class_name, status, page, page_size)
+    else:
+        result = await roster.listing(db, actor, kind, search, phone, class_name, page, page_size)
+    return await label_school_rows(db, actor, result)
 
 
 @router.get("/teachers/deletions")
 async def deletions(search: str = Query("", max_length=100), reason: str = Query("", max_length=30), available: bool = False, page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    return await roster.deletion_history(db, actor, search, available, page, page_size, reason)
+    return await label_school_rows(db, actor, await roster.deletion_history(db, actor, search, available, page, page_size, reason))
 
 
 @router.post("/teachers/delete")
@@ -102,7 +105,7 @@ async def batches(kind: RosterKind, search: str = Query("", max_length=100), pag
     if paginated:
         rows = rows[(page - 1) * page_size:page * page_size]
     items = [{**data(row, "id", "filename", "status", "operator_name", "created_at", "confirmed_at", "change_task_id"), "has_original": original, "report": {k: row.report.get(k) for k in ("total_rows", "success_count", "skipped_count", "confirmed_by_name", "confirmed_at")}} for row, original in rows]
-    return {"items": items, "total": total, "page": page, "page_size": page_size} if paginated else items
+    return await label_school_rows(db, actor, {"items": items, "total": total, "page": page, "page_size": page_size} if paginated else items)
 
 
 @router.post("/{kind}/imports")
@@ -193,7 +196,7 @@ async def student_promotion_template(student_ids: list[PersonReference] = Query(
 
 @router.get("/students/tasks")
 async def student_tasks_list(search: str = Query("", max_length=100), kind: str = Query("", max_length=20), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), actor=Depends(reader), db: AsyncSession = Depends(get_db)):
-    return await student_roster.task_listing(db, actor, search, kind, page, page_size)
+    return await label_school_rows(db, actor, await student_roster.task_listing(db, actor, search, kind, page, page_size))
 
 
 @router.post("/students/tasks")

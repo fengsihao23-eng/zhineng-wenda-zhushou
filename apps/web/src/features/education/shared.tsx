@@ -1,4 +1,6 @@
-import { Children, useEffect, useId, useRef, useState, type ReactNode, type FormEvent } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode, type FormEvent, type ReactElement } from "react";
+import { getManagementSchool, isSuperAdmin } from '../../utils/auth';
+import { SchoolNameCell } from '../../components/ManagementSchoolFilter';
 import { HelpTip } from "../../components/HelpTip";
 import { ListView } from "../../components/ListControls";
 export { Pagination as Pager, usePagination, useClientPagination } from "../../components/ListControls";
@@ -231,17 +233,24 @@ export function Table({
   paginate?: boolean;
 }) {
   if (paginate) return <ListView items={Children.toArray(children)}>{rows => <Table headers={headers}>{rows}</Table>}</ListView>;
+  const schoolColumn = isSuperAdmin() && !!getManagementSchool() && !headers.includes('学校名称') && !headers.includes('办理事项');
+  const rows = schoolColumn ? Children.map(children, child => {
+    if (!isValidElement(child) || child.type !== 'tr') return child;
+    const row = child as ReactElement<{ children: ReactNode }>;
+    return cloneElement(row, {}, <SchoolNameCell />, row.props.children);
+  }) : children;
   return (
     <div className="data-table-wrap">
       <table className="data-table">
         <thead>
           <tr>
+            {schoolColumn && <th>学校名称</th>}
             {headers.map((h) => (
               <th key={h}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>{rows}</tbody>
       </table>
     </div>
   );

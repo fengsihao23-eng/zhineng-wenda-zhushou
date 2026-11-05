@@ -248,7 +248,9 @@ async def state(db, actor):
         safe_trials.append(body)
     return {'schemaVersion': 92, 'stages': {k.split(':')[1]: {**r.body, 'etag': r.revision} for k, r in rows.items() if k.startswith('prompt:')},
         'limits': {**rows['limits'].body, 'etag': rows['limits'].revision}, 'tests': safe_trials, 'audit': [a.body for a in audits],
-        'accounts': accounts, 'school': school.name, 'operator': {'id': str(actor.user_id), 'name': user.display_name or user.username, 'school': school.name}}
+        'accounts': accounts, 'school': school.name, 'school_code': school.code,
+        'operator': {'id': str(actor.user_id), 'name': user.display_name or user.username, 'school': school.name,
+                     'schoolCode': school.code, 'showSchoolColumn': actor.has_role('SUPER_ADMIN')}}
 
 
 async def replace_scope(db, row, body, expected):

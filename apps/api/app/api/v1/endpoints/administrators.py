@@ -95,7 +95,8 @@ async def user_roles(db, user):
 
 async def serialize_user(db, user, school):
     roles = await user_roles(db, user)
-    return {"id": str(user.id), **snapshot(user), "school_name": school.name if school else None, "roles": roles,
+    return {"id": str(user.id), **snapshot(user), "school_name": school.name if school else None,
+            "school_code": school.code if school else None, "roles": roles,
             "account_type": user.account_type, "platform_id": str(user.platform_id) if user.platform_id else None,
             "must_change_password": user.must_change_password,
             "revision": user.password_version,
@@ -325,9 +326,11 @@ async def history(administrator_id: UUID | None = None, school_id: UUID | None =
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (await db.execute(query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset((page - 1) * page_size).limit(page_size))).all()
     schools_by_id = {str(row.id): row.name for row in (await db.scalars(select(School))).all()}
+    school_codes = {str(row.id): row.code for row in (await db.scalars(select(School))).all()}
     return {"total": total, "items": [{"id": str(row.id), "action": row.action, "actor_id": str(row.actor_id),
         "actor_name": "系统迁移" if row.actor_type == "system" else (user.display_name or user.username if user else "历史账号"), "actor_username": user.username if user else None,
         "school_name": schools_by_id.get((row.extra_data or {}).get("school_id") or (str(user.school_id) if user else "")),
+        "school_code": school_codes.get((row.extra_data or {}).get("school_id") or (str(user.school_id) if user else "")),
         "resource_type": row.resource_type, "resource_id": str(row.resource_id) if row.resource_id else None,
         "allowed": row.allowed, "reason": row.reason, "details": row.extra_data or {},
         "ip_address": str(row.ip_address) if row.ip_address else None, "request_id": row.request_id,

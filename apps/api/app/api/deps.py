@@ -145,12 +145,14 @@ async def get_current_user(
     if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and not teacher_handoff_action and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password" and not request.url.path.startswith(("/api/v1/answer-workbench/mini/", "/api/v1/answer-workbench/tickets", "/api/v1/answer-workbench/sources/")):
         raise HTTPException(status_code=403, detail="当前职务仅有全校数据查看权限。", headers={"X-Error-Code": "SCHOOL_READ_ONLY"})
 
-    return AuthenticatedUser(
+    actor = AuthenticatedUser(
         user_id=user.id,
         school_id=user.school_id,
         username=user.username,
         roles=roles,
     )
+    from app.core.school_scope import apply_school_selection
+    return await apply_school_selection(request, actor, db)
 
 
 async def get_current_student(
