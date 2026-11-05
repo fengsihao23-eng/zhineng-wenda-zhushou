@@ -121,6 +121,8 @@
   line-height: 1.6;
 }
 
+.registration-link { text-align: center; font-size: 14px; }
+
 .login-identities {
   display: grid;
   gap: var(--spacing-8);

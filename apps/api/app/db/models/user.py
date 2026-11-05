@@ -1,7 +1,7 @@
 """
 用户模型
 """
-from sqlalchemy import Column, String, Boolean, Integer, BigInteger, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, Integer, BigInteger, DateTime, ForeignKey, ForeignKeyConstraint, UniqueConstraint, CheckConstraint
 from app.db.types import UUID
 from sqlalchemy.sql import func
 import uuid
@@ -15,7 +15,8 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     platform_id = Column(BigInteger, unique=True, comment="平台教师ID；其他账号类型不分配")
-    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=False, index=True)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id"), nullable=True, index=True)
+    administrator_code = Column(String(8), unique=True, comment="新注册管理员的唯一八位数字账号")
     username = Column(String(100), nullable=False, comment="用户名")
     account_type = Column(String(20), nullable=False, default="general", server_default="general")
     must_change_password = Column(Boolean, nullable=False, default=False, server_default="false")
@@ -30,6 +31,9 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
+        CheckConstraint("school_id IS NOT NULL OR (administrator_code IS NOT NULL AND status = 'pending')", name="user_pending_administrator_school"),
+        CheckConstraint("administrator_code IS NULL OR administrator_code = username", name="user_administrator_code_username"),
+        CheckConstraint("administrator_code IS NULL OR length(administrator_code) = 8", name="user_administrator_code_length"),
         ForeignKeyConstraint(["school_id", "id", "platform_id"], ["platform_person_ids.school_id", "platform_person_ids.entity_id", "platform_person_ids.id"], name="fk_teacher_platform_identity"),
         UniqueConstraint("school_id", "account_type", "username", name="uq_school_account_username"),
         # Make the tenant part of every user relationship targetable by a

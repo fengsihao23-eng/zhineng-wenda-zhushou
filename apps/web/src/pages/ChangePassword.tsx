@@ -3,11 +3,12 @@ import { useMutation } from '@tanstack/react-query'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { apiFetch, apiError } from '../services/api'
 import { getCurrentUserApi } from '../services/auth'
-import { isAuthenticated, setAuthSession } from '../utils/auth'
+import { getUserInfo, isAuthenticated, setAuthSession } from '../utils/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import './Login.css'
 
 export function ChangePassword() {
+  const administrator = getUserInfo()?.roles.some(role => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'EXAM_ADMIN', 'CITY_OPERATOR', 'QA', 'SCHOOL_VIEWER'].includes(role))
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -28,11 +29,11 @@ export function ChangePassword() {
   })
   if (!isAuthenticated()) return <Navigate to="/login" replace />
   return <div className="login-container"><div className="login-box">
-    <div className="login-header"><h1>修改初始密码</h1><p>首次登录须修改密码后进入系统。初始密码与导入账号一致。</p></div>
+    <div className="login-header"><h1>修改密码</h1><p>{administrator ? '密码由你自行设置。重置后的首次登录需先修改密码。' : '首次登录须修改密码后进入系统。初始密码与导入账号一致。'}</p></div>
     <form className="login-form" onSubmit={e => { e.preventDefault(); if (!action.isPending) action.mutate() }}>
       <ErrorDisplay error={action.error} />
       <div className="form-group"><label htmlFor="current-password">当前密码</label><input id="current-password" type="password" autoComplete="current-password" required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} disabled={action.isPending} /></div>
-      <div className="form-group"><label htmlFor="new-password">新密码（至少 8 位）</label><input id="new-password" type="password" autoComplete="new-password" minLength={8} maxLength={72} required value={newPassword} onChange={e => setNewPassword(e.target.value)} disabled={action.isPending} /></div>
+      <div className="form-group"><label htmlFor="new-password">{administrator ? '新密码' : '新密码（至少 8 位）'}</label><input id="new-password" type="password" autoComplete="new-password" minLength={administrator ? 1 : 8} maxLength={administrator ? 4096 : 72} required value={newPassword} onChange={e => setNewPassword(e.target.value)} disabled={action.isPending} /></div>
       <div className="form-group"><label htmlFor="confirm-password">再次输入新密码</label><input id="confirm-password" type="password" autoComplete="new-password" required value={confirmation} onChange={e => setConfirmation(e.target.value)} disabled={action.isPending} /></div>
       <button className="login-button" disabled={action.isPending}>{action.isPending ? '正在修改…' : '修改密码并进入系统'}</button>
       <Link to="/login">返回登录</Link>

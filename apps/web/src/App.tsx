@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { Login } from './pages/Login'
 import { ChangePassword } from './pages/ChangePassword'
+import { RegisterAdministrator } from './pages/RegisterAdministrator'
+import { AdministratorsPage } from './pages/Administrators'
 import { RoleGate } from './components/RoleGate'
 import { STUDENT_ROLES, TEACHER_ROLES, SCHOOL_ROLES, CITY_ROLES, homePath } from './utils/permissions'
 import { StudentDetailPage, SchoolDetailPage } from './pages/ManagementDetails'
@@ -53,6 +55,8 @@ function App() {
           <Suspense fallback={<div className="loading-screen">正在加载页面…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/register-administrator" element={<RegisterAdministrator />} />
+            <Route path="/ops/administrators" element={<RoleGate allowed={['SUPER_ADMIN']}><AdministratorsPage /></RoleGate>} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<RoleGate><HomeRedirect /></RoleGate>} />
             <Route path="/mini" element={<Navigate to={getUserInfo()?.roles.includes('TEACHER') && !getUserInfo()?.roles.includes('STUDENT') ? '/teacher/chat' : '/chat'} replace />} />

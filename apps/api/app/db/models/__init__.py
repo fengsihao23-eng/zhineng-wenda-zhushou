@@ -6,6 +6,7 @@ from app.db.models.person_id import PlatformPersonId
 from app.db.models.roster import TeacherProfile, TeacherDeletion, TeacherChangeTask, RosterImport
 from app.db.models.school import School
 from app.db.models.security import TokenRevocation
+from app.db.models.administrator import AdministratorInvitation
 from app.db.models.user import User, Role, UserRole
 from app.db.models.student import Student
 from app.db.models.student_roster import StudentYearClass, StudentExamPlacement, StudentWorkflowTask
@@ -42,6 +43,7 @@ __all__ = [
     "TeacherChangeTask",
     "RosterImport",
     "TokenRevocation",
+    "AdministratorInvitation",
     "User",
     "Role",
     "UserRole",

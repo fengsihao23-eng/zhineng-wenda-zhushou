@@ -128,6 +128,14 @@ async def add_request_id(request: Request, call_next):
                 # Handle failures before returning from the request context,
                 # so error logs and response headers share the same ID.
                 response = await global_exception_handler(request, exc)
+        from app.services.administrator_audit import record_request
+        try:
+            await record_request(request, response.status_code)
+        except Exception as exc:
+            # Lifecycle changes have transactional audit events. A failure of
+            # supplemental request logging must be visible to operators, without
+            # pretending that an already committed business change was undone.
+            logger.error("administrator_request_audit_failed", request_id=request_id, error_type=type(exc).__name__)
         process_time = time.perf_counter() - start_time
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time"] = str(process_time)

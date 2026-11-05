@@ -322,7 +322,12 @@ class AuditLogger:
         if school_id is not None:
             query = query.outerjoin(User, AuditLogModel.actor_id == User.id).outerjoin(
                 Student, AuditLogModel.actor_id == Student.id
-            ).where(or_(User.school_id == school_id, Student.school_id == school_id))
+            ).where(or_(User.school_id == school_id, Student.school_id == school_id),
+                    # Administrator governance is visible only to SUPER_ADMIN,
+                    # including when the actor is attached to this school.
+                    ~AuditLogModel.action.startswith("administrator."),
+                    or_(AuditLogModel.extra_data["school_id"].as_string().is_(None),
+                        AuditLogModel.extra_data["school_id"].as_string() == str(school_id)))
 
         if actor_id:
             query = query.where(AuditLogModel.actor_id == actor_id)

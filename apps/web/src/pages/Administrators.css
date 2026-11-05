@@ -1,0 +1,19 @@
+.admin-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--color-hairline); margin-bottom: 24px; }
+.admin-tabs button { padding: 14px 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--color-muted); cursor: pointer; }
+.admin-tabs button[aria-selected="true"] { color: var(--color-accent); border-color: var(--color-accent); font-weight: 600; }
+.admin-toolbar, .admin-history-filters, .admin-search, .admin-pager, .admin-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.admin-toolbar label, .admin-history-filters label, .admin-form label, .admin-created label { display: grid; gap: 8px; color: var(--color-muted); font-size: 13px; }
+.admin-toolbar { align-items: end; }
+.admin-history-filters { margin: 0 0 20px; align-items: end; }
+.admin-history-filters input, .admin-history-filters select, .admin-form input, .admin-form select, .admin-created textarea { padding: 11px 12px; border: 1px solid var(--color-hairline); border-radius: var(--radius-inputs); background: var(--color-surface); color: var(--color-ink); font: inherit; }
+.admin-form { display: grid; gap: 18px; }
+.admin-created { display: grid; gap: 14px; }
+.admin-created textarea { width: 100%; min-height: 90px; font-family: monospace; resize: vertical; }
+.admin-pager { justify-content: end; margin: 22px 0; font-size: 13px; color: var(--color-muted); }
+.admin-scope { flex-basis: 100%; padding: 12px; background: var(--color-wash); border-radius: var(--radius-inputs); }
+.admin-route { max-width: 340px; overflow-wrap: anywhere; }
+.admin-detail { display: grid; grid-template-columns: 100px 1fr; gap: 12px; margin: 24px 0; font-size: 13px; }
+.admin-detail dt { color: var(--color-muted); }
+.admin-detail dd { margin: 0; overflow-wrap: anywhere; }
+.admin-json { padding: 16px; background: var(--color-wash); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 600px) { .admin-tabs button { padding: 12px 9px; } .admin-toolbar > label, .admin-search { width: 100%; } .admin-search input { flex: 1; min-width: 0; } .admin-history-filters label { flex: 1; min-width: 135px; } }

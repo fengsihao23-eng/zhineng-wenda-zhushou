@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getCurrentUserApi, loginApi, LoginIdentityRequired } from '../services/auth'
 import { setAuthSession } from '../utils/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
@@ -74,6 +74,8 @@ export function Login() {
           </div>
 
           <p className="login-hint">输入账号和密码，系统将自动识别身份并进入对应工作台。</p>
+          <p className="login-hint">忘记密码？请联系超级管理员重置。</p>
+          <Link className="registration-link" to="/register-administrator">持有注册密钥？注册学校管理员</Link>
           {identities.length > 0 && <section className="login-identities" aria-label="确认登录身份">
             <p role="status">账号和密码对应以下身份，请确认本次登录身份。</p>
             {identities.map(identity => <button type="button" key={identity.id} disabled={loading} onClick={() => {

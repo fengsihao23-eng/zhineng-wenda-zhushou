@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import health, auth, chat, prompts, traces, platform
 from app.api.v1.endpoints import management_details, education, roster, exam_management, report_management, answer_workbench
+from app.api.v1.endpoints import administrators
 
 api_router = APIRouter()
 
@@ -13,6 +14,7 @@ api_router.include_router(health.router, prefix="/health", tags=["health"])
 
 # 认证
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(administrators.router, tags=["administrators"])
 
 # 对话
 api_router.include_router(chat.router, tags=["chat"])

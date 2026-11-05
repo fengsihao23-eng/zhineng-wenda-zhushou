@@ -132,6 +132,8 @@ async def get_current_user(
         )
     )
     roles = [code for code in role_result.scalars().all() if code]
+    from app.services.administrator_audit import bind_request
+    bind_request(request, db, user, roles)
     if "TEACHER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR", "QA", "EXAM_ADMIN"}.intersection(roles):
         from app.core.exam_access import bind_teacher
         bind_teacher(db, user.school_id, user.id)

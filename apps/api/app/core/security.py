@@ -58,7 +58,7 @@ async def ensure_account_environment(user: User, db: AsyncSession) -> None:
     # or credentials; a migrated default credential must be reset first.
     if not is_demo:
         try:
-            is_demo = _has_default_password(user.password_hash) and not formal_student
+            is_demo = _has_default_password(user.password_hash) and not formal_student and not user.administrator_code
         except (UnknownHashError, ValueError, TypeError):
             is_demo = True  # Unknown stored credentials must not authenticate.
     if is_demo:

@@ -1,7 +1,7 @@
 """
 认证API - 登录、刷新、用户信息
 """
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -85,6 +85,7 @@ def account_kind(user, roles):
 @router.post("/login", response_model=LoginResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -113,6 +114,13 @@ async def login(
     if request.identity_id is not None:
         verified = [candidate for candidate in verified if candidate.id == request.identity_id]
     if not verified:
+        from app.services.administrator_audit import ADMIN_ROLES, event
+        for candidate in candidates:
+            candidate_roles = await _load_roles(db, candidate)
+            if candidate.administrator_code or ADMIN_ROLES.intersection(candidate_roles):
+                event(db, http_request, candidate.id, "login", candidate, candidate.school_id,
+                      allowed=False, extra={"reason": "invalid_credentials"})
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if len(verified) > 1:
         if not active:
@@ -125,18 +133,24 @@ async def login(
             identities.append({"id": str(candidate.id), "display_name": candidate.display_name or candidate.username, "school_name": school_name, "account_type": account_kind(candidate, candidate_roles)})
         raise ApiError(409, "LOGIN_IDENTITY_REQUIRED", "账号和密码已验证，请确认本次登录身份。", details={"identities": identities})
     user = verified[0]
+    roles = await _load_roles(db, user)
+    from app.services.administrator_audit import ADMIN_ROLES, bind_request, event
+    bind_request(http_request, db, user, roles)
 
     # 检查用户状态
     if user.status != "active":
+        if user.administrator_code or ADMIN_ROLES.intersection(roles):
+            event(db, http_request, user.id, "login", user, user.school_id, allowed=False, extra={"account_status": user.status})
+            await db.commit()
+        if user.status == "pending" and user.administrator_code:
+            raise HTTPException(status_code=403, detail="账号注册成功，等待超级管理员分配学校和权限后启用。",
+                                headers={"X-Error-Code": "ADMIN_APPROVAL_PENDING"})
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="用户账号已被禁用"
         )
 
     await ensure_account_environment(user, db)
-
-    # 角色来自关联表，不能把每个登录用户伪装成 STUDENT。
-    roles = await _load_roles(db, user)
 
     # 查询学生信息（如果是学生）
     student_result = await db.execute(
@@ -167,6 +181,9 @@ async def login(
 
     # 更新最后登录时间
     user.last_login_at = datetime.now(timezone.utc)
+    if ADMIN_ROLES.intersection(roles):
+        bind_request(http_request, db, user, roles)
+        event(db, http_request, user.id, "login", user, user.school_id)
     await db.commit()
 
     return LoginResponse(
@@ -269,6 +286,7 @@ async def refresh_token(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    http_request: Request,
     request: LogoutRequest | None = None,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
     db: AsyncSession = Depends(get_db),
@@ -307,13 +325,24 @@ async def logout(
     if refresh:
         await revoke_token(refresh, db, expected_type="refresh", allow_expired=True)
     await revoke_session(access_payload or refresh_payload, db)
+    from app.services.administrator_audit import ADMIN_ROLES, bind_request, event
+    try:
+        user_id = UUID(str((access_payload or refresh_payload)["sub"]))
+    except ValueError:
+        user_id = None
+    user = await db.get(User, user_id) if user_id else None
+    if user:
+        roles = await _load_roles(db, user)
+        if ADMIN_ROLES.intersection(roles):
+            bind_request(http_request, db, user, roles)
+            event(db, http_request, user.id, "logout", user, user.school_id)
     await commit_token_revocations(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(min_length=1, max_length=200)
-    new_password: str = Field(min_length=8, max_length=72)
+    current_password: str = Field(min_length=1, max_length=4096)
+    new_password: str = Field(min_length=1, max_length=4096)
 
 
 @router.post("/change-password")
@@ -325,8 +354,11 @@ async def change_password(
     user = await db.scalar(select(User).where(User.id == current.user_id).with_for_update().execution_options(populate_existing=True))
     if not verify_password(request.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="当前密码不正确。")
-    if request.new_password == user.username or verify_password(request.new_password, user.password_hash) or len(request.new_password.encode()) > 72:
+    administrator = bool(user.administrator_code) or any(current.has_role(r) for r in ("SCHOOL_ADMIN", "SUPER_ADMIN", "EXAM_ADMIN", "CITY_OPERATOR", "QA", "SCHOOL_VIEWER"))
+    if not administrator and (len(request.new_password) < 8 or request.new_password == user.username or verify_password(request.new_password, user.password_hash) or len(request.new_password.encode()) > 72):
         raise HTTPException(status_code=422, detail="新密码不能与账号或当前密码相同，长度为 8–72 字节。")
+    if verify_password(request.new_password, user.password_hash):
+        raise HTTPException(status_code=422, detail="新密码不能与当前密码相同。")
     user.password_hash = get_password_hash(request.new_password)
     user.must_change_password = False
     user.password_version += 1
