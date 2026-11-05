@@ -253,9 +253,10 @@ def exam_metadata(grants, subjects, exams):
             continue
         exam, config = exams[eid]
         subset = [g for g in grants if g.exam_id == eid]
+        student_ids = {str(g.student_id) for g in subset}
         rows.append({'id': str(eid), 'name': exam.name, 'date': str(exam.start_date or ''),
             'grades': list(dict.fromkeys(v.get('grade', '') for k, v in config.configuration.get('snapshots', {}).items()
-                if k in {str(g.student_id) for g in subset})),
+                if k in student_ids)),
             'subjects': [{'k': sid, 'n': subjects.get(sid, sid)} for sid in dict.fromkeys(str(g.subject_id) for g in subset)],
             'types': list(dict.fromkeys(g.content_type for g in subset))})
     return rows
