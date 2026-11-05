@@ -113,7 +113,7 @@ export function ExamWorkbench({ writable }: { writable: boolean }) {
 function StudentPicker({ people, selected, onChange, disabled = false }: { people: Person[]; selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean }) {
   const [search, setSearch] = useState(''), [expanded, setExpanded] = useState<string[]>([])
   const visible = people.filter(p => `${p.name} ${p.platform_id} ${p.account}`.includes(search))
-  const groups = [...new Set(visible.map(groupKey))].sort()
+  const groups = sortTeacherOptions(visible.map(groupKey))
   const setGroup = (ids: string[], checked: boolean) => onChange(checked ? unique([...selected, ...ids]) : selected.filter(id => !ids.includes(id)))
   return <div className="exam-picker"><div className="exam-actions"><input aria-label="搜索参试学生" placeholder="搜索姓名 / 学生ID / 账号" value={search} onChange={e => setSearch(e.target.value)} /><button disabled={disabled} onClick={() => setGroup(visible.map(p => p.id), true)}>全选筛选结果</button><button disabled={disabled} onClick={() => setGroup(visible.map(p => p.id), false)}>清除筛选结果</button><span>已选 {selected.length} 人</span></div>
     {!groups.length && <p className="inline-empty">当前学年、年级及班级下没有可选学生。</p>}
@@ -133,7 +133,7 @@ function ExamEditor({ exam, onSaved, onCancel }: { exam?: ExamData; onSaved: (ex
   const currentPeople = scope.data?.students || []
   const sameYear = !!exam && selectedYear === exam.academic_year
   const people = sameYear ? [...currentPeople, ...Object.values(exam.snapshots).filter(p => !currentPeople.some(c => c.id === p.id))] : currentPeople
-  const allGrades = unique(people.map(p => p.grade)).sort(), allClasses = unique(people.filter(p => grades.includes(p.grade)).map(groupKey)).sort()
+  const allGrades = sortTeacherOptions(people.map(p => p.grade)), allClasses = sortTeacherOptions(people.filter(p => grades.includes(p.grade)).map(groupKey))
   const filteredPeople = sameYear ? people : people.filter(p => grades.includes(p.grade) && classes.includes(groupKey(p)))
   const body = () => ({ name: name.trim(), academic_year: selectedYear, exam_date: date, subjects: subjects.map(s => ({ ...s, full_score: Number(s.full_score) })), ...(exam ? { expected_revision: exam.revision } : {}) })
   const updateSubject = (key: string, values: Partial<ExamSubject>) => { setSubjects(subjects.map(s => s.key === key ? { ...s, ...values } : s)); setPreview(null); setConfirmed(false) }
