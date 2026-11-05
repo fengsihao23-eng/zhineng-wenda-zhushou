@@ -2,6 +2,7 @@
 .exam-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 22px 0; }
 .exam-heading h2 { margin: 0 0 6px; font-size: 21px; }
 .exam-heading p, .exam-muted { color: var(--color-muted); font-size: 12px; line-height: 1.7; margin: 5px 0; }
+.exam-absence-reminder { display: inline-block; margin-left: 8px; color: #c62828; font-weight: 600; }
 .exam-actions, .exam-filters, .exam-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .exam-filters { margin: 16px 0 20px; }
 .exam-filters input { flex: 1; min-width: 180px; }

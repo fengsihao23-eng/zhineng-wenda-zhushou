@@ -1,6 +1,5 @@
-"""Super-admin governance and invitation-only school admin registration."""
-from datetime import datetime, timedelta, timezone
-import hashlib
+"""Super-admin creation, authorization and lifecycle governance."""
+from datetime import datetime, timezone
 import secrets
 from typing import Literal
 from uuid import UUID, uuid4
@@ -41,17 +40,14 @@ class StrictInput(BaseModel):
         return value.strip() if isinstance(value, str) and info.field_name not in {"password", "new_password"} else value
 
 
-class InvitationCreate(StrictInput):
-    label: str = Field(min_length=1, max_length=100)
-    expires_in_days: int = Field(default=7, ge=1, le=30)
-
-
-class Registration(StrictInput):
-    registration_key: str = Field(min_length=1, max_length=200)
+class AdministratorCreate(StrictInput):
     username: str = Field(default="", max_length=8, pattern=r"^(?:[0-9]{8})?$")
     display_name: str = Field(min_length=1, max_length=100)
     phone: str = Field(default="", max_length=30)
     password: str = Field(min_length=1, max_length=4096)
+    school_id: UUID
+    roles: list[Literal["SCHOOL_ADMIN", "EXAM_ADMIN", "SCHOOL_VIEWER", "QA"]] = Field(min_length=1, max_length=1)
+    must_change_password: bool = True
 
 
 class AdministratorUpdate(StrictInput):
@@ -110,20 +106,9 @@ async def schools(current=Depends(super_admin), db: AsyncSession = Depends(get_d
     return [{"id": str(row.id), "name": row.name, "code": row.code, "status": row.status} for row in rows]
 
 
-@router.post(PREFIX + "/invitations", status_code=201)
-async def create_invitation(payload: InvitationCreate, request: Request, response: Response,
-                            current=Depends(super_admin), db: AsyncSession = Depends(get_db)):
-    key = secrets.token_urlsafe(32)
-    item = AdministratorInvitation(id=uuid4(), label=payload.label,
-        key_hash=hashlib.sha256(key.encode()).hexdigest(), status="active", created_by=current.user_id,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days))
-    db.add(item)
-    await db.flush()
-    event(db, request, current.user_id, "invitation.create", item, None,
-          extra={"label": item.label, "expires_at": iso(item.expires_at)})
-    await db.commit()
-    response.headers["Cache-Control"] = "no-store"
-    return {"id": str(item.id), "registration_key": key, "expires_at": iso(item.expires_at)}
+@router.post(PREFIX + "/invitations")
+async def invitations_closed(current=Depends(super_admin)):
+    raise ApiError(410, "ADMIN_REGISTRATION_CLOSED", "注册密钥已停用，请直接新增学校管理员。")
 
 
 @router.get(PREFIX + "/invitations")
@@ -155,15 +140,20 @@ async def revoke_invitation(identifier: UUID, request: Request, current=Depends(
     return {"status": "revoked"}
 
 
-@router.post("/auth/register-administrator", status_code=201)
-async def register(payload: Registration, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
-    now = datetime.now(timezone.utc)
-    item = await db.scalar(select(AdministratorInvitation).where(
-        AdministratorInvitation.key_hash == hashlib.sha256(payload.registration_key.encode()).hexdigest(),
-        AdministratorInvitation.status == "active", AdministratorInvitation.expires_at > now,
-    ).with_for_update())
-    if not item:
-        raise ApiError(400, "INVALID_REGISTRATION_KEY", "注册密钥无效、已使用或已过期，请联系超级管理员。")
+@router.post("/auth/register-administrator")
+async def registration_closed():
+    raise ApiError(410, "ADMIN_REGISTRATION_CLOSED", "学校管理员账号由超级管理员创建，请联系超级管理员。")
+
+
+@router.post(PREFIX, status_code=201)
+async def create_administrator(payload: AdministratorCreate, request: Request, response: Response,
+                               current=Depends(super_admin), db: AsyncSession = Depends(get_db)):
+    school = await db.scalar(select(School).where(School.id == payload.school_id, School.status == "active"))
+    if not school:
+        raise ApiError(404, "SCHOOL_NOT_AVAILABLE", "请选择有效的学校。")
+    granted = list((await db.scalars(select(Role).where(Role.code.in_(payload.roles)))).all())
+    if len(granted) != len(payload.roles):
+        raise ApiError(503, "ADMIN_ROLE_NOT_CONFIGURED", "所选权限尚未初始化，请联系系统维护人员。")
     username = payload.username
     if username:
         if await db.scalar(select(User.id).where(User.username == username)):
@@ -177,28 +167,25 @@ async def register(payload: Registration, request: Request, response: Response, 
             raise ApiError(503, "ADMIN_CODE_UNAVAILABLE", "暂时无法生成账号，请稍后重试。")
     password_hash = await run_in_threadpool(get_password_hash, payload.password)
     try:
-        consumed = await db.execute(update(AdministratorInvitation).where(
-            AdministratorInvitation.id == item.id, AdministratorInvitation.status == "active",
-            AdministratorInvitation.expires_at > datetime.now(timezone.utc),
-        ).values(status="used", used_at=now).execution_options(synchronize_session="fetch"))
-        if consumed.rowcount != 1:
-            raise ApiError(409, "REGISTRATION_KEY_USED", "注册密钥已被使用，请联系超级管理员。")
-        user = User(id=uuid4(), school_id=None, username=username, administrator_code=username, display_name=payload.display_name,
-            phone=payload.phone or None, account_type="general", password_hash=password_hash, status="pending", must_change_password=False)
+        user = User(id=uuid4(), school_id=school.id, username=username, administrator_code=username, display_name=payload.display_name,
+            phone=payload.phone or None, account_type="general", password_hash=password_hash, status="active",
+            must_change_password=payload.must_change_password)
         db.add(user)
         await db.flush()
-        item.used_by = user.id
-        event(db, request, user.id, "register", user, None,
-              extra={"after": {**snapshot(user), "roles": []}, "invitation_id": str(item.id), "invited_by": str(item.created_by)})
+        db.add_all(UserRole(user_id=user.id, school_id=school.id, role_id=role.id) for role in granted)
+        event(db, request, current.user_id, "create", user, school.id,
+              extra={"after": {**snapshot(user), "school_name": school.name, "roles": sorted(payload.roles)}})
+        await db.flush()
+        result = await serialize_user(db, user, school)
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise ApiError(409, "REGISTRATION_CONFLICT", "账号或密钥状态已变化，请核对后重试。")
+        raise ApiError(409, "ADMIN_USERNAME_EXISTS", "该八位账号已被使用，请换一个或留空自动生成。")
     except Exception:
         await db.rollback()
         raise
     response.headers["Cache-Control"] = "no-store"
-    return {"id": str(user.id), "username": user.username, "status": "pending", "roles": []}
+    return result
 
 
 @router.get(PREFIX)

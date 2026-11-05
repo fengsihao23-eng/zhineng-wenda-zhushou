@@ -5,10 +5,11 @@
 .admin-toolbar label, .admin-history-filters label, .admin-form label, .admin-created label { display: grid; gap: 8px; color: var(--color-muted); font-size: 13px; }
 .admin-toolbar { align-items: end; }
 .admin-history-filters { margin: 0 0 20px; align-items: end; }
-.admin-history-filters input, .admin-history-filters select, .admin-form input, .admin-form select, .admin-created textarea { padding: 11px 12px; border: 1px solid var(--color-hairline); border-radius: var(--radius-inputs); background: var(--color-surface); color: var(--color-ink); font: inherit; }
+.admin-history-filters input, .admin-history-filters select, .admin-form input, .admin-form select, .admin-created input { padding: 11px 12px; border: 1px solid var(--color-hairline); border-radius: var(--radius-inputs); background: var(--color-surface); color: var(--color-ink); font: inherit; }
 .admin-form { display: grid; gap: 18px; }
+.admin-form .admin-checkbox { display: flex; align-items: center; }
+.admin-form-error { margin: 0; color: #c62828; font-size: 13px; }
 .admin-created { display: grid; gap: 14px; }
-.admin-created textarea { width: 100%; min-height: 90px; font-family: monospace; resize: vertical; }
 .admin-pager { justify-content: end; margin: 22px 0; font-size: 13px; color: var(--color-muted); }
 .admin-scope { flex-basis: 100%; padding: 12px; background: var(--color-wash); border-radius: var(--radius-inputs); }
 .admin-route { max-width: 340px; overflow-wrap: anywhere; }

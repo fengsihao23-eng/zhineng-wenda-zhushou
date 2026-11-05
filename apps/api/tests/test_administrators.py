@@ -1,4 +1,5 @@
-"""Synthetic administrator registration, authorization and lifecycle regressions."""
+"""Super-admin creation, authorization and lifecycle regressions."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 import pytest
@@ -32,22 +33,17 @@ async def governance(test_db, sample_school_id):
     return {'users': users, 'headers': headers, 'school_id': school.id}
 
 
-async def invite(client, governance):
-    response = await client.post(ROOT + '/invitations', headers=governance['headers']['SUPER_ADMIN'], json={'label': '测试教务管理员'})
+def creation(governance, **changes):
+    return {'username': '01234567', 'password': '1', 'display_name': '新管理员',
+            'school_id': str(governance['school_id']), 'roles': ['SCHOOL_ADMIN'],
+            'must_change_password': False, **changes}
+
+
+async def create(client, governance, **changes):
+    response = await client.post(ROOT, headers=governance['headers']['SUPER_ADMIN'], json=creation(governance, **changes))
     assert response.status_code == 201, response.text
     assert response.headers['cache-control'] == 'no-store'
     return response.json()
-
-
-def registration(key, username='01234567', password='1'):
-    return {'registration_key': key, 'username': username, 'password': password, 'display_name': '新管理员'}
-
-
-async def pending(client, governance, password='1'):
-    invitation = await invite(client, governance)
-    response = await client.post(REGISTER, json=registration(invitation['registration_key'], password=password))
-    assert response.status_code == 201, response.text
-    return response.json(), invitation
 
 
 async def account(client, governance, identifier):
@@ -69,80 +65,111 @@ async def login(client, password='1'):
 
 
 @pytest.mark.asyncio
-async def test_pending_registration_authorization_and_tenant_isolation(client, test_db, governance):
-    created, invitation = await pending(client, governance)
+async def test_direct_creation_grants_school_immediately_and_isolates_tenant(client, test_db, governance):
+    created = await create(client, governance, phone=' 13800000001 ', display_name=' 新管理员 ')
     user = await test_db.get(User, UUID(created['id']))
-    assert user.school_id is None and user.status == 'pending'
+    assert user.school_id == governance['school_id'] and user.status == 'active'
     assert user.username == user.administrator_code == '01234567'
-    assert user.password_hash != '1' and user.phone is None
-    assert created['roles'] == []
-    assert await test_db.scalar(select(func.count()).select_from(UserRole).where(UserRole.user_id == user.id)) == 0
-    blocked = await client.post('/api/v1/auth/login', json={'username': user.username, 'password': '1'})
-    assert blocked.status_code == 403 and blocked.json()['error']['code'] == 'ADMIN_APPROVAL_PENDING'
-    assigned = await authorize(client, governance, await account(client, governance, created['id']))
-    assert assigned.status_code == 200, assigned.text
-    assert assigned.json()['roles'] == ['SCHOOL_ADMIN'] and assigned.json()['school_id'] == str(governance['school_id'])
+    assert user.password_hash != '1' and user.phone == '13800000001'
+    assert created['roles'] == ['SCHOOL_ADMIN'] and created['display_name'] == '新管理员'
+    assert await test_db.scalar(select(func.count()).select_from(UserRole).where(UserRole.user_id == user.id)) == 1
     headers = await login(client)
     assert (await client.post('/api/v1/auth/login', json={'username': '01234567', 'password': 'incorrect'})).status_code == 401
-    assert (await client.get(ROOT + '/history', headers=headers)).status_code == 403
-    assert (await client.get('/api/v1/platform/management/schools', headers=headers)).status_code == 403
+    for path in (ROOT, ROOT + '/history', '/api/v1/platform/management/schools'):
+        assert (await client.get(path, headers=headers)).status_code == 403
     students = await client.get('/api/v1/platform/management/students', headers=headers)
     assert students.status_code == 200 and students.json() == []
     legacy = await client.get('/api/v1/admin/traces/audit', headers=headers)
     assert legacy.status_code == 200, legacy.text
     assert not any(row['action'].startswith('administrator.') for row in legacy.json())
     history = await client.get(ROOT + '/history', headers=governance['headers']['SUPER_ADMIN'], params={'administrator_id': created['id']})
-    assert history.status_code == 200, history.text
     rows = history.json()['items']
-    assert {'administrator.register', 'administrator.update', 'administrator.login'}.issubset(row['action'] for row in rows)
+    assert {'administrator.create', 'administrator.login'}.issubset(row['action'] for row in rows)
+    recorded = next(row for row in rows if row['action'] == 'administrator.create')
+    assert recorded['actor_username'] == governance['users']['SUPER_ADMIN'].username
+    assert recorded['details']['after']['roles'] == ['SCHOOL_ADMIN'] and recorded['school_name'] == '另一所学校'
     assert any(row['action'] == 'administrator.request' and not row['allowed'] for row in rows)
-    assert any(row['action'] == 'administrator.login' and not row['allowed'] for row in rows)
-    assert invitation['registration_key'] not in history.text
+    assert 'password_hash' not in history.text and '"password"' not in history.text
 
 
 @pytest.mark.asyncio
-async def test_single_use_no_self_grant_unique_eight_digit_accounts(client, test_db, governance):
-    invitation = await invite(client, governance)
-    payload = registration(invitation['registration_key'])
-    for extra in ({'roles': ['SUPER_ADMIN']}, {'school_id': str(governance['school_id'])}, {'status': 'active'}):
-        response = await client.post(REGISTER, json={**payload, **extra})
-        assert response.status_code == 422 and invitation['registration_key'] not in response.text
+@pytest.mark.parametrize('role', ['SCHOOL_ADMIN', 'EXAM_ADMIN', 'SCHOOL_VIEWER', 'QA'])
+async def test_creation_uses_exactly_the_selected_permission(client, governance, role):
+    created = await create(client, governance, roles=[role])
+    assert created['roles'] == [role]
+    await login(client)
+
+
+@pytest.mark.asyncio
+async def test_unique_eight_digit_accounts_and_validation_are_atomic(client, test_db, governance):
+    headers = governance['headers']['SUPER_ADMIN']
+    for changes in ({'roles': ['SUPER_ADMIN']}, {'roles': ['CITY_OPERATOR']}, {'roles': []},
+                    {'roles': ['SCHOOL_ADMIN', 'EXAM_ADMIN']}, {'status': 'pending'}, {'registration_key': 'old-key'},
+                    {'display_name': '   '}, {'password': ''}):
+        response = await client.post(ROOT, headers=headers, json=creation(governance, **changes))
+        assert response.status_code == 422, response.text
     for username in ('1234567', '123456789', 'abcdefgh', '13800138000'):
-        assert (await client.post(REGISTER, json={**payload, 'username': username})).status_code == 422
-    assert (await client.post(REGISTER, json=registration('wrong-secret'))).status_code == 400
-    assert (await client.post(REGISTER, json=payload)).status_code == 201
-    assert (await client.post(REGISTER, json={**payload, 'username': '88888888'})).status_code == 400
-    stored = await test_db.get(AdministratorInvitation, UUID(invitation['id']))
-    await test_db.refresh(stored)
-    assert stored.status == 'used' and stored.used_by is not None
-    assert invitation['registration_key'] not in stored.key_hash
-    another = await invite(client, governance)
-    assert (await client.post(REGISTER, json=registration(another['registration_key']))).status_code == 409
-    random_account = await client.post(REGISTER, json=registration(another['registration_key'], ''))
-    assert random_account.status_code == 201
-    assert len(random_account.json()['username']) == 8 and random_account.json()['username'].isdigit()
+        assert (await client.post(ROOT, headers=headers, json=creation(governance, username=username))).status_code == 422
+    assert await test_db.scalar(select(func.count(User.id)).where(User.administrator_code.is_not(None))) == 0
+    await create(client, governance)
+    duplicate = await client.post(ROOT, headers=headers, json=creation(governance, school_id=str(governance['users']['SUPER_ADMIN'].school_id)))
+    assert duplicate.status_code == 409
+    generated = await create(client, governance, username='')
+    assert len(generated['username']) == 8 and generated['username'].isdigit() and generated['username'] != '01234567'
+    assert await test_db.scalar(select(func.count(User.id)).where(User.administrator_code.is_not(None))) == 2
 
 
 @pytest.mark.asyncio
-async def test_expired_revoked_invites_do_not_create_accounts(client, test_db, governance):
-    for state in ('expired', 'revoked'):
-        invitation = await invite(client, governance)
-        row = await test_db.get(AdministratorInvitation, UUID(invitation['id']))
-        if state == 'expired':
-            row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=5)
-            await test_db.commit()
-        else:
-            result = await client.post(ROOT + f'/invitations/{row.id}/revoke', headers=governance['headers']['SUPER_ADMIN'])
-            assert result.status_code == 200
-        assert (await client.post(REGISTER, json=registration(invitation['registration_key']))).status_code == 400
+async def test_unavailable_school_and_unconfigured_role_create_nothing(client, test_db, governance):
+    school = await test_db.get(School, governance['school_id'])
+    school.status = 'disabled'
+    role = await test_db.scalar(select(Role).where(Role.code == 'QA'))
+    role.code = 'RETIRED_QA'
+    await test_db.commit()
+    for changes, expected in (({'school_id': str(uuid4())}, 404), ({}, 404),
+                              ({'school_id': str(governance['users']['SUPER_ADMIN'].school_id), 'roles': ['QA']}, 503)):
+        response = await client.post(ROOT, headers=governance['headers']['SUPER_ADMIN'], json=creation(governance, **changes))
+        assert response.status_code == expected, response.text
+    assert await test_db.scalar(select(func.count(User.id)).where(User.administrator_code.is_not(None))) == 0
+    assert await test_db.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == 'administrator.create')) == 0
+
+
+@pytest.mark.asyncio
+async def test_public_registration_and_key_issuance_are_closed_even_with_valid_legacy_key(client, test_db, governance):
+    key = 'synthetic-existing-key'
+    row = AdministratorInvitation(id=uuid4(), label='历史密钥', key_hash=hashlib.sha256(key.encode()).hexdigest(),
+        status='active', created_by=governance['users']['SUPER_ADMIN'].id, expires_at=datetime.now(timezone.utc) + timedelta(days=7))
+    test_db.add(row)
+    await test_db.commit()
+    response = await client.post(REGISTER, json={'registration_key': key, 'username': '01234567', 'password': '1', 'display_name': '新管理员'})
+    assert response.status_code == 410 and key not in response.text
+    headers = governance['headers']['SUPER_ADMIN']
+    assert (await client.post(ROOT + '/invitations', headers=headers, json={'label': '停用密钥'})).status_code == 410
+    listing = await client.get(ROOT + '/invitations', headers=headers)
+    assert listing.status_code == 200 and listing.json()['total'] == 1
+    assert key not in listing.text and 'key_hash' not in listing.text
+    assert (await client.post(ROOT + f'/invitations/{row.id}/revoke', headers=headers)).status_code == 200
     assert await test_db.scalar(select(func.count(User.id)).where(User.administrator_code.is_not(None))) == 0
 
 
 @pytest.mark.asyncio
+async def test_creation_defaults_to_first_login_password_change(client, governance):
+    payload = creation(governance)
+    payload.pop('must_change_password')
+    created = await client.post(ROOT, headers=governance['headers']['SUPER_ADMIN'], json=payload)
+    assert created.status_code == 201 and created.json()['must_change_password']
+    headers = await login(client)
+    assert (await client.get('/api/v1/platform/management/students', headers=headers)).status_code == 403
+    changed = await client.post('/api/v1/auth/change-password', headers=headers, json={'current_password': '1', 'new_password': '2'})
+    assert changed.status_code == 200, changed.text
+    assert (await client.get('/api/v1/platform/management/students', headers=await login(client, password='2'))).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_grant_change_conflict_disable_and_before_after_history(client, governance):
-    created, _ = await pending(client, governance)
+    created = await create(client, governance)
     first = await account(client, governance, created['id'])
-    assigned = await authorize(client, governance, first)
+    assigned = await authorize(client, governance, first, role='EXAM_ADMIN')
     assert assigned.status_code == 200
     headers = await login(client)
     assert (await authorize(client, governance, first)).status_code == 409
@@ -164,7 +191,7 @@ async def test_grant_change_conflict_disable_and_before_after_history(client, go
 @pytest.mark.asyncio
 async def test_free_password_reset_invalidates_sessions_and_forced_change(client, governance):
     long_password = '自由密码' * 30
-    created, _ = await pending(client, governance, password=long_password)
+    created = await create(client, governance, password=long_password)
     assert (await authorize(client, governance, await account(client, governance, created['id']))).status_code == 200
     headers = await login(client, password=long_password)
     current = await account(client, governance, created['id'])
@@ -185,14 +212,14 @@ async def test_free_password_reset_invalidates_sessions_and_forced_change(client
 
 @pytest.mark.asyncio
 async def test_super_admin_only_all_accounts_and_protection(client, governance):
-    invitation = await invite(client, governance)
     owner = governance['users']['SUPER_ADMIN']
-    for role in ('SCHOOL_ADMIN', 'CITY_OPERATOR', 'STUDENT', 'EXAM_ADMIN'):
+    assert (await client.post(ROOT, json=creation(governance))).status_code == 401
+    for role in ('SCHOOL_ADMIN', 'CITY_OPERATOR', 'STUDENT', 'EXAM_ADMIN', 'SCHOOL_VIEWER', 'QA'):
         headers = governance['headers'][role]
+        assert (await client.post(ROOT, headers=headers, json=creation(governance))).status_code == 403
         for path in (ROOT, ROOT + '/schools', ROOT + '/invitations', ROOT + '/history'):
             assert (await client.get(path, headers=headers)).status_code == 403
         assert (await client.post(ROOT + '/invitations', headers=headers, json={'label': '非法'})).status_code == 403
-        assert (await client.post(ROOT + f"/invitations/{invitation['id']}/revoke", headers=headers)).status_code == 403
         assert (await client.post(ROOT + f'/{owner.id}/reset-password', headers=headers, json={'new_password': '1', 'expected_revision': owner.password_version})).status_code == 403
     listing = await client.get(ROOT, headers=governance['headers']['SUPER_ADMIN'], params={'scope': 'all'})
     assert listing.status_code == 200
@@ -205,11 +232,10 @@ async def test_super_admin_only_all_accounts_and_protection(client, governance):
 
 @pytest.mark.asyncio
 async def test_history_pagination_and_secret_redaction(client, test_db, governance):
-    invitation = await invite(client, governance)
     headers = governance['headers']['SUPER_ADMIN']
     listing = await client.get(ROOT + '/invitations', headers=headers)
     assert listing.status_code == 200
-    assert invitation['registration_key'] not in listing.text and 'key_hash' not in listing.text
+    assert 'key_hash' not in listing.text
     owner = governance['users']['SUPER_ADMIN']
     for i in range(23):
         test_db.add(AuditLog(actor_id=owner.id, actor_type='user', action='test.historic.operation', allowed=True, extra_data={'sequence': i}))
@@ -222,17 +248,14 @@ async def test_history_pagination_and_secret_redaction(client, test_db, governan
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('shared_key', [True, False])
-async def test_concurrent_registration_has_one_winner(client, test_db, test_engine, governance, shared_key):
+async def test_concurrent_creation_has_one_winner(client, test_db, test_engine, governance):
     if test_engine.dialect.name != 'postgresql':
-        pytest.skip('Concurrent registration is verified against PostgreSQL row locks')
+        pytest.skip('Concurrent creation is verified against PostgreSQL uniqueness constraints')
     import asyncio
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.main import app
     from app.core.database import get_db
-    first = await invite(client, governance)
-    second = first if shared_key else await invite(client, governance)
     factory = async_sessionmaker(test_engine, expire_on_commit=False)
     previous = app.dependency_overrides[get_db]
 
@@ -248,11 +271,11 @@ async def test_concurrent_registration_has_one_winner(client, test_db, test_engi
     app.dependency_overrides[get_db] = independent_db
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as connection:
-            results = await asyncio.gather(*[connection.post(REGISTER, json=registration(item['registration_key'])) for item in (first, second)])
-        assert sum(result.status_code == 201 for result in results) == 1
-        assert all(result.status_code in (201, 400, 409) for result in results)
+            results = await asyncio.gather(*[connection.post(ROOT, headers=governance['headers']['SUPER_ADMIN'], json=creation(governance)) for _ in range(2)])
+        assert sorted(result.status_code for result in results) == [201, 409]
         assert await test_db.scalar(select(func.count(User.id)).where(User.administrator_code == '01234567')) == 1
-        if not shared_key:
-            assert await test_db.scalar(select(func.count(AdministratorInvitation.id)).where(AdministratorInvitation.status == 'active')) == 1
+        identifier = UUID(next(result.json()['id'] for result in results if result.status_code == 201))
+        assert await test_db.scalar(select(func.count(UserRole.user_id)).where(UserRole.user_id == identifier)) == 1
+        assert await test_db.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == 'administrator.create')) == 1
     finally:
         app.dependency_overrides[get_db] = previous
