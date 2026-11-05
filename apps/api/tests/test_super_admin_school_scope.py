@@ -105,3 +105,33 @@ async def test_disabled_school_is_read_only(client, test_db, scoped_schools):
     assert (await client.get('/api/v1/platform/education/roster/students/records', headers=setup['selected'])).status_code==200
     response=await client.post('/api/v1/platform/education/school/subjects',headers=setup['selected'],json={'code':'X','name':'科目','external_subject_id':'X'})
     assert response.status_code==403 and response.json()['error']['code']=='SCHOOL_INACTIVE'
+
+
+@pytest.mark.asyncio
+async def test_large_school_prompt_catalog_uses_bounded_queries_and_preserves_identity(test_db, test_engine, scoped_schools):
+    from sqlalchemy import event
+    from app.api.deps import AuthenticatedUser
+    from app.services.answer_workbench import catalog, person, permitted_exam_metadata
+    setup=scoped_schools
+    role=Role(id=uuid4(),code='STUDENT',name='Student')
+    test_db.add(role);await test_db.flush()
+    users=[]
+    for index in range(35):
+        user=User(id=uuid4(),school_id=setup['other'].id,username=f'catalog-{index}',display_name=f'Student {index}',password_hash='unused')
+        test_db.add(user);await test_db.flush()
+        test_db.add_all([UserRole(user_id=user.id,school_id=user.school_id,role_id=role.id),
+            Student(id=uuid4(),school_id=user.school_id,user_id=user.id,name=user.display_name,status='active',profile_fields={'年级':'高中一年级'})])
+        users.append(user)
+    await test_db.commit()
+    actor=AuthenticatedUser(setup['owner'].id,setup['other'].id,setup['owner'].username,['SUPER_ADMIN'])
+    queries=[]
+    def capture(conn,cursor,statement,parameters,context,executemany):
+        if statement.lstrip().upper().startswith('SELECT'):queries.append(statement)
+    event.listen(test_engine.sync_engine,'before_cursor_execute',capture)
+    try:result=await catalog(test_db,actor)
+    finally:event.remove(test_engine.sync_engine,'before_cursor_execute',capture)
+    assert len(result)==36 and len(queries)<=12
+    expected=await person(test_db,actor,users[0].id,True)
+    expected['scope']=await permitted_exam_metadata(test_db,actor,expected)
+    assert next(row for row in result if row['userId']==str(users[0].id))==expected
+    assert all(row['school']=='第二测试学校' for row in result)

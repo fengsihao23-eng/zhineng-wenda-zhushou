@@ -112,6 +112,15 @@ async def person(db, actor, user_id=None, allow_inactive=False):
     kind, rid = ('student', student.id) if student else ('teacher', uid)
     placement = await db.scalar(select(StudentYearClass).where(StudentYearClass.student_id == rid,
         StudentYearClass.school_id == actor.school_id).order_by(StudentYearClass.academic_year.desc()).limit(1)) if student else None
+    school = await db.get(School, actor.school_id)
+    return person_summary(user, roles, student, teacher, placement, school, allow_inactive)
+
+
+def person_summary(user, roles, student, teacher, placement, school, allow_inactive=False):
+    if student is None and 'TEACHER' not in roles:
+        fail('请使用关联教师ID或学生ID的原有账号进入小程序。', 403)
+    uid = user.id
+    kind, rid = ('student', student.id) if student else ('teacher', uid)
     fields = (teacher.fields or {}) if teacher else {}
     role_names = ['学生'] if student else [name for index, (name, field) in enumerate(FIELDS)
         if (bool(str(fields.get(field, '')).strip()) if index < 4 else fields.get(field) == '是')]
@@ -125,7 +134,6 @@ async def person(db, actor, user_id=None, allow_inactive=False):
     usable = user.status == 'active' and not user.must_change_password
     if not allow_inactive and not usable:
         fail('账号不可用或尚未完成首次改密，请先完成账号处理。', 403)
-    school = await db.get(School, actor.school_id)
     return {'id': str(rid), 'userId': str(uid), 'stableId': str(student.platform_id if student else user.platform_id) if (student.platform_id if student else user.platform_id) else str(rid),
         'account': user.username, 'name': student.name if student else user.display_name or user.username,
         'role': kind, 'roles': role_names, 'title': '、'.join(role_names), 'grade': grade,
@@ -192,13 +200,35 @@ async def log(db, actor, action, detail, extra=None):
 
 async def catalog(db, actor):
     require_manager(actor)
-    users = (await db.scalars(select(User.id).join(UserRole, UserRole.user_id == User.id).join(Role, Role.id == UserRole.role_id).where(
+    users = (await db.scalars(select(User).join(UserRole, UserRole.user_id == User.id).join(Role, Role.id == UserRole.role_id).where(
         User.school_id == actor.school_id, UserRole.school_id == actor.school_id, Role.code.in_(['STUDENT', 'TEACHER'])).distinct())).all()
+    # Load this school's catalog once. The previous loop performed 6–8 SQL
+    # reads per person and exceeded the browser timeout for large schools.
+    roles = {}
+    for uid, code in (await db.execute(select(UserRole.user_id, Role.code).join(Role, Role.id == UserRole.role_id)
+                                      .where(UserRole.school_id == actor.school_id))).all():
+        roles.setdefault(uid, []).append(code)
+    students = {row.user_id: row for row in (await db.scalars(select(Student).where(Student.school_id == actor.school_id))).all()}
+    teachers = {row.id: row for row in (await db.scalars(select(TeacherProfile).where(TeacherProfile.school_id == actor.school_id))).all()}
+    placements = {}
+    for row in (await db.scalars(select(StudentYearClass).where(StudentYearClass.school_id == actor.school_id)
+                                .order_by(StudentYearClass.academic_year.desc()))).all():
+        placements.setdefault(row.student_id, row)
+    school = await db.get(School, actor.school_id)
+    grants = {}
+    for grant in (await db.scalars(select(ExamQueryGrant).where(ExamQueryGrant.school_id == actor.school_id))).all():
+        grants.setdefault((grant.recipient_kind, grant.recipient_id), []).append(grant)
+    subjects = {str(s.id): s.name for s in (await db.scalars(select(Subject).where(Subject.school_id == actor.school_id))).all()}
+    exams = {e.id: (e, c) for e, c in (await db.execute(select(Exam, ExamAdministration)
+        .join(ExamAdministration, ExamAdministration.id == Exam.id).where(Exam.school_id == actor.school_id))).all()}
     entries = []
-    for uid in users:
+    for user in users:
         try:
-            p = await person(db, actor, uid, True)
-            p['scope'] = await permitted_exam_metadata(db, actor, p)
+            codes = roles.get(user.id, [])
+            student = students.get(user.id) if 'STUDENT' in codes else None
+            teacher = teachers.get(user.id) if 'TEACHER' in codes else None
+            p = person_summary(user, codes, student, teacher, placements.get(student.id) if student else None, school, True)
+            p['scope'] = exam_metadata(grants.get((p['role'], identifier(p['id'])), []), subjects, exams)
             p['stages'] = list(dict.fromkeys(p['stages']+[stage_for(g) for e in p['scope'] for g in e['grades']]))
             entries.append(p)
         except ApiError:
@@ -210,12 +240,18 @@ async def permitted_exam_metadata(db, actor, info):
     grants = (await db.scalars(select(ExamQueryGrant).where(ExamQueryGrant.school_id == actor.school_id,
         ExamQueryGrant.recipient_kind == info['role'], ExamQueryGrant.recipient_id == identifier(info['id'])))).all()
     subjects = {str(s.id): s.name for s in (await db.scalars(select(Subject).where(Subject.school_id == actor.school_id))).all()}
+    exams = {e.id: (e, c) for e, c in (await db.execute(select(Exam, ExamAdministration)
+        .join(ExamAdministration, ExamAdministration.id == Exam.id).where(Exam.school_id == actor.school_id,
+            Exam.id.in_({g.exam_id for g in grants})))).all()}
+    return exam_metadata(grants, subjects, exams)
+
+
+def exam_metadata(grants, subjects, exams):
     rows = []
     for eid in dict.fromkeys(g.exam_id for g in grants):
-        exam = await db.get(Exam, eid)
-        config = await db.get(ExamAdministration, eid)
-        if not exam or not config:
+        if eid not in exams:
             continue
+        exam, config = exams[eid]
         subset = [g for g in grants if g.exam_id == eid]
         rows.append({'id': str(eid), 'name': exam.name, 'date': str(exam.start_date or ''),
             'grades': list(dict.fromkeys(v.get('grade', '') for k, v in config.configuration.get('snapshots', {}).items()
