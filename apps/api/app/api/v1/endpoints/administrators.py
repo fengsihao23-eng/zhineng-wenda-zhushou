@@ -91,6 +91,10 @@ async def user_roles(db, user):
 
 async def serialize_user(db, user, school):
     roles = await user_roles(db, user)
+    if "SUPER_ADMIN" in roles:
+        # A platform account has no school business scope even though the
+        # identity schema stores a school reference for its role relation.
+        school = None
     return {"id": str(user.id), **snapshot(user), "school_name": school.name if school else None,
             "school_code": school.code if school else None, "roles": roles,
             "account_type": user.account_type, "platform_id": str(user.platform_id) if user.platform_id else None,
@@ -190,12 +194,11 @@ async def create_administrator(payload: AdministratorCreate, request: Request, r
 
 @router.get(PREFIX)
 async def administrators(school_id: UUID | None = None, q: str = Query("", max_length=100),
-                         scope: Literal["administrators", "all"] = "administrators", status: str | None = None,
+                         scope: Literal["administrators"] = "administrators", status: str | None = None,
                          page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
                          current=Depends(super_admin), db: AsyncSession = Depends(get_db)):
     query = select(User, School).outerjoin(School, School.id == User.school_id)
-    if scope == "administrators":
-        query = query.where(User.id.in_(administrator_ids()))
+    query = query.where(User.id.in_(administrator_ids()))
     if status:
         query = query.where(User.status == status)
     if school_id:
@@ -262,7 +265,8 @@ async def edit_administrator(identifier: UUID, payload: AdministratorUpdate, req
 @router.post(PREFIX + "/{identifier}/reset-password")
 async def reset_password(identifier: UUID, payload: PasswordReset, request: Request,
                          current=Depends(super_admin), db: AsyncSession = Depends(get_db)):
-    user = await db.scalar(select(User).where(User.id == identifier).with_for_update().execution_options(populate_existing=True))
+    user = await db.scalar(select(User).where(User.id == identifier, User.id.in_(administrator_ids()))
+                           .with_for_update().execution_options(populate_existing=True))
     if not user:
         raise ApiError(404, "ACCOUNT_NOT_FOUND", "账号不存在。")
     if "SUPER_ADMIN" in await user_roles(db, user):
@@ -291,6 +295,8 @@ async def history(administrator_id: UUID | None = None, school_id: UUID | None =
                   current=Depends(super_admin), db: AsyncSession = Depends(get_db)):
     if since and until and utc(since) > utc(until):
         raise ApiError(422, "INVALID_DATE_RANGE", "开始时间不能晚于结束时间。")
+    if administrator_id and not await db.scalar(select(User.id).where(User.id == administrator_id, User.id.in_(administrator_ids()))):
+        raise ApiError(404, "ADMIN_NOT_FOUND", "管理员不存在。")
     query = select(AuditLog, User).outerjoin(User, User.id == AuditLog.actor_id)
     if not administrator_id:
         query = query.where(or_(AuditLog.action.startswith("administrator."), AuditLog.actor_id.in_(administrator_ids()),
@@ -319,6 +325,17 @@ async def history(administrator_id: UUID | None = None, school_id: UUID | None =
         "school_name": schools_by_id.get((row.extra_data or {}).get("school_id") or (str(user.school_id) if user else "")),
         "school_code": school_codes.get((row.extra_data or {}).get("school_id") or (str(user.school_id) if user else "")),
         "resource_type": row.resource_type, "resource_id": str(row.resource_id) if row.resource_id else None,
-        "allowed": row.allowed, "reason": row.reason, "details": row.extra_data or {},
+        "allowed": row.allowed, "reason": row.reason if row.action.startswith("administrator.") else None,
+        "details": history_details(row),
         "ip_address": str(row.ip_address) if row.ip_address else None, "request_id": row.request_id,
         "created_at": iso(row.created_at)} for row, user in rows]}
+
+
+def history_details(row):
+    if row.action.startswith("administrator.") or row.action == "education.account.password_change":
+        return row.extra_data or {}
+    # Business operation metadata is enough for administrator oversight.
+    # Do not turn the governance console into a second viewer of student data.
+    fields = {"school_id", "method", "status_code", "from_status", "to_status", "state_version"}
+    return {key: value for key, value in (row.extra_data or {}).items()
+            if key in fields and isinstance(value, (str, int, bool))}

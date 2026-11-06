@@ -11,7 +11,7 @@ from app.db.models.student_roster import StudentExamPlacement
 
 
 def is_city(user):
-    return user.has_role("CITY_OPERATOR") or user.has_role("SUPER_ADMIN")
+    return user.has_role("CITY_OPERATOR")
 
 
 def is_teacher_only(user):
@@ -90,7 +90,7 @@ def assigned_class(exam_id=None):
 def scoped(query, user, school_column, score_type="student"):
     """Apply tenancy and, for teachers, class-level queues/rosters or subject docs."""
     if is_city(user):
-        return query.where(school_column == user.school_id) if getattr(user, "selected_school_id", None) else query
+        return query
     query = query.where(school_column == user.school_id)
     if not is_teacher_only(user):
         return query

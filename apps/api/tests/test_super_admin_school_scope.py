@@ -1,4 +1,4 @@
-"""Super-admin selection is explicit; ordinary school identities cannot override it."""
+"""Platform governance and school business are separate authorization domains."""
 from uuid import uuid4
 import pytest
 import pytest_asyncio
@@ -6,8 +6,6 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.db.models import School, User, Role, UserRole, Student, Exam
 from app.db.models.exam_management import ExamAdministration
-from app.db.models.answer_workbench import AnswerOperation
-from app.db.models.trace import AuditLog
 
 
 @pytest_asyncio.fixture
@@ -36,26 +34,30 @@ async def scoped_schools(test_db, sample_school_id):
 
 
 @pytest.mark.asyncio
-async def test_selected_school_rosters_exams_reports_and_global_management(client, test_db, scoped_schools, sample_school_id):
-    setup=scoped_schools; headers=setup['selected']
+async def test_super_admin_has_governance_access_but_cannot_read_or_write_school_data(client, test_db, scoped_schools, sample_school_id):
+    setup = scoped_schools
+    owner = setup['owner']
+    school_role = await test_db.scalar(select(Role).where(Role.code == 'SCHOOL_ADMIN'))
+    # Stale mixed assignments must not re-enable school access for a super admin.
+    test_db.add(UserRole(user_id=owner.id, school_id=owner.school_id, role_id=school_role.id))
+    await test_db.commit()
     paths=['/platform/education/roster/teachers/records', '/platform/education/roster/students/records',
-           '/platform/education/exam-management', '/platform/education/report-management']
-    for path in paths:
-        result=await client.get('/api/v1'+path, headers=headers)
-        assert result.status_code==200, result.text
-        body=result.json()
-        assert body['school_id']==str(setup['other'].id) and body['school_name']=='第二测试学校' and body['school_code']=='SECOND-TEST'
-        assert all(row['school_id']==str(setup['other'].id) for row in body['items'])
-        if 'report-management' not in path: assert len(body['items'])==1
-    schools=await client.get('/api/v1/platform/management/schools', headers=headers)
-    assert [row['id'] for row in schools.json()]==[str(setup['other'].id)]
-    students=await client.get('/api/v1/platform/management/students', headers=headers)
-    assert [row['id'] for row in students.json()]==[str(setup['student'].id)]
-    own_school=await client.get('/api/v1/platform/management/schools/'+str(sample_school_id), headers=headers)
-    assert own_school.status_code==404
+           '/platform/education/exam-management', '/platform/education/report-management',
+           '/platform/management/schools', '/platform/management/students', '/platform/management/overview',
+           '/answer-workbench/admin/state', '/admin/prompts/', '/admin/traces/audit']
+    for headers in (setup['owner_headers'], setup['selected']):
+        for path in paths:
+            result = await client.get('/api/v1' + path, headers=headers)
+            assert result.status_code == 403, (path, result.text)
+            assert result.json()['error']['code'] == 'PLATFORM_ADMIN_GOVERNANCE_ONLY'
+        result = await client.post('/api/v1/platform/education/school/subjects', headers=headers,
+            json={'code': 'BLOCKED', 'name': '禁止修改', 'external_subject_id': 'BLOCKED'})
+        assert result.status_code == 403 and result.json()['error']['code'] == 'PLATFORM_ADMIN_GOVERNANCE_ONLY'
+    for path in ('', '/history', '/schools'):
+        response = await client.get('/api/v1/platform/administrators' + path, headers=setup['owner_headers'])
+        assert response.status_code == 200, response.text
     identity=await client.get('/api/v1/auth/me', headers=setup['owner_headers'])
     assert identity.json()['school_id']==str(sample_school_id)
-    await test_db.refresh(setup['owner']); assert setup['owner'].school_id==sample_school_id
 
 
 @pytest.mark.asyncio
@@ -70,41 +72,17 @@ async def test_school_override_is_not_available_to_ordinary_users(client, scoped
 
 
 @pytest.mark.asyncio
-async def test_invalid_selection_never_falls_back_and_wrong_school_resource_is_denied(client, scoped_schools, sample_school_id):
-    setup=scoped_schools
-    for value,status in [('invalid',422),(str(uuid4()),404)]:
-        response=await client.get('/api/v1/platform/education/roster/students/records',headers={**setup['owner_headers'],'X-School-ID':value})
-        assert response.status_code==status
-    for path in ['/auth/me','/platform/administrators']:
-        assert (await client.get('/api/v1'+path,headers=setup['selected'])).status_code==400
-    response=await client.get('/api/v1/platform/education/exam-management/'+str(setup['exam'].id), headers={**setup['owner_headers'],'X-School-ID':str(sample_school_id)})
-    assert response.status_code==404
-
-
-@pytest.mark.asyncio
-async def test_cross_school_prompt_write_keeps_true_operator_and_target_school(client, test_db, scoped_schools, sample_school_id):
-    setup=scoped_schools
-    response=await client.get('/api/v1/answer-workbench/admin/state',headers=setup['selected'])
-    assert response.status_code==200, response.text
-    body=response.json(); assert body['operator']['school']=='第二测试学校' and body['operator']['schoolCode']=='SECOND-TEST'
-    assert body['operator']['showSchoolColumn']
-    stage=next(iter(body['stages']))
-    response=await client.post('/api/v1/answer-workbench/admin/scopes/prompt:'+stage+'/draft',headers=setup['selected'],json={
-        'expected':body['stages'][stage]['etag'],'draft':{'content':'第二校回答要求','format':'清楚回答','reason':'合成校验'}})
-    assert response.status_code==200, response.text
-    operation=await test_db.scalar(select(AnswerOperation).where(AnswerOperation.school_id==setup['other'].id))
-    assert operation and operation.user_id==setup['owner'].id
-    await test_db.refresh(setup['owner']); assert setup['owner'].school_id==sample_school_id
-    logs=(await test_db.scalars(select(AuditLog).where(AuditLog.actor_id==setup['owner'].id,AuditLog.action=='administrator.request'))).all()
-    assert any(row.extra_data['school_id']==str(setup['other'].id) for row in logs)
-
-
-@pytest.mark.asyncio
-async def test_disabled_school_is_read_only(client, test_db, scoped_schools):
-    setup=scoped_schools; setup['other'].status='disabled'; await test_db.commit()
-    assert (await client.get('/api/v1/platform/education/roster/students/records', headers=setup['selected'])).status_code==200
-    response=await client.post('/api/v1/platform/education/school/subjects',headers=setup['selected'],json={'code':'X','name':'科目','external_subject_id':'X'})
-    assert response.status_code==403 and response.json()['error']['code']=='SCHOOL_INACTIVE'
+async def test_school_admin_can_access_own_business_but_not_governance_or_foreign_exam(client, scoped_schools):
+    setup = scoped_schools
+    headers = setup['local_headers']
+    for path in ('/platform/education/roster/teachers/records', '/platform/education/roster/students/records',
+                 '/platform/education/exam-management', '/platform/education/report-management', '/answer-workbench/admin/state'):
+        response = await client.get('/api/v1' + path, headers=headers)
+        assert response.status_code == 200, (path, response.text)
+    response = await client.get('/api/v1/platform/education/exam-management/' + str(setup['exam'].id), headers=headers)
+    assert response.status_code == 404
+    response = await client.get('/api/v1/platform/administrators', headers=headers)
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -123,7 +101,7 @@ async def test_large_school_prompt_catalog_uses_bounded_queries_and_preserves_id
             Student(id=uuid4(),school_id=user.school_id,user_id=user.id,name=user.display_name,status='active',profile_fields={'年级':'高中一年级'})])
         users.append(user)
     await test_db.commit()
-    actor=AuthenticatedUser(setup['owner'].id,setup['other'].id,setup['owner'].username,['SUPER_ADMIN'])
+    actor=AuthenticatedUser(setup['teacher'].id,setup['other'].id,setup['teacher'].username,['SCHOOL_ADMIN'])
     queries=[]
     def capture(conn,cursor,statement,parameters,context,executemany):
         if statement.lstrip().upper().startswith('SELECT'):queries.append(statement)

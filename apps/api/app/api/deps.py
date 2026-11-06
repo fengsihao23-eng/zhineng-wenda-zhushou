@@ -8,6 +8,8 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
+from app.core.platform_admin import enforce_platform_admin_route
+from app.core.school_scope import reject_school_override
 from app.core.security import validate_token, ensure_account_environment
 from app.db.models.user import Role, User, UserRole
 from app.db.models.student import Student
@@ -134,6 +136,8 @@ async def get_current_user(
     roles = [code for code in role_result.scalars().all() if code]
     from app.services.administrator_audit import bind_request
     bind_request(request, db, user, roles)
+    enforce_platform_admin_route(request, roles)
+    reject_school_override(request)
     if "TEACHER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR", "QA", "EXAM_ADMIN"}.intersection(roles):
         from app.core.exam_access import bind_teacher
         bind_teacher(db, user.school_id, user.id)
@@ -145,14 +149,12 @@ async def get_current_user(
     if "SCHOOL_VIEWER" in roles and not {"SCHOOL_ADMIN", "SUPER_ADMIN", "CITY_OPERATOR"}.intersection(roles) and not teacher_handoff_action and request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/api/v1/auth/change-password" and not request.url.path.startswith(("/api/v1/answer-workbench/mini/", "/api/v1/answer-workbench/tickets", "/api/v1/answer-workbench/sources/")):
         raise HTTPException(status_code=403, detail="当前职务仅有全校数据查看权限。", headers={"X-Error-Code": "SCHOOL_READ_ONLY"})
 
-    actor = AuthenticatedUser(
+    return AuthenticatedUser(
         user_id=user.id,
         school_id=user.school_id,
         username=user.username,
         roles=roles,
     )
-    from app.core.school_scope import apply_school_selection
-    return await apply_school_selection(request, actor, db)
 
 
 async def get_current_student(

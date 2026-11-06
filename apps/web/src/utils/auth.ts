@@ -28,28 +28,6 @@ export const subscribeAuth = (listener: () => void): (() => void) => {
   return () => { listeners.delete(listener); };
 };
 
-export type ManagementSchool = { id: string; name: string; code: string; status: string };
-export const isSuperAdmin = () => getUserInfo()?.roles.includes('SUPER_ADMIN') ?? false;
-export function getManagementSchool(): ManagementSchool | null {
-  if (!isSuperAdmin()) return null;
-  try { return JSON.parse(getSessionStorage()?.getItem(`management-school:${getUserInfo()?.user_id}`) || 'null'); }
-  catch { return null; }
-}
-export function setManagementSchool(school: ManagementSchool | null): void {
-  const key = `management-school:${getUserInfo()?.user_id}`;
-  if (school) getSessionStorage()?.setItem(key, JSON.stringify(school));
-  else getSessionStorage()?.removeItem(key);
-  rotateSession();
-  notifyAuthChanged();
-}
-export function schoolScopedApi(path: string): boolean {
-  if (typeof window !== 'undefined' && window.location?.pathname && !schoolScopedPage(window.location.pathname)) return false;
-  return ['/platform/education/', '/platform/management/', '/answer-workbench/admin/', '/answer-workbench/tickets', '/answer-workbench/sources/', '/answer-workbench/reports/'].some(prefix => path.startsWith(prefix));
-}
-export function schoolScopedPage(path: string): boolean {
-  return (path === '/admin' || path.startsWith('/admin/') || path === '/ops' || path.startsWith('/ops/')) && !path.startsWith('/ops/administrators');
-}
-
 function notifyAuthChanged(): void {
   listeners.forEach(listener => listener());
   if (typeof window !== 'undefined') {

@@ -6,8 +6,6 @@ import { logoutApi } from '../services/auth'
 import { ErrorDisplay } from '../components/ErrorDisplay'
 import { useJsonQuery } from '../hooks/useApi'
 import './AppShell.css'
-import { ManagementSchoolFilter } from '../components/ManagementSchoolFilter'
-import { schoolScopedPage } from '../utils/auth'
 
 type NavItem = { path: string; label: string; icon: string; group?: string }
 
@@ -20,9 +18,10 @@ const schoolNavItems: NavItem[] = [
   { path: '/admin/prompts', label: '提示词及人工', icon: '✦' },
 ]
 
-export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' {
+export function roleOf(user: UserInfo | null): 'student' | 'teacher' | 'school' | 'city' | 'platform' {
   const roles = user?.roles || []
-  if (roles.some(role => role.toUpperCase() === 'CITY_OPERATOR' || role.toUpperCase() === 'SUPER_ADMIN')) return 'city'
+  if (roles.some(role => role.toUpperCase() === 'SUPER_ADMIN')) return 'platform'
+  if (roles.some(role => role.toUpperCase() === 'CITY_OPERATOR')) return 'city'
   if (roles.some(role => role.toUpperCase() === 'SCHOOL_ADMIN' || role.toUpperCase() === 'QA' || role.toUpperCase() === 'SCHOOL_VIEWER')) return 'school'
   if (roles.includes('EXAM_ADMIN') && !roles.includes('TEACHER')) return 'school'
   if (roles.some(role => role.toUpperCase() === 'TEACHER')) return 'teacher'
@@ -51,6 +50,7 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
     { path: '/teacher/feedback', label: '反馈运营', icon: '♡' },
   ],
   school: schoolNavItems,
+  platform: [{ path: '/ops/administrators', label: '管理员与操作历史', icon: 'users' }],
   city: [
     { path: '/ops', label: '市级总览', icon: '◈' },
     { path: '/ops/schools', label: '学校运营', icon: '⌁' },
@@ -61,18 +61,19 @@ const navByRole: Record<ReturnType<typeof roleOf>, NavItem[]> = {
   ],
 }
 
-const roleLabels = { student: '学生空间', teacher: '教师工作台', school: '学校管理台', city: '市级运营中心' }
+const roleLabels = { student: '学生空间', teacher: '教师工作台', school: '学校管理台', city: '市级运营中心', platform: '超级管理员后台' }
 
 export function AppShell({ children, title, eyebrow, bleed = false }: { children: React.ReactNode; title?: string; eyebrow?: string; bleed?: boolean }) {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUserInfo()
   const role = roleOf(user)
-  const examAdminOnly = user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA', 'SCHOOL_VIEWER', 'TEACHER'].includes(r))
-  const baseNavItems = examAdminOnly ? [examNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [examNavItem, ...navByRole.teacher] : role === 'city' && user?.roles.some(r => r.toUpperCase() === 'SUPER_ADMIN') ? [...navByRole.city, ...schoolNavItems] : navByRole[role]
-  const adminNavItems = user?.roles.includes('SUPER_ADMIN') ? [...baseNavItems, { path: '/ops/administrators', label: '管理员与操作历史', icon: 'users' }] : baseNavItems
-  const unfilteredNavItems = role === 'city' && user?.roles.includes('TEACHER') ? [...adminNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : adminNavItems
-  const navItems = unfilteredNavItems.filter(item => (item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'QA'].includes(r))) && (item.path !== '/admin/prompts' || user?.roles.some(r => ['SCHOOL_ADMIN', 'SUPER_ADMIN'].includes(r))))
+  const platformAdmin = role === 'platform'
+  const workspaceLabel = roleLabels[role]
+  const examAdminOnly = role === 'school' && user?.roles.includes('EXAM_ADMIN') && !user.roles.some(r => ['SCHOOL_ADMIN', 'QA', 'SCHOOL_VIEWER'].includes(r))
+  const baseNavItems = examAdminOnly ? [examNavItem] : role === 'teacher' && user?.roles.includes('EXAM_ADMIN') ? [examNavItem, ...navByRole.teacher] : navByRole[role]
+  const unfilteredNavItems = role === 'city' && user?.roles.includes('TEACHER') ? [...baseNavItems, { path: '/teacher/exams', label: '考试成绩与报告', icon: 'file', group: '教学分析' }] : baseNavItems
+  const navItems = unfilteredNavItems.filter(item => (item.path !== '/admin/reports' || user?.roles.some(r => ['SCHOOL_ADMIN', 'QA'].includes(r))) && (item.path !== '/admin/prompts' || user?.roles.includes('SCHOOL_ADMIN')))
   const schoolTab = location.pathname === '/admin/school' ? new URLSearchParams(location.search).get('tab') : location.pathname.startsWith('/admin/school/') ? location.pathname.split('/')[3] : null
   const currentSchoolPath = schoolTab ? `/admin/school?tab=${schoolTab}` : null
   const health = useJsonQuery<{ model?: { real_model_ready?: boolean } }>('/health')
@@ -142,7 +143,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
           <span className="brand-mark">知</span>
           <span><strong>知行</strong><small>学习智能中枢</small></span>
         </button>
-        <div className="workspace-label">{roleLabels[role]}</div>
+        <div className="workspace-label">{workspaceLabel}</div>
         <nav className="side-nav">
           {navItems.map(item => (
             <React.Fragment key={item.path}>{item.group && <div className="side-nav__group">{item.group}</div>}
@@ -169,10 +170,11 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
             >
               <NavIcon name="menu" />
             </button>
-            <div className="breadcrumb"><span>知行</span><i>/</i><b>{eyebrow || roleLabels[role]}</b></div>
+            <div className="breadcrumb"><span>知行</span><i>/</i><b>{eyebrow || workspaceLabel}</b></div>
           </div>
           <div className="topbar-actions">
             <span className={`system-badge system-badge--${serviceState}`}><span className="status-dot" /> {serviceLabel}</span>
+            {platformAdmin && <NavLink to="/change-password" className="text-link">修改密码</NavLink>}
             <button className="user-menu" disabled={loggingOut} onClick={() => { void logout() }} title="退出登录" aria-label="退出登录">
               <span className="user-avatar">{(user?.display_name || '我').slice(0, 1)}</span>
               <span>{user?.display_name || '当前用户'}</span><span>{loggingOut ? '退出中…' : '退出'}</span>
@@ -181,8 +183,7 @@ export function AppShell({ children, title, eyebrow, bleed = false }: { children
         </header>
         <main className="workspace-main">
           <ErrorDisplay error={logoutError} title="未能完成安全退出" onRetry={() => { void logout() }} variant="banner" />
-          {title && !bleed && <div className="page-heading"><div><div className="page-eyebrow">{eyebrow || roleLabels[role]}</div><h1>{title}</h1></div></div>}
-          {schoolScopedPage(location.pathname) && <ManagementSchoolFilter />}
+          {title && !bleed && <div className="page-heading"><div><div className="page-eyebrow">{eyebrow || workspaceLabel}</div><h1>{title}</h1></div></div>}
           {children}
         </main>
       </section>

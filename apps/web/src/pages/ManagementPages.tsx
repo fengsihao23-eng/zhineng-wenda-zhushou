@@ -1,4 +1,3 @@
-import { SchoolNameCell, SchoolNameHeader, SchoolNameLabel } from '../components/ManagementSchoolFilter'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { KnowledgeForm, KnowledgeActions, type Knowledge } from '../components/KnowledgeEditor'
@@ -91,7 +90,7 @@ export function KnowledgePage() {
     <div className="page-toolbar"><select className="filter-select" aria-label="文档状态" value={filter} onChange={event => setFilter(event.target.value)}>{['all', 'draft', 'pending_review', 'rejected', 'published', 'offline'].map(status => <option key={status} value={status}>{status === 'all' ? '全部' : workflowLabel(status)}</option>)}</select><button className="primary-button" onClick={() => setEditor('new')}>+ 新建文档</button></div>
     {editor && <DetailDialog title={editor === 'new' ? '新建文档' : '编辑文档'} onClose={() => setEditor(null)}><KnowledgeForm key={editor === 'new' ? 'new' : editor.id} item={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} /></DetailDialog>}
     <Pagination {...pagination} />
-    {!rows.length ? <div className="inline-empty">当前状态下没有知识文档。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><SchoolNameHeader /><th>文档</th><th>来源引用</th><th>状态 / 版本</th><th>操作</th></tr></thead><tbody>{pagination.items.map(item => <tr key={item.id}><SchoolNameCell /><td><strong>{item.title}</strong><div className="subtle">{item.subject} · {item.doc_type}</div>{item.rejection_reason && <p>驳回意见：{item.rejection_reason}</p>}</td><td>{item.source_name}<div className="subtle">{item.source_reference}</div></td><td><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span> {item.version}</td><td><KnowledgeActions item={item} onEdit={() => setEditor(item)} /></td></tr>)}</tbody></table></div>}
+    {!rows.length ? <div className="inline-empty">当前状态下没有知识文档。</div> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>文档</th><th>来源引用</th><th>状态 / 版本</th><th>操作</th></tr></thead><tbody>{pagination.items.map(item => <tr key={item.id}><td><strong>{item.title}</strong><div className="subtle">{item.subject} · {item.doc_type}</div>{item.rejection_reason && <p>驳回意见：{item.rejection_reason}</p>}</td><td>{item.source_name}<div className="subtle">{item.source_reference}</div></td><td><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span> {item.version}</td><td><KnowledgeActions item={item} onEdit={() => setEditor(item)} /></td></tr>)}</tbody></table></div>}
   </ManagementState></AppShell>
 }
 
@@ -104,7 +103,7 @@ export function FeedbackPage() {
     <StatusFilter value={filter} onChange={setFilter} values={['all', 'open', 'acknowledged', 'resolved', 'closed']} />
     <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的反馈。</div>}
-    <div className="feedback-grid">{pagination.items.map(item => <article className="feedback-card" key={item.id}><SchoolNameLabel /><div className="feedback-card__top"><strong>{item.category}</strong><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.note || '用户未填写补充说明。'}</p><p className="subtle">提交于 {item.created_at?.slice(0, 16).replace('T', ' ') || '—'}</p><WorkflowControls kind="feedback" item={item} /></article>)}</div>
+    <div className="feedback-grid">{pagination.items.map(item => <article className="feedback-card" key={item.id}><div className="feedback-card__top"><strong>{item.category}</strong><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.note || '用户未填写补充说明。'}</p><p className="subtle">提交于 {item.created_at?.slice(0, 16).replace('T', ' ') || '—'}</p><WorkflowControls kind="feedback" item={item} /></article>)}</div>
   </ManagementState></AppShell>
 }
 
@@ -122,7 +121,7 @@ export function RiskPage() {
     <HelpTip label="处理说明">先确认事件，再填写实际处理结果。系统风险标记不等于最终判断。</HelpTip>
     <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的风险事件。</div>}
-    <div className="risk-list">{pagination.items.map(item => <article className={'risk-card risk-card--' + item.severity} key={item.id}><SchoolNameLabel /><div className="risk-card__signal"><h3>{item.title}</h3><span>{({ low: '低风险', medium: '中风险', high: '高风险', critical: '严重' } as Record<string, string>)[item.severity]}</span><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.detail}</p><p className="subtle">来源：{item.source}</p><WorkflowControls kind="risk" item={item} /></article>)}</div>
+    <div className="risk-list">{pagination.items.map(item => <article className={'risk-card risk-card--' + item.severity} key={item.id}><div className="risk-card__signal"><h3>{item.title}</h3><span>{({ low: '低风险', medium: '中风险', high: '高风险', critical: '严重' } as Record<string, string>)[item.severity]}</span><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.detail}</p><p className="subtle">来源：{item.source}</p><WorkflowControls kind="risk" item={item} /></article>)}</div>
   </ManagementState></AppShell>
 }
 
@@ -136,7 +135,7 @@ export function HandoffPage() {
     <HelpTip label="转接说明">接单后可回复学生；双方可刷新查看消息与处理记录。关闭或重新打开时须填写原因。</HelpTip>
     <Pagination {...pagination} />
     {!rows.length && <div className="inline-empty">当前没有符合条件的工单。</div>}
-    <div className="handoff-list">{pagination.items.map(item => <article className="handoff-card" key={item.id}><SchoolNameLabel /><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p>{item.source === 'answer' ? <AnswerTicketConversation id={item.id} /> : <><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></>}</article>)}</div>
+    <div className="handoff-list">{pagination.items.map(item => <article className="handoff-card" key={item.id}><div className="handoff-card__top"><h3>{item.reason}</h3><span className={'status-pill status-pill--' + workflowTone(item.status)}>{workflowLabel(item.status)}</span></div><p>{item.summary}</p>{item.source === 'answer' ? <AnswerTicketConversation id={item.id} /> : <><WorkflowControls kind="handoff" item={item} /><HumanConversation id={item.id} /></>}</article>)}</div>
   </ManagementState></AppShell>
 }
 

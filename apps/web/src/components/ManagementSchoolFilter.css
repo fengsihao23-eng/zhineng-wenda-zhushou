@@ -1,8 +1,0 @@
-.management-school-filter { padding: 16px 20px; margin: 0 0 22px; border: 1px solid var(--color-hairline); border-radius: var(--radius-cards); background: var(--color-surface); }
-.management-school-filter__fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
-.management-school-filter label { display: grid; gap: 7px; font-size: 13px; color: var(--color-muted); flex: 1; min-width: 155px; }
-.management-school-filter input, .management-school-filter select { width: 100%; min-width: 0; padding: 10px 12px; color: var(--color-ink); background: var(--color-surface); border: 1px solid var(--color-hairline); border-radius: var(--radius-inputs); font: inherit; }
-.management-school-filter__context { color: var(--color-muted); font-size: 13px; margin: 12px 0 0; }
-.school-name-cell { min-width: 130px; }
-.school-name-cell small { display: block; color: var(--color-muted); font-size: 12px; margin-top: 4px; }
-@media(max-width: 600px) { .management-school-filter { padding: 14px; } .management-school-filter label { min-width: 120px; } }

@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test'
 
 const school = { id: '10000000-0000-4000-8000-000000000001', name: '测试学校', code: 'SCHOOL-A', status: 'active' }
 
-async function setup(page: Page, rejectFirst = false) {
-  const identity = { user_id: 'owner-1', username: 'owner', display_name: '测试管理员', school_id: school.id, roles: ['SUPER_ADMIN'] }
+async function setup(page: Page, rejectFirst = false, roles = ['SUPER_ADMIN']) {
+  const identity = { user_id: 'owner-1', username: 'owner', display_name: '测试管理员', school_id: school.id, roles }
   const creates: Record<string, unknown>[] = []
   const accounts: Record<string, unknown>[] = []
   await page.addInitScript(user => {
@@ -83,9 +83,8 @@ test('creation dialog fits mobile and public registration returns to login', asy
 })
 
 test('exam participant step displays the red absence reminder', async ({ page }) => {
-  await setup(page)
+  await setup(page, false, ['SCHOOL_ADMIN'])
   await page.goto('/admin/school?tab=exam-management')
-  await page.getByRole('combobox', { name: '学校名称', exact: true }).selectOption(school.id)
   await page.getByRole('button', { name: '＋ 创建考试', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('考试名称', { exact: true }).fill('测试考试')

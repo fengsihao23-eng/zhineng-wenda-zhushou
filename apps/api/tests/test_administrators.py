@@ -222,9 +222,17 @@ async def test_super_admin_only_all_accounts_and_protection(client, governance):
         assert (await client.post(ROOT + '/invitations', headers=headers, json={'label': '非法'})).status_code == 403
         assert (await client.post(ROOT + f'/{owner.id}/reset-password', headers=headers, json={'new_password': '1', 'expected_revision': owner.password_version})).status_code == 403
     listing = await client.get(ROOT, headers=governance['headers']['SUPER_ADMIN'], params={'scope': 'all'})
+    assert listing.status_code == 422
+    listing = await client.get(ROOT, headers=governance['headers']['SUPER_ADMIN'])
     assert listing.status_code == 200
-    assert str(governance['users']['STUDENT'].id) in {row['id'] for row in listing.json()['items']}
+    assert str(governance['users']['STUDENT'].id) not in {row['id'] for row in listing.json()['items']}
     assert 'password_hash' not in listing.text
+    student = governance['users']['STUDENT']
+    response = await client.post(ROOT + f'/{student.id}/reset-password', headers=governance['headers']['SUPER_ADMIN'],
+        json={'new_password': 'forbidden-reset', 'expected_revision': student.password_version})
+    assert response.status_code == 404
+    history = await client.get(ROOT + '/history', headers=governance['headers']['SUPER_ADMIN'], params={'administrator_id': str(student.id)})
+    assert history.status_code == 404
     assert (await client.get(ROOT + '/history')).status_code == 401
     protected = await authorize(client, governance, await account(client, governance, str(owner.id)), status='disabled')
     assert protected.status_code == 403
@@ -245,6 +253,21 @@ async def test_history_pagination_and_secret_redaction(client, test_db, governan
     assert first.status_code == 200, first.text
     assert first.json()['total'] == 23 and len(first.json()['items']) == 20 and len(second.json()['items']) == 3
     assert not {row['id'] for row in first.json()['items']}.intersection(row['id'] for row in second.json()['items'])
+
+
+@pytest.mark.asyncio
+async def test_administrator_history_does_not_expose_school_business_payloads(client, test_db, governance):
+    school_admin = governance['users']['SCHOOL_ADMIN']
+    test_db.add(AuditLog(actor_id=school_admin.id, actor_type='user', action='student.data.export', allowed=True,
+        reason='private student note', extra_data={'school_id': str(school_admin.school_id), 'score': 88,
+            'scope': {'student_name': 'synthetic private name'}, 'before': {'report': 'private report'}}))
+    await test_db.commit()
+    response = await client.get(ROOT + '/history', headers=governance['headers']['SUPER_ADMIN'],
+        params={'administrator_id': str(school_admin.id), 'action': 'student.data.export'})
+    assert response.status_code == 200
+    row = response.json()['items'][0]
+    assert row['details'] == {'school_id': str(school_admin.school_id)}
+    assert row['reason'] is None
 
 
 @pytest.mark.asyncio
