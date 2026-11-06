@@ -10,9 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../apps/miniprogram')
-export async function nativeRuntime(output){
+export async function nativeRuntime(output, options={}){
   await mkdir(output,{recursive:true,mode:0o700})
-  const storage=new Map(),modules=new Map(),toasts=[],opened=[],requests=[]
+  const storage=options.storage || new Map(),modules=new Map(),toasts=[],opened=[],requests=[]
   let definition,drop=null,hold=null
   const wx={
     getStorageSync:key=>storage.get(key),setStorageSync:(key,value)=>storage.set(key,structuredClone(value)),removeStorageSync:key=>storage.delete(key),

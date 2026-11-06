@@ -2,6 +2,7 @@
 const api = require('../../utils/api');
 const present = require('../../utils/presentation');
 const ROOT = '/answer-workbench';
+const SESSION_KEY = 'subject-assistant.last-session.v1:';
 const TITLES = {login:'学科智能问答',activate:'首次登录',chat:'学科智能问答',tools:'学习工具',
   reports:'我的报告',history:'历史会话',tickets:'人工留言',ticket:'留言详情',
   ticketCompose:'提交人工留言',pdf:'报告预览',me:'我的',scope:'当前查询范围',audit:'查看与下载记录'};
@@ -25,6 +26,7 @@ Page({
   onLoad() {
     this._client = api.uuid(); this._files = []; this._askDraft = null;
     this._ticketDraft = null; this._syncing = null; this._active = false;
+    this._sessionOwner = null; this._sessionRestored = false;
   },
   onShow() {
     this._active = true;
@@ -48,6 +50,7 @@ Page({
     const message = (prefix || '')+error.message;
     if (error.status===401 || error.status===403 && error.code!=='PASSWORD_CHANGE_REQUIRED') {
       api.clearAuth(); this.clearFiles();
+      this._sessionOwner=null; this._sessionRestored=false;
       this._askDraft=null; this._ticketDraft=null; this._sessions=[];
       this.setData(Object.assign({}, EMPTY, {activeSession:null,activeTicket:null,messages:[],ticket:null,
         source:null,pdf:null,pdfImage:'',chatDraft:'',ticketQuestion:'',ticketContext:[],selectedContext:[],
@@ -66,6 +69,7 @@ Page({
       if (me.must_change_password) { this.setView('activate'); return; }
       await this.syncState();
       if (['login','activate'].includes(this.data.view)) this.setView('chat');
+      if (this.data.view==='chat' && this.data.messages.length) this.scrollBottom();
       await this.heartbeat();
       if (this.data.view==='pdf' && this.data.pdf) await this.loadPdfPage(this.data.pdf.page);
     } catch (error) { this.handleError(error); }
@@ -87,10 +91,18 @@ Page({
     if (this._syncing) return this._syncing;
     this._syncing = this.rpc('/mini/state').then(state => {
       const reports = present.reports(state.reports,state.exams);
-      this._sessions=state.sessions;
-      const sessions = state.sessions.map(row=>({id:row.id,title:row.title,updatedAt:row.updatedAt,
+      this._sessions=state.sessions.slice().sort((a,b)=>(b.updatedAt||b.createdAt||'').localeCompare(a.updatedAt||a.createdAt||'') || b.id.localeCompare(a.id));
+      const sessions = this._sessions.map(row=>({id:row.id,title:row.title,updatedAt:row.updatedAt,
         questionCount:row.messages.filter(m=>m.role==='user').length}));
-      const session = state.sessions.find(s=>s.id===this.data.activeSession);
+      const owner=api.auth().user.id;
+      if (owner!==this._sessionOwner) { this._sessionOwner=owner; this._sessionRestored=false; }
+      let sessionId=this.data.activeSession;
+      if (!this._sessionRestored) {
+        let saved;
+        try { saved=wx.getStorageSync(SESSION_KEY+owner); } catch (_) { /* Server history remains available. */ }
+        sessionId=saved && (saved.sessionId===null || typeof saved.sessionId==='string') ? saved.sessionId : (this._sessions[0]||{}).id;
+      }
+      const session=this._sessions.find(s=>s.id===sessionId) || (sessionId ? this._sessions[0] : null);
       const ticket = state.tickets.find(t=>t.id===this.data.activeTicket);
       const exams = [{id:'',name:'全部已授权考试'}].concat(state.exams.filter(e=>reports.some(r=>r.examId===e.id)).map(e=>({id:e.id,name:e.name})));
       const subjectOptions = [{id:'',name:'全部科目'}];
@@ -100,11 +112,13 @@ Page({
       const tickets=state.tickets.map(t=>({id:t.id,question:t.question.slice(0,60),status:t.status,
         updatedAt:t.updatedAt,currentAllowed:t.currentAllowed,unread:t.unread}));
       this.setData({identity:state.identity,exams:state.exams,reports,sessions,tickets,
+        activeSession:session ? session.id:null,
         audit:state.audit,questionStatus:state.questionStatus,notice:'',offline:false,
         messages:this.presentMessages(session ? session.messages:[],state.exams,reports),sessionTitle:session ? session.title:'',
         ticket:this.data.view==='ticketCompose' ? this.data.ticket : ticket ? this.ticketView(ticket):null, examOptions:exams, subjectOptions,
         unreadCount:state.tickets.filter(t=>t.unread).length,
         prompts:state.identity.role==='student'?['我这次考试各科成绩怎么样？','帮我对比期中和月考成绩']:['我可以查询哪些考试数据？','查看已授权的学情诊断报告']});
+      this.rememberSession(session ? session.id:null);
       this.filterReports();
       if(this.data.pdf && !reports.some(r=>r.id===this.data.pdf.id && r.version===this.data.pdf.version)){
         this._pdfSequence=(this._pdfSequence||0)+1;
@@ -114,6 +128,12 @@ Page({
       return state;
     }).finally(()=>{this._syncing=null;});
     return this._syncing;
+  },
+  rememberSession(id) {
+    const current=api.auth();
+    if (!current) return;
+    this._sessionOwner=current.user.id; this._sessionRestored=true;
+    try { wx.setStorageSync(SESSION_KEY+current.user.id,{sessionId:id}); } catch (_) { /* A future launch can use the server's latest conversation. */ }
   },
   ticketView(ticket) {
     const pair=ticket.feedbackMessageId && ticket.currentAllowed ? ticket.context || []:[];
@@ -155,11 +175,12 @@ Page({
       const body={username:this.data.account.trim(),password:this.data.password};
       if (selected) body.identity_id=selected;
       const user=await api.login(body);
+      this._sessionOwner=null;this._sessionRestored=false;
       this.setData(Object.assign({},EMPTY,{identities:[],activeSession:null,activeTicket:null,messages:[],ticket:null,
         password:'',chatDraft:'',canRetry:false,ticketQuestion:'',filteredReports:[],notice:''}));
       this._askDraft=null;this._ticketDraft=null;
       if (user.must_change_password) { this.setView('activate'); return; }
-      await this.syncState();this.setView('chat');await this.heartbeat();
+      await this.syncState();this.setView('chat');this.scrollBottom();await this.heartbeat();
     } catch (error) {
       if (error.code==='LOGIN_IDENTITY_REQUIRED') this.setData({identities:error.details.identities || []});
       else this.handleError(error);
@@ -180,13 +201,16 @@ Page({
   async logout() {
     if (this.data.busy) return;
     this.setData({busy:true});
+    const current=api.auth();
     let failure;
     try {
       if (this.data.identity) await this.rpc('/mini/presence',{client_id:this._client,present:false});
     } catch (_) { /* The server lease also expires automatically. */ }
     try {await api.logout();} catch (error) {failure=error;}
     finally {
+      if (current) { try { wx.removeStorageSync(SESSION_KEY+current.user.id); } catch (_) { /* Only a conversation ID is stored. */ } }
       this.clearFiles();this._askDraft=null;this._ticketDraft=null;this._sessions=[];
+      this._sessionOwner=null;this._sessionRestored=false;
       this.setData(Object.assign({},EMPTY,{account:'',password:'',oldPassword:'',newPassword:'',repeatPassword:'',
         identities:[],busy:false,activeSession:null,activeTicket:null,messages:[],ticket:null,pdf:null,pdfImage:'',
         chatDraft:'',canRetry:false,ticketQuestion:'',ticketContext:[],selectedContext:[],feedback:null,source:null,filteredReports:[],
@@ -197,6 +221,7 @@ Page({
   async go(event) {
     const target=event.currentTarget.dataset.view;
     if (this.data.busy || target===this.data.view) return;
+    if (target==='history') this._historyReturn=this.data.view==='chat'?'chat':'tools';
     try {await this.syncState();this.setView(target);}
     catch (error) {this.handleError(error,'读取最新数据失败：');}
   },
@@ -207,10 +232,12 @@ Page({
     else if (view==='ticketCompose') this.setView(this.data.ticketReturn);
     else if (view==='ticket') this.setView('tickets');
     else if (view==='audit'||view==='scope') this.setView('me');
+    else if (view==='history') this.setView(this._historyReturn||'chat');
     else this.setView('tools');
   },
   newChat() {
     if (this.data.busy) return;
+    this.rememberSession(null);
     this._askDraft=null;this.setData({activeSession:null,messages:[],chatDraft:'',canRetry:false,sessionTitle:''});this.setView('chat');
   },
   async openSession(event) {
@@ -240,6 +267,7 @@ Page({
       this._askDraft=null;completed=true;
       this.setData({activeSession:response.id,chatDraft:'',canRetry:false,questionStatus:response.questionStatus,
         messages:this.presentMessages(response.messages,this.data.exams,this.data.reports),sessionTitle:response.title});
+      this.rememberSession(response.id);
       this.setView('chat');this.scrollBottom();
       try {await this.syncState();} catch (error) {this.setData({notice:'回答已保存，其他数据暂未刷新。可下拉重试。'});}
     } catch (error) {

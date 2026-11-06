@@ -12,12 +12,14 @@ from app.db.models.exam_management import ExamAdministration, ExamQueryGrant
 from app.db.models.report_management import ManagedReport, ReportFile, ReportOperation
 from app.services.education_common import owned, data, digest, claim, audit, now
 from app.services.curriculum import inspect_file
+from app.services import report_uploads
+from app.schemas.report_management import MAX_BATCH_BYTES, MAX_BATCH_FILES, MAX_TRANSFER_BYTES, MAX_TRANSFER_FILES, UploadedPdf
 
 TYPES = {"student": "个人学情诊断", "classAll": "班级综合诊断", "classSubject": "班级单科诊断",
          "gradeAll": "年级综合诊断", "gradeSubject": "年级单科诊断", "school": "全校学情诊断", "essay": "个人作文批改报告"}
 KINDS = {"student": "student", "essay": "student", "classAll": "class", "classSubject": "class",
          "gradeAll": "grade", "gradeSubject": "grade", "school": "school"}
-MAX_BATCH_BYTES = 30 * 1024 * 1024
+MAX_INLINE_BYTES = 30 * 1024 * 1024
 
 
 def fail(message, code="REPORT_INVALID", status=422, details=None):
@@ -65,6 +67,31 @@ def render_pdf(content, page):
 def inspect_pdf(upload):
     content, pages, content_hash = pdf(upload)
     return {"filename": upload.filename, "file_size": len(content), "page_count": pages, "content_hash": content_hash}
+
+
+async def upload_files(db, actor, body):
+    # Encoded input is bounded before decoding or parsing any of the files.
+    size = sum((len(file.content_base64) // 4) * 3 - (len(file.content_base64) - len(file.content_base64.rstrip('='))) for file in body.files)
+    if size > MAX_TRANSFER_BYTES:
+        fail("本次传输不能超过 20 MB，请减少文件后重试。")
+    await report_uploads.reserve(db, actor, size)
+    files = []
+    for index, upload in enumerate(body.files):
+        try:
+            content, pages, content_hash = pdf(upload)
+        except ApiError as error:
+            files.append({"index": index, "filename": upload.filename, "error": error.user_message})
+            continue
+        result = report_uploads.store(db, actor, upload.filename, content, pages, content_hash)
+        files.append({"index": index, **result})
+    await db.commit()
+    return {"files": files}
+
+
+async def preview_content(db, actor, upload):
+    if isinstance(upload, UploadedPdf):
+        return await report_uploads.content(db, actor, upload)
+    return pdf(upload)[0]
 
 
 def class_key(person):
@@ -169,7 +196,9 @@ async def options(db, actor):
             "subject_names": [s["name"] for s in admin.configuration["subjects"]],
             "grades": sorted({p["grade"] for p in admin.configuration["snapshots"].values()}),
             "classes": sorted({class_key(p) for p in admin.configuration["snapshots"].values()})} for exam, admin in rows],
-            "types": TYPES, "upload_rule": "single_subject", "max_file_bytes": 15 * 1024 * 1024, "max_batch_bytes": MAX_BATCH_BYTES}
+            "types": TYPES, "upload_rule": "single_subject", "max_file_bytes": 15 * 1024 * 1024,
+            "max_batch_files": MAX_BATCH_FILES, "max_batch_bytes": MAX_BATCH_BYTES,
+            "max_transfer_files": MAX_TRANSFER_FILES, "max_transfer_bytes": MAX_TRANSFER_BYTES}
 
 
 async def exam_options(db, actor, identifier):
@@ -215,7 +244,11 @@ async def validate_batch(db, actor, body):
     first_subjects = sorted(map(str, body.reports[0].subject_ids))
     existing = {r.identity_hash: r.report_code for r in (await db.scalars(select(ManagedReport).where(
         ManagedReport.school_id == actor.school_id, ManagedReport.exam_id == body.exam_id, ManagedReport.status == "current"))).all()}
-    total_size = 0
+    inline = [row.file for row in body.reports if not isinstance(row.file, UploadedPdf)]
+    if sum(len(file.content_base64) for file in inline) > MAX_INLINE_BYTES * 4 // 3 + 4 * len(inline):
+        fail("请刷新页面，使用分段上传后重试。")
+    staged = await report_uploads.metadata(db, actor, [row.file.asset_id for row in body.reports if isinstance(row.file, UploadedPdf)])
+    total_size, inline_size = 0, 0
     for index, row in enumerate(body.reports):
         problems = classification_errors(config, row)
         if sorted(map(str, row.subject_ids)) != first_subjects or sorted(map(str, row.naming.subject_ids)) != first_subjects:
@@ -226,10 +259,16 @@ async def validate_batch(db, actor, body):
             problems.append("对象不在所选科目的有效参试范围")
         if not row.previewed:
             problems.append("请逐份预览 PDF 并核对实际内容与归属")
-        content, pages, content_hash = b"", 0, ""
+        content, pages, content_hash, file_size = b"", 0, "", 0
         try:
-            content, pages, content_hash = pdf(row.file)
-            total_size += len(content)
+            if isinstance(row.file, UploadedPdf):
+                asset = report_uploads.checked(staged, row.file)
+                pages, content_hash, file_size = asset.page_count, asset.content_hash, asset.file_size
+            else:
+                content, pages, content_hash = pdf(row.file)
+                file_size = len(content)
+                inline_size += file_size
+            total_size += file_size
         except ApiError as error:
             problems.append(error.user_message)
         identity = report_identity(body.exam_id, row)
@@ -241,10 +280,12 @@ async def validate_batch(db, actor, body):
         if problems:
             errors.append({"filename": row.file.filename, "messages": list(dict.fromkeys(problems))})
         else:
-            checked.append({"row": row, "content": content, "page_count": pages, "content_hash": content_hash,
+            checked.append({"row": row, "content": content, "file_size": file_size, "page_count": pages, "content_hash": content_hash,
                             "identity_hash": identity, "attribution": attribution(config, exam, row)})
     if total_size > MAX_BATCH_BYTES:
-        errors.append({"filename": "本批文件", "messages": ["每批文件合计不能超过 30 MB，请分批上传"]})
+        errors.append({"filename": "本批文件", "messages": ["每批文件合计不能超过 1 GB，请分批上传"]})
+    if inline_size > MAX_INLINE_BYTES:
+        errors.append({"filename": "本批文件", "messages": ["请刷新页面，使用分段上传后重试"]})
     if errors:
         fail("\n".join(item["filename"] + "：" + "；".join(item["messages"]) for item in errors), details={"files": errors})
     checksum = digest([str(body.exam_id), admin.revision, [{"identity": entry["identity_hash"], "content": entry["content_hash"],
@@ -255,7 +296,7 @@ async def validate_batch(db, actor, body):
 async def batch_preview(db, actor, body):
     checked, checksum = await validate_batch(db, actor, body)
     return {"preview_hash": checksum, "count": len(checked), "reports": [{**entry["attribution"], "filename": entry["row"].file.filename,
-            "page_count": entry["page_count"], "file_size": len(entry["content"])} for entry in checked]}
+            "page_count": entry["page_count"], "file_size": entry["file_size"]} for entry in checked]}
 
 
 async def operator(db, actor):
@@ -292,7 +333,7 @@ async def batch_save(db, actor, body, key):
     checked, checksum = await validate_batch(db, actor, body)
     if not body.preview_hash or body.preview_hash != checksum:
         fail("本批内容已变化，请返回重新预览清单。", "REPORT_PREVIEW_CHANGED", 409)
-    stamp, name, records = now(), await operator(db, actor), []
+    stamp, name, records, staged_files = now(), await operator(db, actor), [], []
     for entry in checked:
         row, rid = entry["row"], uuid4()
         report = ManagedReport(id=rid, school_id=actor.school_id, exam_id=body.exam_id,
@@ -301,12 +342,19 @@ async def batch_save(db, actor, body, key):
             identity_hash=entry["identity_hash"], attribution=entry["attribution"], version=1, status="current",
             operator_name=name, created_at=stamp, updated_at=stamp)
         db.add(report)
-        await db.flush()
         file = ReportFile(id=uuid4(), school_id=actor.school_id, report_id=rid, version=1, filename=row.file.filename,
-            content=entry["content"], file_size=len(entry["content"]), page_count=entry["page_count"], content_hash=entry["content_hash"],
+            file_size=entry["file_size"], page_count=entry["page_count"], content_hash=entry["content_hash"],
             operator_name=name, reason="", created_at=stamp)
-        db.add(file)
+        if isinstance(row.file, UploadedPdf):
+            staged_files.append((file, row.file.asset_id))
+        else:
+            file.content = entry["content"]
+            db.add(file)
         records.append(record(report, file))
+    await db.flush()
+    for file, asset_id in staged_files:
+        await report_uploads.copy_to_report(db, actor, file, asset_id)
+    await report_uploads.consume(db, actor, [asset_id for _, asset_id in staged_files])
     await operation(db, actor, identifier, "上传报告", records)
     await db.commit()
     return await replay(db, actor, identifier)

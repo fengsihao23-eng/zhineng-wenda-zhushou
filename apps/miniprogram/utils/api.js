@@ -74,7 +74,7 @@ function networkError(cause, fallback) {
     error.message = /^http:\/\//.test(BASE)
       ? '微信尚未允许连接当前内测服务。请在右上角“…”打开开发调试，重新进入小程序后再试。'
       : '微信尚未允许连接服务域名，请联系管理员核对小程序网络配置。';
-  } else if (/timeout|timed\s*out|超时/i.test(reason)) {
+  } else if (/timeout|timed[\s_]*out|超时/i.test(reason)) {
     error.code = 'NETWORK_TIMEOUT';
     error.message = '连接服务超时，请检查网络后重试；输入内容已保留。';
   } else if (/\bssl\b|\btls\b|certificate|handshake|证书/i.test(reason)) {

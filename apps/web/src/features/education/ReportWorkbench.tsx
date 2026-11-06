@@ -9,15 +9,16 @@ import { canWrite } from './shared'
 import {
   REPORT_ROOT, REPORT_TYPES, REPORT_KINDS, ESSAY_SUBJECTS, reportRequest, reportBlob, downloadBlob, reportDate, fileSize, reportClass,
   categoryName, subjectLabel, availableSubjects, targetsFor, targetLabel, filenamePattern, filenameFor, parseReportFilename,
-  fuzzyMatches, readPdfFile, type Classification, type ReportCategory, type ReportRecord, type ReportFile, type ReportExam,
-  type ExamScope, type PickerItem, type PdfUpload, type UploadRow,
+  fuzzyMatches, readPdfFile, reportTransferGroups, MAX_REPORT_FILES, MAX_REPORT_BYTES,
+  type Classification, type ReportCategory, type ReportRecord, type ReportFile, type ReportExam,
+  type ExamScope, type PickerItem, type PdfUpload, type InlinePdfUpload, type UploadRow, type UploadedPdfResult,
 } from './report-management'
 import './report-workbench.css'
 
 type ListData = { items: ReportRecord[]; total: number; counts: Record<string, number>; facets: { subjects: string[]; grades: string[]; classes: string[] } }
 type Options = { school: string; exams: ReportExam[] }
 type Operation = { id: string; action: string; operator_name: string; created_at: string; reason: string; details: ReportRecord[] }
-type PdfSource = { filename: string; pages: number; upload?: PdfUpload; path?: string }
+type PdfSource = { filename: string; pages: number; upload?: PdfUpload; blob?: Blob; path?: string }
 type Modal = { kind: 'upload' } | { kind: 'detail' | 'replace'; report: ReportRecord } | { kind: 'delete'; reports: ReportRecord[] } | { kind: 'access' }
 const emptyFilters = { search: '', exam_id: '', report_type: '', subject: '', grade: '', cls: '' }
 const initialClassification = (): Classification => ({ category: 'diagnostic', report_type: 'student', subject_ids: [] })
@@ -91,7 +92,7 @@ export function ReportPdfViewer({ source, close, onRendered }: { source: PdfSour
   }, [source, page, retry])
   const download = async () => {
     setDownloading(true); setError('')
-    try { const blob = source.upload ? new Blob([Uint8Array.from(atob(source.upload.content_base64), c => c.charCodeAt(0))], { type: 'application/pdf' }) : await reportBlob(source.path!); downloadBlob(blob, source.filename) }
+    try { const blob = source.blob || (source.upload && 'content_base64' in source.upload ? new Blob([Uint8Array.from(atob(source.upload.content_base64), c => c.charCodeAt(0))], { type: 'application/pdf' }) : await reportBlob(source.path!)); downloadBlob(blob, source.filename) }
     catch (e) { setError(errorText(e)) } finally { setDownloading(false) }
   }
   return <div className="preview-cover"><section ref={ref} className="preview" role="dialog" aria-modal="true" aria-label="PDF预览">
@@ -188,15 +189,17 @@ function ReportUpload({ exams, initialExam, close, saved }: { exams: ReportExam[
   const [error, setError] = useState(''), [reading, setReading] = useState(false), [busy, setBusy] = useState(false), [preview, setPreview] = useState<PdfSource | null>(null), [previewToken, setPreviewToken] = useState(''), [drag, setDrag] = useState(false)
   const [targetClass, setTargetClass] = useState(''), [editType, setEditType] = useState(false), [checksum, setChecksum] = useState('')
   const inputId = useId(), generation = useRef(0), saveKey = useRef(randomKey()), queueActions = useRef<HTMLDivElement>(null)
+  const uploaded = useRef(new Set<string>())
+  const discard = (ids: string[]) => { ids.forEach(id => uploaded.current.delete(id)); if (ids.length) void reportRequest('/uploads/discard', { asset_ids: ids }).catch(() => {}) }
   const scopeQuery = useJsonQuery<ExamScope>(`${REPORT_ROOT}/exams/${examId}`, !!examId), scope = scopeQuery.data
-  useEffect(() => () => { generation.current++ }, [])
+  useEffect(() => () => { generation.current++; discard([...uploaded.current]) }, [])
   useEffect(() => { if (!examId && exams.length) setExamId(initialExam || exams[0].id) }, [examId, exams, initialExam])
   const invalidate = () => { setChecksum(''); saveKey.current = randomKey(); setError('') }
   const configure = (next: Classification) => {
     invalidate(); setConfig(next)
     if (scope) setRows(previous => previous.map(row => { const parsed = parseReportFilename(row.file.filename, scope, next); return { ...row, ...next, naming: { ...next, subject_ids: [...next.subject_ids] }, target_key: parsed.target, nameErrors: parsed.errors, modified: false, previewed: false } }))
   }
-  const changeExam = (id: string) => { generation.current++; setExamId(id); setConfig(initialClassification()); setRows([]); setActive(0); setTargetClass(''); invalidate() }
+  const changeExam = (id: string) => { generation.current++; discard([...uploaded.current]); setExamId(id); setConfig(initialClassification()); setRows([]); setActive(0); setTargetClass(''); invalidate() }
   const ready = !!scope && config.subject_ids.length === 1 && targetsFor(scope, config).length > 0
   const rowErrors = (row: UploadRow) => [row.pdfError, ...row.nameErrors].filter(Boolean)
   const pass = rows.filter(row => !rowErrors(row).length).length
@@ -205,18 +208,37 @@ function ReportUpload({ exams, initialExam, close, saved }: { exams: ReportExam[
     if (!scope || !ready || reading || busy) return
     const selected = Array.from(files)
     if (!selected.length) return
-    if (selected.length + rows.length > 30 || selected.reduce((n, file) => n + file.size, 0) + rows.reduce((n, row) => n + row.file_size, 0) > 30 * 1024 * 1024) { setError('每批最多 30 份文件，合计不能超过 30 MB，请分批上传'); return }
+    if (selected.length + rows.length > MAX_REPORT_FILES || selected.reduce((n, file) => n + file.size, 0) + rows.reduce((n, row) => n + row.file_size, 0) > MAX_REPORT_BYTES) { setError('每批最多 500 份文件，合计不能超过 1 GB，请分批上传'); return }
     invalidate(); setReading(true)
     const currentGeneration = generation.current, first = rows.length
     const added = selected.map(file => { const parsed = parseReportFilename(file.name, scope, config); return { token: randomKey(), ...config, subject_ids: [...config.subject_ids], target_key: parsed.target, file: { filename: file.name, content_base64: '' }, blob: file, naming: { ...config, subject_ids: [...config.subject_ids] }, nameErrors: parsed.errors, pdfError: '正在校验 PDF…', page_count: 0, file_size: file.size, previewed: false, modified: false } })
     setRows(previous => [...previous, ...added])
-    const checked = await Promise.all(added.map(async row => {
-      try { const file = await readPdfFile(row.blob), result = await reportRequest<{ page_count: number }>('/inspect-pdf', file); return { ...row, file, page_count: result.page_count, pdfError: '' } }
-      catch (e) { return { ...row, pdfError: errorText(e) } }
-    }))
-    if (currentGeneration !== generation.current) return
-    setRows(previous => previous.map(row => checked.find(item => item.token === row.token) || row)); setActive(first); setReading(false)
-    queueActions.current?.scrollIntoView({ block: 'start' })
+    try {
+      for (const group of reportTransferGroups(added, row => row.blob.size)) {
+        if (currentGeneration !== generation.current) return
+        const read = await Promise.all(group.map(async row => {
+          try { return { row, file: await readPdfFile(row.blob) } }
+          catch (e) { setRows(previous => previous.map(item => item.token === row.token ? { ...item, pdfError: errorText(e) } : item)); return null }
+        }))
+        const valid = read.filter((item): item is NonNullable<typeof item> => item !== null)
+        if (!valid.length) continue
+        const result = await reportRequest<{ files: UploadedPdfResult[] }>('/uploads', { files: valid.map(item => item.file) })
+        const ids = result.files.flatMap(item => item.asset_id ? [item.asset_id] : [])
+        if (currentGeneration !== generation.current) { discard(ids); return }
+        ids.forEach(id => uploaded.current.add(id))
+        const checked = valid.map(({ row }, index) => {
+          const item = result.files.find(file => file.index === index)
+          return item?.asset_id ? { ...row, file: { filename: row.file.filename, asset_id: item.asset_id }, page_count: item.page_count || 0, pdfError: '' } : { ...row, pdfError: item?.error || '文件上传未完成，请移除后重新选择' }
+        })
+        setRows(previous => previous.map(row => checked.find(item => item.token === row.token) || row))
+      }
+    } catch (e) {
+      if (currentGeneration !== generation.current) return
+      setRows(previous => previous.map(row => row.pdfError === '正在校验 PDF…' ? { ...row, pdfError: errorText(e) + '，请移除后重新选择' } : row))
+      setError(errorText(e))
+    } finally {
+      if (currentGeneration === generation.current) { setActive(first); setReading(false); queueActions.current?.scrollIntoView({ block: 'start' }) }
+    }
   }
   const payload = () => ({ exam_id: examId, expected_exam_revision: scope!.revision, reports: rows.map(row => ({ category: row.category, report_type: row.report_type, subject_ids: row.subject_ids, target_key: row.target_key, file: row.file, naming: row.naming, previewed: row.previewed })) })
   const next = async () => {
@@ -259,15 +281,15 @@ function ReportUpload({ exams, initialExam, close, saved }: { exams: ReportExam[
       {scope && <><section className="scope-panel"><h3>本批报告范围</h3><ClassificationFields row={config} scope={scope} change={configure} disabled={reading || busy} /><div className="muted">科目、班级和学生取自考务管理中本次考试的参试范围。每批仅选择一个科目，可批量上传本科目的多份报告。</div></section>
         {ready ? <section className="naming-panel"><div className="actions"><h3>文件命名规则</h3><button className="btn small" disabled={busy || reading} onClick={() => void downloadNames()}>下载本次范围命名清单</button></div><code>{filenamePattern(config)}</code><div className="naming-example">示例：<span>{filenameFor(scope, config, targetsFor(scope, config)[0].value)}</span></div><p>考试ID、报告类型和科目须与上方一致。字段用半角下划线 _ 分隔，每批仅上传一个科目的文件；学生ID／账号及姓名须对应参试名单。上传后自动校验 PDF、文件名与参试范围，并预填归属，下一步可修改。</p></section> : <Notice kind="warn">请先选择报告类别、类型和科目，再查看命名规则并上传文件。</Notice>}
       </>}
-      <label className={`dropzone ${ready ? '' : 'unavailable'} ${drag ? 'drag' : ''}`} htmlFor={ready && !reading ? inputId : undefined} aria-disabled={!ready || reading} onDragOver={e => { e.preventDefault(); if (ready && !reading) setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); void addFiles(e.dataTransfer.files) }}><span className="upload-symbol">↥</span><strong>{ready ? '选择或拖入 PDF 文件' : '请先完成上方报告范围选择'}</strong><span className="muted">{reading ? '正在校验 PDF 和文件命名…' : '支持同一科目批量上传；不规范文件请改名后重新选择'}</span><span className="muted">单份不超过 15 MB、100 页；每批最多 30 份，合计不超过 30 MB</span></label>
+      <label className={`dropzone ${ready ? '' : 'unavailable'} ${drag ? 'drag' : ''}`} htmlFor={ready && !reading ? inputId : undefined} aria-disabled={!ready || reading} onDragOver={e => { e.preventDefault(); if (ready && !reading) setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); void addFiles(e.dataTransfer.files) }}><span className="upload-symbol">↥</span><strong>{ready ? '选择或拖入 PDF 文件' : '请先完成上方报告范围选择'}</strong><span className="muted">{reading ? '正在上传并校验 PDF 和文件命名…' : '支持同一科目批量上传；不规范文件请改名后重新选择'}</span><span className="muted">单份不超过 15 MB、100 页；每批最多 500 份，合计不超过 1 GB</span></label>
       <input id={inputId} aria-label="上传 PDF 文件" type="file" accept="application/pdf,.pdf" multiple hidden disabled={!ready || reading || busy} onChange={e => { if (e.target.files) void addFiles(e.target.files); e.target.value = '' }} />
       {rows.length > 0 && <div ref={queueActions} className="upload-queue-actions" role="region" aria-label="文件上传进度与下一步">
-        <div><strong>已选择 {rows.length} 份报告</strong><span className="muted" role="status">{reading ? '正在校验文件…' : pass === rows.length ? '全部校验通过，可以进入下一步。' : `${rows.length - pass} 份未通过，请按提示处理后继续。`}</span></div>
+        <div><strong>已选择 {rows.length} 份报告</strong><span className="muted" role="status">{reading ? `正在上传校验：已处理 ${rows.filter(row => row.pdfError !== '正在校验 PDF…').length} / ${rows.length} 份…` : pass === rows.length ? '全部校验通过，可以进入下一步。' : `${rows.length - pass} 份未通过，请按提示处理后继续。`}</span></div>
         <button className="btn primary" disabled={!canPreview} onClick={() => void next()}>下一步：预览归属</button>
       </div>}
-      {rows.map((file, i) => <div className="file-line" key={file.token}><div><div className="filename">{file.file.filename}</div><div className={`file-result ${rowErrors(file).length ? 'invalid' : 'valid'}`}>{rowErrors(file).length ? rowErrors(file).map((message, j) => <div key={j}>{message}</div>) : `✓ PDF、命名及参试范围校验通过 · 文件名识别：${targetLabel(scope!, file)} · ${file.page_count} 页`}</div></div><button className="btn quiet" disabled={reading || busy} onClick={() => { setRows(rows.filter((_, index) => index !== i)); setActive(0); invalidate() }}>移除</button></div>)}
+      {rows.map((file, i) => <div className="file-line" key={file.token}><div><div className="filename">{file.file.filename}</div><div className={`file-result ${rowErrors(file).length ? 'invalid' : 'valid'}`}>{rowErrors(file).length ? rowErrors(file).map((message, j) => <div key={j}>{message}</div>) : `✓ PDF、命名及参试范围校验通过 · 文件名识别：${targetLabel(scope!, file)} · ${file.page_count} 页`}</div></div><button className="btn quiet" disabled={reading || busy} onClick={() => { if ('asset_id' in file.file) discard([file.file.asset_id]); setRows(rows.filter((_, index) => index !== i)); setActive(0); invalidate() }}>移除</button></div>)}
     </>}
-    {step === 2 && scope && row && <><div className="batch-summary"><span className="muted">{scope.name}</span><span className="muted">已按文件名识别 {rows.length} 份 · 可逐份修改</span></div><div className="queue-layout"><aside className="file-list" aria-label="报告文件列表" tabIndex={0}>{rows.map((file, i) => <button className={`file-entry ${active === i ? 'active' : ''}`} key={file.token} onClick={() => { setActive(i); setTargetClass(''); setEditType(false) }}><span className="fname">{file.file.filename}</span><span className={`pill ${file.modified ? '' : 'green'}`}>{file.modified ? '已手动调整' : '已自动关联'}</span> <span className={`pill ${file.previewed ? 'green' : 'gray'}`}>{file.previewed ? '已预览' : '待预览'}</span></button>)}</aside><div key={row.token} className="assignment" role="region" aria-label="报告归属配置" tabIndex={0}><div className="assignment-head"><h3 style={{ margin: 0 }}>报告归属</h3><button className="btn small" onClick={() => { setPreviewToken(row.token); setPreview({ filename: row.file.filename, pages: row.page_count, upload: row.file }) }}>预览 PDF</button></div><div className="muted filename">{row.file.filename}</div><Notice kind="success">{row.modified ? '已手动调整归属，保存时以当前选项为准。' : '已根据文件名识别并关联参试对象，可修改下方归属。'}</Notice><div className="classification-summary"><div><b>{categoryName(row.category)} / {REPORT_TYPES[row.report_type]}</b><div className="muted">科目：{subjectLabel(scope, row)}</div></div><button className="btn small" onClick={() => setEditType(!editType)}>{editType ? '收起' : '修改报告类型'}</button></div>
+    {step === 2 && scope && row && <><div className="batch-summary"><span className="muted">{scope.name}</span><span className="muted">已按文件名识别 {rows.length} 份 · 可逐份修改</span></div><div className="queue-layout"><aside className="file-list" aria-label="报告文件列表" tabIndex={0}>{rows.map((file, i) => <button className={`file-entry ${active === i ? 'active' : ''}`} key={file.token} onClick={() => { setActive(i); setTargetClass(''); setEditType(false) }}><span className="fname">{file.file.filename}</span><span className={`pill ${file.modified ? '' : 'green'}`}>{file.modified ? '已手动调整' : '已自动关联'}</span> <span className={`pill ${file.previewed ? 'green' : 'gray'}`}>{file.previewed ? '已预览' : '待预览'}</span></button>)}</aside><div key={row.token} className="assignment" role="region" aria-label="报告归属配置" tabIndex={0}><div className="assignment-head"><h3 style={{ margin: 0 }}>报告归属</h3><button className="btn small" onClick={() => { setPreviewToken(row.token); setPreview({ filename: row.file.filename, pages: row.page_count, upload: row.file, blob: row.blob }) }}>预览 PDF</button></div><div className="muted filename">{row.file.filename}</div><Notice kind="success">{row.modified ? '已手动调整归属，保存时以当前选项为准。' : '已根据文件名识别并关联参试对象，可修改下方归属。'}</Notice><div className="classification-summary"><div><b>{categoryName(row.category)} / {REPORT_TYPES[row.report_type]}</b><div className="muted">科目：{subjectLabel(scope, row)}</div></div><button className="btn small" onClick={() => setEditType(!editType)}>{editType ? '收起' : '修改报告类型'}</button></div>
       {editType && <div className="scope-panel"><ClassificationFields row={row} scope={scope} change={updateRow} batch={false} /></div>}
       {kind === 'school' ? <div className="form-row"><label>报告对象</label><div className="control">{scope.school} · 本次考试参试范围</div></div> : <>{!!classes.length && <div className="form-row"><label>班级筛选<br /><span className="muted">（可选）</span></label><div><select className="control" aria-label="班级筛选（可选）" value={targetClass} onChange={e => setTargetClass(e.target.value)}><option value="">不限班级</option>{classes.map(cls => <option key={cls} value={cls}>{cls.replace('|', ' ')}</option>)}</select><div className="muted picker-hint">用于缩小下方学生候选范围，不改变当前关联学生。</div></div></div>}
         <div className="form-row"><label className="required">{kind === 'student' ? '关联学生' : kind === 'class' ? '关联班级' : '关联年级'}</label><SearchPicker label={kind === 'student' ? '关联学生' : kind === 'class' ? '关联班级' : '关联年级'} placeholder={kind === 'student' ? '输入学生姓名 / ID / 账号关键词' : '输入年级 / 班级关键词'} hint="支持关键词模糊搜索，点击匹配项选择。仅显示本次考试本科目的参试对象。" items={targetOptions} value={row.target_key} change={target => updateRow({ category: row.category, report_type: row.report_type, subject_ids: row.subject_ids, target_key: target })} /></div></>}
@@ -295,7 +317,7 @@ function ReportDetail({ report, close, replace, remove, writable }: { report: Re
 }
 
 function ReportReplace({ report, close, saved }: { report: ReportRecord; close: () => void; saved: (message: string) => Promise<void> }) {
-  const [file, setFile] = useState<(PdfUpload & { page_count: number; file_size: number }) | null>(null), [preview, setPreview] = useState<PdfSource | null>(null), [previewed, setPreviewed] = useState(false), [confirmed, setConfirmed] = useState(false), [reason, setReason] = useState(''), [reading, setReading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [file, setFile] = useState<(InlinePdfUpload & { page_count: number; file_size: number }) | null>(null), [preview, setPreview] = useState<PdfSource | null>(null), [previewed, setPreviewed] = useState(false), [confirmed, setConfirmed] = useState(false), [reason, setReason] = useState(''), [reading, setReading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
   const inputId = useId(), generation = useRef(0), key = useRef(randomKey())
   useEffect(() => () => { generation.current++ }, [])
   const pick = async (selected?: File) => {

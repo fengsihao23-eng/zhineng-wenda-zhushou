@@ -91,6 +91,24 @@ try{
     await request(A+'/mini/ask',{question:'我可以查询哪些考试数据？',session_id:chat},student)
     await page.syncState();assert.equal(page.data.messages.at(-2).text,'我可以查询哪些考试数据？')
   })
+  await record('小程序重开恢复上次对话、问答页直达历史、主动新对话不会被刷新覆盖',async()=>{
+    await request(A+'/mini/ask',{question:'你好'},student)
+    const reopened=await nativeRuntime(path.join(output,'reopen'),{storage:runtime.storage})
+    try {
+      assert.equal(reopened.page.data.view,'chat')
+      assert.equal(reopened.page.data.activeSession,chat)
+      assert.ok(reopened.page.data.messages.length>=4)
+      await reopened.page.go(event({view:'history'}));assert.equal(reopened.page.data.view,'history')
+      assert.ok(reopened.page.data.sessions.some(row=>row.id===chat))
+      reopened.page.back();assert.equal(reopened.page.data.view,'chat')
+      reopened.page.newChat();await reopened.page.syncState()
+      assert.equal(reopened.page.data.activeSession,null)
+      assert.equal(reopened.page.data.messages.length,0)
+      await reopened.page.openSession(event({id:chat}))
+      assert.equal(reopened.page.data.activeSession,chat)
+      assert.ok(reopened.page.data.messages.length)
+    } finally {reopened.close()}
+  })
   await record('访问令牌失效时自动刷新，并发请求只刷新一次',async()=>{
     const before=runtime.requests.filter(r=>r.path==='/api/v1/auth/refresh').length
     runtime.api.auth().access_token='synthetic-invalid-access'

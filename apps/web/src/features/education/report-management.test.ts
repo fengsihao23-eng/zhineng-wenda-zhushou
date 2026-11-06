@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { targetsFor, filenameFor, parseReportFilename, fuzzyMatches, type ExamScope, type Classification } from './report-management'
+import { targetsFor, filenameFor, parseReportFilename, fuzzyMatches, reportTransferGroups, type ExamScope, type Classification } from './report-management'
 
 const scope: ExamScope = { id: 'exam', exam_code: 'EX-20261019-001', name: '合成考试', school: '合成学校', academic_year: '2026-2027', exam_date: '2026-10-19', revision: 1,
   subject_names: ['语文', '英语'], grades: ['高一'], classes: ['高一|1班', '高一|2班'],
   subjects: [{ subject_id: 'cn', name: '语文', student_ids: ['a', 'b'] }, { subject_id: 'en', name: '英语', student_ids: ['a'] }],
   snapshots: { a: { id: 'a', name: '同名', platform_id: '10000001', account: 'account-a', grade: '高一', class_number: '1班' }, b: { id: 'b', name: '同名', platform_id: '10000002', account: 'account-b', grade: '高一', class_number: '2班' } }, teachers: [] }
 const row: Classification = { category: 'diagnostic', report_type: 'student', subject_ids: ['cn'] }
+
+it('uploads 500 selected PDFs in bounded groups without losing their order', () => {
+  const files = Array.from({ length: 500 }, (_, id) => ({ id, size: id % 11 === 0 ? 15 * 1024 * 1024 : 600_000 }))
+  const groups = reportTransferGroups(files, file => file.size)
+  expect(groups.flat()).toEqual(files)
+  expect(groups.every(group => group.length <= 20 && group.reduce((bytes, file) => bytes + file.size, 0) <= 20 * 1024 * 1024)).toBe(true)
+})
 
 describe('r86 filename recognition uses saved exam identities', () => {
   it('distinguishes students with the same name using their platform ID', () => {

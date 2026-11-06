@@ -52,6 +52,20 @@ class ReportFile(Base):
     )
 
 
+class StagedReportPdf(Base):
+    __tablename__ = "staged_report_pdfs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id = Column(UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    filename = Column(String(500), nullable=False)
+    content = Column(LargeBinary, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    page_count = Column(Integer, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    __table_args__ = (Index("ix_staged_report_pdfs_owner", "school_id", "user_id"),)
+
+
 class ReportOperation(Base):
     __tablename__ = "report_operations"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

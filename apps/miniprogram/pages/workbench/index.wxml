@@ -26,12 +26,12 @@
     </view>
 
     <view wx:elif="{{view === 'chat'}}">
+      <view class="conversation-heading"><text class="ellipsis">{{sessionTitle || '学科智能问答'}}</text><view class="chat-actions"><button id="chatHistory" class="quiet" data-view="history" bindtap="go" disabled="{{busy}}">历史对话</button><button id="newChat" class="quiet" bindtap="newChat" disabled="{{busy}}">新对话</button></view></view>
       <block wx:if="{{!messages.length}}">
         <view class="home-welcome"><view class="topline"><text class="school-label">{{identity.school}}</text><view class="home-avatar">{{identity.name}}</view></view><view class="hero-title">{{identity.name}}，你好。</view><view class="small greeting">今天想了解什么？</view></view>
         <view class="home-prompts"><view class="section-heading"><text class="subtitle">试着问我</text><text class="small">也可以直接输入问题</text></view><button wx:for="{{prompts}}" wx:key="*this" class="suggestion" data-question="{{item}}" bindtap="ask" disabled="{{busy}}"><text class="question-mark">✦</text><text class="suggestion-text">{{item}}</text><text class="prompt-arrow">↗</text></button><view class="small home-scope">{{identity.role === 'student' ? '只使用你本人已开放的考试与报告数据。' : '按学校为你配置的科目、类型和对象范围查询。'}}</view></view>
       </block>
       <block wx:else>
-        <view class="conversation-heading"><text class="ellipsis">{{sessionTitle}}</text><button class="quiet" bindtap="newChat" disabled="{{busy}}">新对话</button></view>
         <view class="messages">
           <view wx:for="{{messages}}" wx:key="id" wx:for-item="message" class="message {{message.role === 'user' ? 'user' : ''}}">
             <view wx:if="{{message.role !== 'user'}}" class="assistant-label"><text class="spark">✦</text>学科助手</view>

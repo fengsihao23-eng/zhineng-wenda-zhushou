@@ -5,6 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Category = Literal["diagnostic", "essay"]
 ReportType = Literal["student", "classAll", "classSubject", "gradeAll", "gradeSubject", "school", "essay"]
+MAX_BATCH_FILES = 500
+MAX_BATCH_BYTES = 1024 * 1024 * 1024
+MAX_TRANSFER_FILES = 20
+MAX_TRANSFER_BYTES = 20 * 1024 * 1024
 
 
 class StrictModel(BaseModel):
@@ -16,6 +20,19 @@ class PdfUpload(StrictModel):
     content_base64: str = Field(min_length=1, max_length=22_000_000)
 
 
+class UploadedPdf(StrictModel):
+    filename: str = Field(min_length=1, max_length=500)
+    asset_id: UUID
+
+
+class UploadFiles(StrictModel):
+    files: list[PdfUpload] = Field(min_length=1, max_length=MAX_TRANSFER_FILES)
+
+
+class DiscardFiles(StrictModel):
+    asset_ids: list[UUID] = Field(min_length=1, max_length=MAX_BATCH_FILES)
+
+
 class Classification(StrictModel):
     category: Category
     report_type: ReportType
@@ -24,7 +41,7 @@ class Classification(StrictModel):
 
 class ReportUpload(Classification):
     target_key: str = Field(min_length=1, max_length=250)
-    file: PdfUpload
+    file: PdfUpload | UploadedPdf
     naming: Classification
     previewed: bool = False
 
@@ -32,7 +49,7 @@ class ReportUpload(Classification):
 class Batch(StrictModel):
     exam_id: UUID
     expected_exam_revision: int = Field(ge=1)
-    reports: list[ReportUpload] = Field(min_length=1, max_length=30)
+    reports: list[ReportUpload] = Field(min_length=1, max_length=MAX_BATCH_FILES)
     preview_hash: str | None = Field(None, max_length=64)
 
 

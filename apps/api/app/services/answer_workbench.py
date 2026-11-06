@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import json
 import re
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.api.deps import AuthenticatedUser
@@ -1119,7 +1119,9 @@ async def inspect_sources(db, actor, body):
 async def mini_state(db, actor):
     p = await person(db, actor)
     sessions = (await db.scalars(select(AnswerSession).where(AnswerSession.school_id == actor.school_id,
-        AnswerSession.user_id == actor.user_id).order_by(AnswerSession.created_at.desc(), AnswerSession.id.desc()).limit(100))).all()
+        AnswerSession.user_id == actor.user_id).order_by(
+            func.coalesce(AnswerSession.body['updatedAt'].as_string(), AnswerSession.body['createdAt'].as_string()).desc().nullslast(),
+            AnswerSession.created_at.desc(), AnswerSession.id.desc()).limit(100))).all()
     audits = (await db.scalars(select(AnswerOperation).where(AnswerOperation.school_id == actor.school_id,
         AnswerOperation.user_id == actor.user_id, AnswerOperation.action.in_(['查看报告', '下载报告'])).order_by(AnswerOperation.created_at.desc()).limit(100))).all()
     return {'identity': p, 'exams': await permitted_exam_metadata(db, actor, p), 'reports': await report_list(db, actor, p),

@@ -17,6 +17,27 @@ from test_report_management import report_row, save as save_report
 ROOT = '/api/v1/answer-workbench'
 
 
+@pytest.mark.asyncio
+async def test_history_includes_recently_continued_old_sessions_before_newer_sessions(client, test_db, actors, exam_people):
+    sessions = []
+    for index in range(102):
+        rid = uuid4()
+        sessions.append(AnswerSession(id=rid, school_id=actors['school'].id, user_id=actors['student'].user_id,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=index),
+            body={'id': str(rid), 'title': f'合成历史{index}', 'messages': [], 'context': None,
+                  'createdAt': (datetime(2026, 1, 1) + timedelta(days=index)).strftime('%Y-%m-%d %H:%M:%S'),
+                  'updatedAt': ('2026-11-06 10:00:00' if index == 0 else (datetime(2026, 1, 1) + timedelta(days=index)).strftime('%Y-%m-%d %H:%M:%S'))}))
+    test_db.add_all(sessions)
+    await test_db.commit()
+    old_id = str(sessions[0].id)
+    switch(actors, test_db, 'student')
+    state = (await client.get(ROOT + '/mini/state')).json()
+    assert len(state['sessions']) == 100
+    assert state['sessions'][0]['id'] == old_id
+    switch(actors, test_db, 'teacher')
+    assert (await client.get(ROOT + '/mini/state')).json()['sessions'] == []
+
+
 async def post(client, path, body=None, status=200, key=None):
     result = await client.post(ROOT+path, json=body, headers={'Idempotency-Key': str(key or uuid4())})
     assert result.status_code == status, result.text

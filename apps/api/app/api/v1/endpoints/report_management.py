@@ -1,4 +1,4 @@
-"""Authenticated report maintenance; previews never persist uploaded PDFs."""
+"""Authenticated report maintenance and temporary batch PDF transfers."""
 from typing import Literal
 from uuid import UUID
 from urllib.parse import quote
@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import require_management
 from app.api.v1.endpoints.education import writer, write
-from app.schemas.report_management import PdfUpload, Classification, Batch, Replacement, ReportDelete
+from app.schemas.report_management import PdfUpload, UploadedPdf, UploadFiles, DiscardFiles, Classification, Batch, Replacement, ReportDelete
 from app.services import report_management as service
+from app.services import report_uploads
 from app.services.education_common import audit
 from app.core.school_scope import label_school_rows
 
@@ -45,9 +46,21 @@ async def inspect_pdf(body: PdfUpload, actor=Depends(admin_reader)):
 
 
 @router.post("/pdf-preview")
-async def pdf_preview(body: PdfUpload, page: int = Query(1, ge=1, le=100), actor=Depends(admin_reader)):
-    content, _, _ = service.pdf(body)
+async def pdf_preview(body: PdfUpload | UploadedPdf, page: int = Query(1, ge=1, le=100), actor=Depends(admin_reader), db: AsyncSession = Depends(get_db)):
+    content = await service.preview_content(db, actor, body)
     return private_response(service.render_pdf(content, page), "image/png")
+
+
+@router.post("/uploads")
+async def upload_files(body: UploadFiles, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    return await write(db, service.upload_files(db, actor, body))
+
+
+@router.post("/uploads/discard")
+async def discard_files(body: DiscardFiles, actor=Depends(writer), db: AsyncSession = Depends(get_db)):
+    await report_uploads.consume(db, actor, body.asset_ids)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/batches/preview")

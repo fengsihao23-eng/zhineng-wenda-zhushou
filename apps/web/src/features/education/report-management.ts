@@ -1,6 +1,10 @@
 import { apiFetch, apiError } from '../../services/api'
 
 export const REPORT_ROOT = '/platform/education/report-management'
+export const MAX_REPORT_FILES = 500
+export const MAX_REPORT_BYTES = 1024 * 1024 * 1024
+export const MAX_REPORT_TRANSFER_FILES = 20
+export const MAX_REPORT_TRANSFER_BYTES = 20 * 1024 * 1024
 export const ESSAY_SUBJECTS: string[] = ['语文', '英语']
 export const REPORT_TYPES: Record<string, string> = { student: '个人学情诊断', classAll: '班级综合诊断', classSubject: '班级单科诊断', gradeAll: '年级综合诊断', gradeSubject: '年级单科诊断', school: '全校学情诊断', essay: '个人作文批改报告' }
 export const REPORT_KINDS: Record<string, string> = { student: 'student', essay: 'student', classAll: 'class', classSubject: 'class', gradeAll: 'grade', gradeSubject: 'grade', school: 'school' }
@@ -9,11 +13,26 @@ export type Classification = { category: ReportCategory; report_type: string; su
 export type ReportPerson = { id: string; platform_id: string; name: string; account: string; grade: string; class_number: string }
 export type ReportExam = { id: string; exam_code: string; name: string; date?: string; academic_year: string; subject_names: string[]; grades: string[]; classes: string[] }
 export type ExamScope = ReportExam & { school: string; revision: number; exam_date: string; subjects: Array<{ subject_id: string; name: string; student_ids: string[] }>; snapshots: Record<string, ReportPerson>; teachers: Array<{ id: string; platform_id: string; name: string; account: string; login_allowed: boolean }> }
-export type PdfUpload = { filename: string; content_base64: string }
+export type InlinePdfUpload = { filename: string; content_base64: string }
+export type PdfUpload = InlinePdfUpload | { filename: string; asset_id: string }
+export type UploadedPdfResult = { index: number; filename: string; asset_id?: string; page_count?: number; error?: string }
 export type ReportFile = { id: string; version: number; filename: string; file_size: number; page_count: number; content_hash: string; reason: string; operator_name: string; created_at: string }
 export type ReportRecord = Classification & { school_name?: string; school_code?: string; id: string; exam_id: string; exam_code: string; exam_name: string; report_code: string; target_key: string; type_name: string; category_name: string; subject_names: string[]; target_label: string; grades: string[]; classes: string[]; file: ReportFile; version: number; operator_name: string; created_at: string; updated_at: string; versions?: ReportFile[]; previous_file?: ReportFile }
 export type PickerItem = { value: string; label: string; detail?: string; search?: string }
 export type UploadRow = Classification & { token: string; target_key: string; file: PdfUpload; blob: File; naming: Classification; nameErrors: string[]; pdfError: string; page_count: number; file_size: number; previewed: boolean; modified: boolean }
+
+export function reportTransferGroups<T>(items: T[], size: (item: T) => number): T[][] {
+  const groups: T[][] = []
+  let group: T[] = [], bytes = 0
+  for (const item of items) {
+    if (group.length && (group.length >= MAX_REPORT_TRANSFER_FILES || bytes + size(item) > MAX_REPORT_TRANSFER_BYTES)) {
+      groups.push(group); group = []; bytes = 0
+    }
+    group.push(item); bytes += size(item)
+  }
+  if (group.length) groups.push(group)
+  return groups
+}
 
 export async function reportRequest<T>(path: string, body?: unknown, method = 'POST', key?: string): Promise<T> {
   const response = await apiFetch(REPORT_ROOT + path, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: key ? { 'Idempotency-Key': key } : undefined })
@@ -98,7 +117,7 @@ export function fuzzyMatches(items: PickerItem[], query: string) {
   return items.filter(item => { const hay = [item.label, item.detail, item.value, item.search].join(' ').normalize('NFKC').toLowerCase(); return terms.every(term => hay.includes(term)) })
 }
 
-export function readPdfFile(file: File): Promise<PdfUpload> {
+export function readPdfFile(file: File): Promise<InlinePdfUpload> {
   return new Promise((resolve, reject) => {
     if (!file.size || !file.name.toLowerCase().endsWith('.pdf')) { reject(new Error('请选择非空 PDF 文件')); return }
     if (file.size > 15 * 1024 * 1024) { reject(new Error('单份 PDF 不能超过 15 MB')); return }
